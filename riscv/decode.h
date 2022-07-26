@@ -74,6 +74,7 @@ const int NCSR = 4096;
 #define PC_ALIGN 2
 
 typedef uint64_t insn_bits_t;
+//TODO add simt stack decode
 class insn_t
 {
 public:

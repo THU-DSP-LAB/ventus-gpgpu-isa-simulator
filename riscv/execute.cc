@@ -170,6 +170,7 @@ inline void processor_t::update_histogram(reg_t pc)
 // This is expected to be inlined by the compiler so each use of execute_insn
 // includes a duplicated body of the function to get separate fetch.func
 // function calls.
+//TODO simt stack behavier
 static inline reg_t execute_insn(processor_t* p, reg_t pc, insn_fetch_t fetch)
 {
   commit_log_reset(p);
@@ -219,6 +220,8 @@ bool processor_t::slow_path()
 }
 
 // fetch/decode/execute loop
+//TODO add simt-stack behavior here
+
 void processor_t::step(size_t n)
 {
   if (!state.debug_mode) {
@@ -238,7 +241,7 @@ void processor_t::step(size_t n)
     mmu_t* _mmu = mmu;
 
     #define advance_pc() \
-     if (unlikely(invalid_pc(pc))) { \
+     if (unlikely(invalid_pc(pc))) { \  //invalid == false
        switch (pc) { \
          case PC_SERIALIZE_BEFORE: state.serialized = true; break; \
          case PC_SERIALIZE_AFTER: ++instret; break; \
@@ -273,7 +276,14 @@ void processor_t::step(size_t n)
             state.single_step = state.STEP_STEPPED;
           }
 
-          insn_fetch_t fetch = mmu->load_insn(pc);
+          insn_fetch_t fetch = mmu->load_insn(pc);  //取指令
+          //TODO start the simt stack behavior?
+          if(pc == join){
+            simt_stack stack = simt_stacks.top();
+            
+            if()
+          } 
+
           if (debug && !state.serialized)
             disasm(fetch.insn);
           pc = execute_insn(this, pc, fetch);
