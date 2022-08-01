@@ -2069,4 +2069,58 @@ reg_t index[P.VU.vlmax]; \
       break; \
   }
 
+// macro defination for rvv-gpgpu custom isa
+#define SET_PC(x) \
+  do { p->check_pc_alignment(x); \
+       npc = sext_xlen(x); \
+     } while (0)
+
+#define SET_MASK(x) \
+  do { \
+       \
+    } while(0)
+
+#define VV_BRANCH_PARAMS() \
+  type_sew_t<x>::type vs1 = P.VU.elt<type_sew_t<x>::type>(rs1_num, i); \
+  type_sew_t<x>::type vs2 = P.VU.elt<type_sew_t<x>::type>(rs2_num, i);
+
+#define VV_LOOP_BRANCH_BASE \
+  require(P.VU.vsew >= e8 && P.VU.vsew <= e64); \
+  require_vector(true); \
+  reg_t vl = P.VU.vl->read(); \
+  reg_t sew = P.VU.vsew; \
+  reg_t rd_num = insn.rd(); \
+  reg_t rs1_num = insn.rs1(); \
+  reg_t rs2_num = insn.rs2(); \
+  reg_t if_pc = sext_xlen(pc + insn_length(OPCODE)); \
+  reg_t else_pc = BRANCH_TARGET; \ 
+  uint64_t r_mask = GET_CUR_MASK; \
+  uint64_t if_mask = 0; \ // initialize to 0
+  for (reg_t i = P.VU.vstart->read(); i < vl; ++i) { \
+    VI_LOOP_ELEMENT_SKIP(); \
+    uint64_t mmask = UINT16_C(1) << mpos; \
+    uint64_t res = 0;
+    
+
+#define VV_LOOP_BRANCH_END \
+    if_mask = (if_mask & ~mmask) | (((res) << mpos) & mmask); \
+  } \
+  P.VU.vstart->write(0); \
+  uint64_t else_mask = ~if_mask & r_mask; 
+
+#define VV_BRANCH_SS_SET_PC_MASK \
+  P.simt_stack.push_branch(if_pc, if_mask, r_mask, else_pc, else_mask); \
+  SET_PC(P.simt_stack.get_pc()); \
+  SET_MASK(P.simt_stack.get_mask());
+
+#define VV_LOOP_BRANCH_BODY(PARAMS, BODY) \
+  VV_LOOP_BRANCH_BASE \
+  INSNS_BASE(PARAMS, BODY) \ // caclute the mask
+  VV_LOOP_BRANCH_END \
+  VV_BRANCH_SS_SET_PC_MASK // set the mask and get the next pc
+
+#define VV_LOOP_BRANCH(BODY) \
+  VI_CHECK_MSS(true); \
+  VV_LOOP_BRANCH_BODY(VV_BRANCH_PARAMS, BODY)
+
 #endif

@@ -32,34 +32,46 @@ class disassembler_t;
 //TODO simt struct
 struct simt_stack_entry_t
 {
-  int is_part;  //标记和选择最终的输出有效信息信息
-  std::string rPC;   //汇合点pc
-  int r_mask; //汇合点mask，（嵌套情况为上一分支的if mask
-  std::string else_pc;     //else部分的地址
-  int else_mask;//else部分的mask
-  int pair; //else路径掩码是否为0
-  void print();
+  bool      is_part;  //标记和选择最终的输出有效信息信息
+  reg_t     r_pc;     //汇合点pc
+  uint64_t  r_mask;   //汇合点mask，（嵌套情况为上一分支的if mask
+  reg_t     else_pc;  //else部分的地址
+  uint64_t  else_mask;//else部分的mask
+  bool      pair;     //else路径掩码是否为0
+  // void print();
 };
-void simt_stack_entry_t::print(){
-  std::printf("is_part, rPC, r_mask, else_pc, else_mask, pair\n");
-  std::printf("%d, %s, %d, %s, %d, %d", is_part, rPC, r_mask, else_pc, else_mask, pair);
-}
+
+// void simt_stack_entry_t::print(){
+//   std::printf("is_part, rPC, r_mask, else_pc, else_mask, pair\n");
+//   std::printf("%d, %s, %d, %s, %d, %d", is_part, rPC, r_mask, else_pc, else_mask, pair);
+// }
+
 class simt_stack_t {
   public:
     //void print(simt_stack_entry_t &entry); 有必要再加
     void push(simt_stack_entry_t &entry);
     void pop();
-    simt_stack_entry_t* top();
-    int size()
-  
+    simt_stack_entry_t& top();
+    int size();
+    simt_stack_state_t;
+
+    void branch_push(reg_t if_pc, uint64_t if_mask, 
+                     uint64_t r_mask, reg_t else_pc, uint64_t else_mask); // push r_mask else_pc else_mask
+    void join_pop(reg_t r_pc);   // 
+
+    reg_t get_npc() { return npc; };
+    reg_t get_mask() { return mask; };
+
   private:
     std::stack<simt_stack_entry_t> _stack;
-
+    reg_t npc;
+    reg_t mask;
 }
+
 void simt_stack_t::pop(){
   _stack.pop();
 }
-simt_stack_entry_t* simt_stack_t::top(){
+simt_stack_entry_t& simt_stack_t::top(){
   return _stack.top();
 }
 int simt_stack_t::size(){
@@ -386,7 +398,7 @@ private:
   bool halt_on_reset;
   std::vector<bool> impl_table;
 
-  simt_stack_t simt_stacks;
+  simt_stack_t simt_stack;
   std::vector<insn_desc_t> instructions;
   std::map<reg_t,uint64_t> pc_histogram;
 
