@@ -1,3 +1,3 @@
 VV_LOOP_BRANCH({
-    mask_bit = vs2 < vs1
+    res = vs2 < vs1
 })

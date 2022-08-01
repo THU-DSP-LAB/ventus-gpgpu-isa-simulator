@@ -53,7 +53,6 @@ class simt_stack_t {
     void pop();
     simt_stack_entry_t& top();
     int size();
-    simt_stack_state_t;
 
     void branch_push(reg_t if_pc, uint64_t if_mask, 
                      uint64_t r_mask, reg_t else_pc, uint64_t else_mask); // push r_mask else_pc else_mask
