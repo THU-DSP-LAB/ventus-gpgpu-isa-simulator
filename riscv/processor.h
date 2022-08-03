@@ -59,7 +59,7 @@ class simt_stack_t {
     void push_branch
     (reg_t if_pc, uint64_t if_mask, 
                      uint64_t r_mask, reg_t else_pc, uint64_t else_mask); // push r_mask else_pc else_mask
-    void join_pop(reg_t r_pc);   // 
+    void pop_join(reg_t r_pc);   // 
 
     reg_t get_npc() { return npc; };
     uint64_t get_mask() { return mask; };
@@ -68,6 +68,19 @@ class simt_stack_t {
     std::stack<simt_stack_entry_t> _stack;
     reg_t npc;
     uint64_t mask;
+}
+void simt_stack_t::pop_join(reg_t r_pc){
+  //弹出汇合点信息,pop
+  if(_stack.top().is_part==1){
+    npc=r_pc;
+    mask=_stack.top().r_mask;
+    _stack.pop();
+  }
+  //弹出else分支信息
+  else{
+    npc=_stack.top().else_pc;
+    mask=_stack.top().else_mask;
+  }
 }
 void simt_stack_t::push_branch
     (reg_t if_pc, uint64_t if_mask, 
