@@ -987,6 +987,7 @@ void processor_t::register_base_instructions()
   #include "overlap_list.h"
   #undef DECLARE_OVERLAP_INSN
 
+  //用于makefile输出信息
   #define DEFINE_INSN(name) \
     extern reg_t rv32i_##name(processor_t*, insn_t, reg_t); \
     extern reg_t rv64i_##name(processor_t*, insn_t, reg_t); \
