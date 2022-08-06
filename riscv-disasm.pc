@@ -1,0 +1,11 @@
+prefix=/opt/riscv
+exec_prefix=/opt/riscv
+libdir=${prefix}/${exec_prefix}/lib
+includedir=${prefix}/${prefix}/include
+
+Name: riscv-disasm
+Description: RISC-V disassembler
+Version: git
+Libs: -Wl,-rpath,${libdir} -L${libdir} -ldisasm
+Cflags: -I${includedir} 
+URL: http://riscv.org/download.html#tab_disasm

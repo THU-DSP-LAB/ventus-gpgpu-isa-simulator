@@ -2075,9 +2075,10 @@ reg_t index[P.VU.vlmax]; \
        npc = sext_xlen(x); \
      } while (0)
 
-#define SET_MASK(x) \
+#define SET_MASK(new_mask) \
   do { \
-       \
+       for(reg_t i = P.VU.vstart->read(); i < vl; i++) { \
+          VI_MASK_VARS \
     } while(0)
 
 #define VV_BRANCH_PARAMS() \
