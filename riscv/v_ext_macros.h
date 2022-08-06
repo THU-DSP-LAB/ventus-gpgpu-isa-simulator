@@ -2079,6 +2079,7 @@ reg_t index[P.VU.vlmax]; \
   do { \
        for(reg_t i = P.VU.vstart->read(); i < vl; i++) { \
           VI_MASK_VARS \
+       } \
     } while(0)
 
 #define VV_BRANCH_PARAMS() \
@@ -2096,7 +2097,7 @@ reg_t index[P.VU.vlmax]; \
   reg_t if_pc = sext_xlen(pc + insn_length(OPCODE)); \
   reg_t else_pc = BRANCH_TARGET; \ 
   uint64_t r_mask = GET_CUR_MASK; \
-  uint64_t if_mask = 0; \ // initialize to 0
+  uint64_t if_mask = 0; \
   for (reg_t i = P.VU.vstart->read(); i < vl; ++i) { \
     VI_LOOP_ELEMENT_SKIP(); \
     uint64_t mmask = UINT16_C(1) << mpos; \
@@ -2116,9 +2117,9 @@ reg_t index[P.VU.vlmax]; \
 
 #define VV_LOOP_BRANCH_BODY(PARAMS, BODY) \
   VV_LOOP_BRANCH_BASE \
-  INSNS_BASE(PARAMS, BODY) \ // caclute the mask
+  INSNS_BASE(PARAMS, BODY) \
   VV_LOOP_BRANCH_END \
-  VV_BRANCH_SS_SET_PC_MASK // set the mask and get the next pc
+  VV_BRANCH_SS_SET_PC_MASK
 
 #define VV_LOOP_BRANCH(BODY) \
   VI_CHECK_MSS(true); \
