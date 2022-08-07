@@ -2082,6 +2082,8 @@ reg_t index[P.VU.vlmax]; \
        } \
     } while(0)
 
+#define GET_CUR_MASK \
+
 #define VV_BRANCH_PARAMS() \
   type_sew_t<x>::type vs1 = P.VU.elt<type_sew_t<x>::type>(rs1_num, i); \
   type_sew_t<x>::type vs2 = P.VU.elt<type_sew_t<x>::type>(rs2_num, i);
@@ -2095,7 +2097,7 @@ reg_t index[P.VU.vlmax]; \
   reg_t rs1_num = insn.rs1(); \
   reg_t rs2_num = insn.rs2(); \
   reg_t if_pc = sext_xlen(pc + insn_length(OPCODE)); \
-  reg_t else_pc = BRANCH_TARGET; \ 
+  reg_t else_pc = BRANCH_TARGET; \
   uint64_t r_mask = GET_CUR_MASK; \
   uint64_t if_mask = 0; \
   for (reg_t i = P.VU.vstart->read(); i < vl; ++i) { \
