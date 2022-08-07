@@ -29,97 +29,6 @@ class trap_t;
 class extension_t;
 class disassembler_t;
 
-//TODO simt struct
-struct simt_stack_entry_t
-{
-  bool      is_part;  //选择输出栈顶 0:else路径信息, 1:汇合点
-  reg_t     r_pc;     //汇合点pc
-  uint64_t  r_mask;   //汇合点mask，（嵌套情况为上一分支的if mask
-  reg_t     else_pc;  //else部分的地址
-  uint64_t  else_mask;//else部分的mask
-  bool      pair;     //else路径掩码是否为0
-  simt_stack_entry_t() :is_part(), r_pc(), r_mask(), else_pc(), else_mask(), pair(){}
-  simt_stack_entry_t(bool a, reg_t b, uint64_t c, reg_t d, uint64_t e, bool f) :is_part(a), r_pc(b), r_mask(c), else_pc(d), else_mask(e), pair(f){}
-  // void print();
-};
-
-// void simt_stack_entry_t::print(){
-//   std::printf("is_part, rPC, r_mask, else_pc, else_mask, pair\n");
-//   std::printf("%d, %s, %d, %s, %d, %d", is_part, rPC, r_mask, else_pc, else_mask, pair);
-// }
-#define NO_PC 0
-class simt_stack_t {
-  public:
-    //void print(simt_stack_entry_t &entry); 有必要再加
-    //void push(simt_stack_entry_t &entry);
-    void pop();
-    simt_stack_entry_t& top();
-    int size();
-
-    void push_branch
-    (reg_t if_pc, uint64_t if_mask, 
-                     uint64_t r_mask, reg_t else_pc, uint64_t else_mask); // push r_mask else_pc else_mask
-    void pop_join(reg_t r_pc);   // 
-
-    reg_t get_npc() { return npc; };
-    uint64_t get_mask() { return mask; };
-
-  private:
-    std::stack<simt_stack_entry_t> _stack;
-    reg_t npc;
-    uint64_t mask;
-};
-
-void simt_stack_t::pop_join(reg_t r_pc){
-  //弹出汇合点信息,pop
-  if(_stack.top().is_part==1){
-    npc=r_pc;
-    mask=_stack.top().r_mask;
-    _stack.pop();
-  }
-  //弹出else分支信息
-  else{
-    npc=_stack.top().else_pc;
-    mask=_stack.top().else_mask;
-  }
-}
-void simt_stack_t::push_branch
-    (reg_t if_pc, uint64_t if_mask, 
-                     uint64_t r_mask, reg_t else_pc, uint64_t else_mask){
-  if(else_mask == 0){ 
-    //不用执行else，pair=1和is_part=1
-    //pair:else路径掩码是否为0
-    //is_part选择输出栈顶 0:else路径信息, 1:汇合点
-    simt_stack_entry_t push_stack = {1, NO_PC, r_mask, else_pc, else_mask, 1 };
-    _stack.push(push_stack);
-    npc=if_pc;
-    mask=if_mask;
-  }
-  else if(if_mask == 0){
-    //不用执行if但要执行else，pair=0和is_part=1
-    //is_part选择输出栈顶 0:else路径信息, 1:汇合点
-    simt_stack_entry_t push_stack = {0, NO_PC, r_mask, else_pc, else_mask, 1 };
-    _stack.push(push_stack);
-    npc=else_pc;
-    mask=else_mask;
-  }
-  else{
-    //if,else 都要执行
-    simt_stack_entry_t push_stack = {0, NO_PC, r_mask, else_pc, else_mask, 0 };
-    _stack.push(push_stack);
-    npc=if_pc;
-    mask=if_mask;
-  }
-}
-void simt_stack_t::pop(){
-  _stack.pop();
-}
-simt_stack_entry_t& simt_stack_t::top(){
-  return _stack.top();
-}
-int simt_stack_t::size(){
-  return _stack.size();
-}
 
 reg_t illegal_instruction(processor_t* p, insn_t insn, reg_t pc);
 
@@ -441,7 +350,7 @@ private:
   bool halt_on_reset;
   std::vector<bool> impl_table;
 
-  simt_stack_t simt_stack;
+  
   std::vector<insn_desc_t> instructions;
   std::map<reg_t,uint64_t> pc_histogram;
 
@@ -561,6 +470,44 @@ public:
 
   vectorUnit_t VU;
   triggers::module_t TM;
+
+  
+  //TODO simt struct
+  struct simt_stack_entry_t
+  {
+    bool      is_part;  //选择输出栈顶 0:else路径信息, 1:汇合点
+    reg_t     r_pc;     //汇合点pc
+    uint64_t  r_mask;   //汇合点mask，（嵌套情况为上一分支的if mask
+    reg_t     else_pc;  //else部分的地址
+    uint64_t  else_mask;//else部分的mask
+    bool      pair;     //else路径掩码是否为0
+    simt_stack_entry_t() :is_part(), r_pc(), r_mask(), else_pc(), else_mask(), pair(){}
+    simt_stack_entry_t(bool a, reg_t b, uint64_t c, reg_t d, uint64_t e, bool f) :is_part(a), r_pc(b), r_mask(c), else_pc(d), else_mask(e), pair(f){}
+  };
+
+  class simt_stack_t {
+    public:
+      //void print(simt_stack_entry_t &entry); 有必要再加
+      //void push(simt_stack_entry_t &entry);
+      void pop();
+      simt_stack_entry_t& top();
+      int size();
+
+      void push_branch
+      (reg_t if_pc, uint64_t if_mask, 
+                      uint64_t r_mask, reg_t else_pc, uint64_t else_mask); // push r_mask else_pc else_mask
+      void pop_join(reg_t r_pc);   // 
+
+      reg_t get_npc() { return npc; };
+      uint64_t get_mask() { return mask; };
+
+    private:
+      std::stack<simt_stack_entry_t> _stack;
+      reg_t npc;
+      uint64_t mask;
+  };
+
+  simt_stack_t simt_stack;
 };
 
 #endif

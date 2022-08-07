@@ -1061,3 +1061,55 @@ void processor_t::trigger_updated(const std::vector<triggers::trigger_t *> &trig
     }
   }
 }
+
+#define NO_PC 0
+void processor_t::simt_stack_t::pop_join(reg_t r_pc){
+  //弹出汇合点信息,pop
+  if(_stack.top().is_part==1){
+    npc=r_pc;
+    mask=_stack.top().r_mask;
+    _stack.pop();
+  }
+  //弹出else分支信息
+  else{
+    npc=_stack.top().else_pc;
+    mask=_stack.top().else_mask;
+  }
+}
+void processor_t::simt_stack_t::push_branch
+    (reg_t if_pc, uint64_t if_mask, 
+                     uint64_t r_mask, reg_t else_pc, uint64_t else_mask){
+  if(else_mask == 0){ 
+    //不用执行else，pair=1和is_part=1
+    //pair:else路径掩码是否为0
+    //is_part选择输出栈顶 0:else路径信息, 1:汇合点
+    simt_stack_entry_t push_stack = {1, NO_PC, r_mask, else_pc, else_mask, 1 };
+    _stack.push(push_stack);
+    npc=if_pc;
+    mask=if_mask;
+  }
+  else if(if_mask == 0){
+    //不用执行if但要执行else，pair=0和is_part=1
+    //is_part选择输出栈顶 0:else路径信息, 1:汇合点
+    simt_stack_entry_t push_stack = {0, NO_PC, r_mask, else_pc, else_mask, 1 };
+    _stack.push(push_stack);
+    npc=else_pc;
+    mask=else_mask;
+  }
+  else{
+    //if,else 都要执行
+    simt_stack_entry_t push_stack = {0, NO_PC, r_mask, else_pc, else_mask, 0 };
+    _stack.push(push_stack);
+    npc=if_pc;
+    mask=if_mask;
+  }
+}
+void processor_t::simt_stack_t::pop(){
+  _stack.pop();
+}
+processor_t::simt_stack_entry_t& processor_t::simt_stack_t::top(){
+  return _stack.top();
+}
+int processor_t::simt_stack_t::size(){
+  return _stack.size();
+}
