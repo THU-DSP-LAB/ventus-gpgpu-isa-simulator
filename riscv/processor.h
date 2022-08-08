@@ -473,41 +473,74 @@ public:
 
   
   //TODO simt struct
-  struct simt_stack_entry_t
-  {
-    bool      is_part;  //选择输出栈顶 0:else路径信息, 1:汇合点
-    reg_t     r_pc;     //汇合点pc
-    uint64_t  r_mask;   //汇合点mask，（嵌套情况为上一分支的if mask
-    reg_t     else_pc;  //else部分的地址
-    uint64_t  else_mask;//else部分的mask
-    bool      pair;     //else路径掩码是否为0
-    simt_stack_entry_t() :is_part(), r_pc(), r_mask(), else_pc(), else_mask(), pair(){}
-    simt_stack_entry_t(bool a, reg_t b, uint64_t c, reg_t d, uint64_t e, bool f) :is_part(a), r_pc(b), r_mask(c), else_pc(d), else_mask(e), pair(f){}
-  };
 
-  class simt_stack_t {
-    public:
-      //void print(simt_stack_entry_t &entry); 有必要再加
-      //void push(simt_stack_entry_t &entry);
-      void pop();
-      simt_stack_entry_t& top();
-      int size();
-
-      void push_branch
-      (reg_t if_pc, uint64_t if_mask, 
-                      uint64_t r_mask, reg_t else_pc, uint64_t else_mask); // push r_mask else_pc else_mask
-      void pop_join(reg_t r_pc);   // 
-
-      reg_t get_npc() { return npc; };
-      uint64_t get_mask() { return mask; };
-
+  class gpgpu_unit_t{
     private:
-      std::stack<simt_stack_entry_t> _stack;
-      reg_t npc;
-      uint64_t mask;
+      processor_t *p;
+      // custom csr
+      csr_t_p numw;
+      csr_t_p numt;
+      csr_t_p tid;
+      csr_t_p wid;
+      csr_t_p gds;
+      csr_t_p lds;
+
+    public:
+      // clear simt-stack, map and intialize csr
+      gpgpu_unit_t() :
+        p(0),
+        numw(0),
+        numt(0),
+        tid(0),
+        wid(0),
+        gds(0),
+        lds(0),
+        simt_stack() {
+      }
+
+      void reset(processor_t *const proc);
+
+      struct simt_stack_entry_t
+      {
+        bool      is_part;  //选择输出栈顶 0:else路径信息, 1:汇合点
+        reg_t     r_pc;     //汇合点pc
+        uint64_t  r_mask;   //汇合点mask，（嵌套情况为上一分支的if mask
+        reg_t     else_pc;  //else部分的地址
+        uint64_t  else_mask;//else部分的mask
+        bool      pair;     //else路径掩码是否为0
+        simt_stack_entry_t() :is_part(), r_pc(), r_mask(), else_pc(), else_mask(), pair(){}
+        simt_stack_entry_t(bool a, reg_t b, uint64_t c, reg_t d, uint64_t e, bool f) :is_part(a), r_pc(b), r_mask(c), else_pc(d), else_mask(e), pair(f){}
+      };
+
+      class simt_stack_t {
+        public:
+          //void print(simt_stack_entry_t &entry); 有必要再加
+          //void push(simt_stack_entry_t &entry);
+          void pop();
+          simt_stack_entry_t& top();
+          int size();
+
+          void push_branch
+          (reg_t if_pc, uint64_t if_mask, 
+                          uint64_t r_mask, reg_t else_pc, uint64_t else_mask); // push r_mask else_pc else_mask
+          void pop_join(reg_t r_pc);   // 
+
+          reg_t get_npc() { return npc; };
+          uint64_t get_mask() { return mask; };
+
+          void reset();
+
+        private:
+          std::stack<simt_stack_entry_t> _stack;
+          reg_t npc;
+          uint64_t mask;
+      };
+
+      simt_stack_t simt_stack;
   };
 
-  simt_stack_t simt_stack;
+  // simt_stack_t simt_stack;
+  gpgpu_unit_t gpgpu_unit;
 };
 
 #endif
