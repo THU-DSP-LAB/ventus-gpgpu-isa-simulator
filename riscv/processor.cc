@@ -1062,6 +1062,7 @@ void processor_t::trigger_updated(const std::vector<triggers::trigger_t *> &trig
   }
 }
 
+// defination of simt_stack_t member function
 #define NO_PC 0
 void processor_t::simt_stack_t::pop_join(reg_t r_pc){
   //弹出汇合点信息,pop
