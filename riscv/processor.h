@@ -85,6 +85,7 @@ void simt_stack_t::pop_join(reg_t r_pc){
 void simt_stack_t::push_branch
     (reg_t if_pc, uint64_t if_mask, 
                      uint64_t r_mask, reg_t else_pc, uint64_t else_mask){
+  reg_t r_pc = 0; //现在还不知道
   if(else_mask == 0){ 
     //不用执行else，pair=1和is_part=1
     //pair:else路径掩码是否为0
