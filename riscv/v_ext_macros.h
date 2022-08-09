@@ -2075,12 +2075,12 @@ reg_t index[P.VU.vlmax]; \
        npc = sext_xlen(x); \
      } while (0)
 
-#define SET_MASK(x) \
+#define SET_MASK(new_mask) \
   do { \
-       \
+       cur_mask = new_mask; \
     } while(0)
 
-#define VV_BRANCH_PARAMS() \
+#define VV_BRANCH_PARAMS(x) \
   type_sew_t<x>::type vs1 = P.VU.elt<type_sew_t<x>::type>(rs1_num, i); \
   type_sew_t<x>::type vs2 = P.VU.elt<type_sew_t<x>::type>(rs2_num, i);
 
@@ -2093,14 +2093,15 @@ reg_t index[P.VU.vlmax]; \
   reg_t rs1_num = insn.rs1(); \
   reg_t rs2_num = insn.rs2(); \
   reg_t if_pc = sext_xlen(pc + insn_length(OPCODE)); \
-  reg_t else_pc = BRANCH_TARGET; \ 
-  uint64_t r_mask = GET_CUR_MASK; \
-  uint64_t if_mask = 0; \ // initialize to 0
+  reg_t else_pc = BRANCH_TARGET; \
+  uint64_t &cur_mask = P.VU.elt<type_sew_t<x>::type(0, 0); \
+  uint64_t r_mask = cur_mask; \
+  uint64_t if_mask = 0; \
   for (reg_t i = P.VU.vstart->read(); i < vl; ++i) { \
     VI_LOOP_ELEMENT_SKIP(); \
     uint64_t mmask = UINT16_C(1) << mpos; \
     uint64_t res = 0;
-    
+
 
 #define VV_LOOP_BRANCH_END \
     if_mask = (if_mask & ~mmask) | (((res) << mpos) & mmask); \
@@ -2109,15 +2110,15 @@ reg_t index[P.VU.vlmax]; \
   uint64_t else_mask = ~if_mask & r_mask; 
 
 #define VV_BRANCH_SS_SET_PC_MASK \
-  P.simt_stack.push_branch(if_pc, if_mask, r_mask, else_pc, else_mask); \ //
-  SET_PC(P.simt_stack.get_pc()); \
-  SET_MASK(P.simt_stack.get_mask());
+  P.gpgpu_unit.simt_stack.push_branch(if_pc, if_mask, r_mask, else_pc, else_mask); \
+  SET_PC(P.gpgpu_unit.simt_stack.get_pc()); \
+  SET_MASK(P.gpgpu_unit.simt_stack.get_mask());
 
 #define VV_LOOP_BRANCH_BODY(PARAMS, BODY) \
   VV_LOOP_BRANCH_BASE \
-  INSNS_BASE(PARAMS, BODY) \ // caclute the mask
+  INSNS_BASE(PARAMS, BODY) \
   VV_LOOP_BRANCH_END \
-  VV_BRANCH_SS_SET_PC_MASK // set the mask and get the next pc
+  VV_BRANCH_SS_SET_PC_MASK
 
 #define VV_LOOP_BRANCH(BODY) \
   VI_CHECK_MSS(true); \

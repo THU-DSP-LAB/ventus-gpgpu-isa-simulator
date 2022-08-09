@@ -239,7 +239,7 @@ void processor_t::step(size_t n)
     mmu_t* _mmu = mmu;
 
     #define advance_pc() \
-     if (unlikely(invalid_pc(pc))) { \  //invalid == false
+     if (unlikely(invalid_pc(pc))) { \
        switch (pc) { \
          case PC_SERIALIZE_BEFORE: state.serialized = true; break; \
          case PC_SERIALIZE_AFTER: ++instret; break; \
@@ -275,12 +275,6 @@ void processor_t::step(size_t n)
           }
 
           insn_fetch_t fetch = mmu->load_insn(pc);  //取指令 load 解码
-          //TODO start the simt stack behavior?
-          if(pc == join){
-            simt_stack stack = simt_stacks.top();
-            
-            if()
-          } 
 
           if (debug && !state.serialized)
             disasm(fetch.insn);
