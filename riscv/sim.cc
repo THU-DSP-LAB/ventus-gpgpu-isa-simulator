@@ -79,11 +79,14 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
   //TODO initialize warp
   std::string gpgpuarch;
   w.init_warp(gpgpuarch);
-
+  uint64_t gds;
+  uint64_t lds;
   for (size_t i = 0; i < cfg->nprocs(); i++) {
     procs[i] = new processor_t(&isa, cfg->varch(), this, cfg->hartids()[i], halted,
                                log_file.get(), sout_);
     procs[i]->gpgpu_unit.set_warp(&w);
+    //现在一个warp就是一个core
+    procs[i]->gpgpu_unit.init_warp(w.warp_number, w.thread_number, i*w.thread_number, i, gds, lds);
   }
 
   make_dtb();

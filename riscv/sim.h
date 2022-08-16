@@ -51,9 +51,10 @@ public:
   {
     public:
       void init_warp(std::string gpgpuarch);
-    private:
       int warp_number;
       int thread_number;
+    private:
+      std::vector<int> barriers;
 
   };
 
