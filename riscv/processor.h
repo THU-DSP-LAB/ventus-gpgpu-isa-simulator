@@ -476,6 +476,7 @@ public:
 
   class gpgpu_unit_t{
     private:
+      sim_t *w;
       processor_t *p;
       // custom csr
       csr_t_p numw;
@@ -495,10 +496,11 @@ public:
         wid(0),
         gds(0),
         lds(0),
-        simt_stack() {
-      }
+        simt_stack() {},
+        init_warp() {}
 
       void reset(processor_t *const proc);
+      void set_warp(sim_t *w);
 
       void init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid, uint64_t _wid, uint64_t _gds, uint64_t _lds) {
         numw->write(_numw);

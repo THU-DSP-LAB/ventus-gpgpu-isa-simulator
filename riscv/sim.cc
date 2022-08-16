@@ -76,9 +76,14 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
 
   debug_mmu = new mmu_t(this, NULL);
 
+  //TODO initialize warp
+  std::string gpgpuarch;
+  w.init_warp(gpgpuarch);
+
   for (size_t i = 0; i < cfg->nprocs(); i++) {
     procs[i] = new processor_t(&isa, cfg->varch(), this, cfg->hartids()[i], halted,
                                log_file.get(), sout_);
+    procs[i]->gpgpu_unit.set_warp(&w);
   }
 
   make_dtb();
@@ -436,3 +441,18 @@ void sim_t::proc_reset(unsigned id)
 {
   debug_module.proc_reset(id);
 }
+
+void sim_t::warp_schedule::init_warp(std::string s)
+  {
+      std::string delim = " ";
+      std::vector<std::string> words{};
+
+      size_t pos = 0;
+      while ((pos = s.find(delim)) != std::string::npos) {
+          words.push_back(s.substr(0, pos));
+          s.erase(0, pos + delim.length());
+      }
+      warp_number = std::stoi(words[0]);
+      thread_number = std::stoi(words[1]);
+
+  }

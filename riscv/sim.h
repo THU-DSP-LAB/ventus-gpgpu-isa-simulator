@@ -29,9 +29,6 @@ class mmu_t;
 class remote_bitbang_t;
 
 //warp scheduler for warp and barrier
-class warp_schedule{
-
-};
 
 // this class encapsulates the processors and memory in a RISC-V machine.
 class sim_t : public htif_t, public simif_t
@@ -48,6 +45,17 @@ public:
 #endif
         FILE *cmd_file); // needed for command line option --cmd
   ~sim_t();
+
+  //initialization information of warp
+  class warp_schedule
+  {
+    public:
+      void init_warp(std::string gpgpuarch);
+    private:
+      int warp_number;
+      int thread_number;
+
+  };
 
   // run the simulation to completion
   int run();
@@ -74,6 +82,7 @@ public:
   void proc_reset(unsigned id);
 
 private:
+  warp_schedule w;
   isa_parser_t isa;
   const cfg_t * const cfg;
   std::vector<std::pair<reg_t, mem_t*>> mems;
