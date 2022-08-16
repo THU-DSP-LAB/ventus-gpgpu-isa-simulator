@@ -28,6 +28,11 @@
 class mmu_t;
 class remote_bitbang_t;
 
+//warp scheduler for warp and barrier
+class warp_schedule{
+
+};
+
 // this class encapsulates the processors and memory in a RISC-V machine.
 class sim_t : public htif_t, public simif_t
 {
