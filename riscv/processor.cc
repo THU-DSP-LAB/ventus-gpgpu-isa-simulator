@@ -351,6 +351,11 @@ void state_t::reset(processor_t* const proc, reg_t max_isa)
   csrmap[CSR_VSSTATUS] = vsstatus = std::make_shared<vsstatus_csr_t>(proc, CSR_VSSTATUS);
   csrmap[CSR_SSTATUS] = sstatus = std::make_shared<sstatus_csr_t>(proc, nonvirtual_sstatus, vsstatus);
 
+  // initialize csrs
+  // std::cout << "before intialize csr" << std::endl;
+  // sstatus->dirty(SSTATUS_VS);
+  // std::cout << "initialize csr" << std::endl;
+
   csrmap[CSR_DPC] = dpc = std::make_shared<dpc_csr_t>(proc, CSR_DPC);
   csrmap[CSR_DSCRATCH0] = std::make_shared<debug_mode_csr_t>(proc, CSR_DSCRATCH0);
   csrmap[CSR_DSCRATCH1] = std::make_shared<debug_mode_csr_t>(proc, CSR_DSCRATCH1);
@@ -1068,6 +1073,7 @@ void processor_t::gpgpu_unit_t::reset(processor_t *const proc)
 {
   p = proc;
   
+  state_t *state = p->get_state();
   auto &csrmap = p->get_state()->csrmap;
   csrmap[CSR_NUMW] = numw = std::make_shared<basic_csr_t>(proc, CSR_NUMW, 0);
   csrmap[CSR_NUMT] = numt = std::make_shared<basic_csr_t>(proc, CSR_NUMT, 0);
@@ -1075,6 +1081,15 @@ void processor_t::gpgpu_unit_t::reset(processor_t *const proc)
   csrmap[CSR_WID] = wid = std::make_shared<basic_csr_t>(proc, CSR_WID, 0);
   csrmap[CSR_GDS] = gds = std::make_shared<basic_csr_t>(proc, CSR_GDS, 0);
   csrmap[CSR_LDS] = lds = std::make_shared<basic_csr_t>(proc, CSR_LDS, 0);
+  
+  // initialize csrs to enable vecter extension
+  reg_t mstatus_val = state->mstatus->read();
+  mstatus_val = set_field(mstatus_val, MSTATUS_VS, 1);
+  state->mstatus->write(mstatus_val);
+
+  // initialize mask to all zero
+  uint64_t &mask = p->VU.elt<uint64_t>(0, 0);
+  mask = 0xffffffff;
 
   simt_stack.reset();
 }

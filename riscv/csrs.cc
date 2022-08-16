@@ -549,7 +549,9 @@ void sstatus_csr_t::dirty(const reg_t dirties) {
 
   // Catch problems like #823 where P-extension instructions were not
   // checking for mstatus.VS!=Off:
+  // std::cout << "before abort" << std::endl;
   if (!enabled(dirties)) abort();
+  // std::cout << "after abort" << std::endl;
 
   orig_sstatus->write(orig_sstatus->read() | dirties);
   if (state->v) {

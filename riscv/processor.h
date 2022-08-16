@@ -500,6 +500,15 @@ public:
 
       void reset(processor_t *const proc);
 
+      void init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid, uint64_t _wid, uint64_t _gds, uint64_t _lds) {
+        numw->write(_numw);
+        numt->write(_numt);
+        tid->write(_tid);
+        wid->write(_wid);
+        gds->write(_gds);
+        lds->write(_lds);
+      }
+
       struct simt_stack_entry_t
       {
         bool      is_part;  //选择输出栈顶 0:else路径信息, 1:汇合点
