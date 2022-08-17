@@ -16,6 +16,8 @@
 #include "csrs.h"
 #include "isa_parser.h"
 #include "triggers.h"
+#include <iostream>
+#include <iomanip>
 
 //怕重复定义了，先写在这
 #include <stack>
@@ -519,6 +521,9 @@ public:
         bool      pair;     //else路径掩码是否为0
         simt_stack_entry_t() :is_part(), r_pc(), r_mask(), else_pc(), else_mask(), pair(){}
         simt_stack_entry_t(bool a, reg_t b, uint64_t c, reg_t d, uint64_t e, bool f) :is_part(a), r_pc(b), r_mask(c), else_pc(d), else_mask(e), pair(f){}
+        void dump() {
+          std::cout << is_part << std::hex << std::setfill ('0') << std::setw(16) << r_pc << " " << r_mask << " " << else_pc << " " << else_mask << pair << std::endl;
+        }
       };
 
       class simt_stack_t {
@@ -538,6 +543,15 @@ public:
           uint64_t get_mask() { return mask; };
 
           void reset();
+
+          void dump() {
+            std::stack<simt_stack_entry_t> temp_stack = _stack;
+            std::cout << "stack size: " << temp_stack.size() << std::endl;
+            while(!temp_stack.empty()) {
+              temp_stack.top().dump();
+              temp_stack.pop();
+            }
+          }
 
         private:
           std::stack<simt_stack_entry_t> _stack;

@@ -2092,9 +2092,9 @@ reg_t index[P.VU.vlmax]; \
   reg_t rd_num = insn.rd(); \
   reg_t rs1_num = insn.rs1(); \
   reg_t rs2_num = insn.rs2(); \
-  reg_t if_pc = sext_xlen(pc + insn_length(OPCODE)); \
+  reg_t if_pc = npc; \
   reg_t else_pc = BRANCH_TARGET; \
-  uint64_t &cur_mask = P.VU.elt<type_sew_t<x>::type(0, 0); \
+  uint64_t &cur_mask = P.VU.elt<uint64_t>(0, 0); \
   uint64_t r_mask = cur_mask; \
   uint64_t if_mask = 0; \
   for (reg_t i = P.VU.vstart->read(); i < vl; ++i) { \
@@ -2111,7 +2111,7 @@ reg_t index[P.VU.vlmax]; \
 
 #define VV_BRANCH_SS_SET_PC_MASK \
   P.gpgpu_unit.simt_stack.push_branch(if_pc, if_mask, r_mask, else_pc, else_mask); \
-  SET_PC(P.gpgpu_unit.simt_stack.get_pc()); \
+  SET_PC(P.gpgpu_unit.simt_stack.get_npc()); \
   SET_MASK(P.gpgpu_unit.simt_stack.get_mask());
 
 #define VV_LOOP_BRANCH_BODY(PARAMS, BODY) \
