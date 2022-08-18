@@ -22,6 +22,7 @@
 //怕重复定义了，先写在这
 #include <stack>
 #include <stdio.h>
+//#include <bitset>
 
 class processor_t;
 class mmu_t;
@@ -41,11 +42,11 @@ class warp_schedule
       void init_warp(std::string gpgpuarch);
       int warp_number;
       int thread_number;
-    private:
       std::vector<int> barriers;
+      bool is_all_true;
 
   };
-  
+
 struct insn_desc_t  //mask
 {
   insn_bits_t match;
@@ -496,9 +497,11 @@ public:
       csr_t_p numw;
       csr_t_p numt;
       csr_t_p tid;
-      csr_t_p wid;
+      csr_t_p wid;//warp id
       csr_t_p gds;
       csr_t_p lds;
+
+      int warp_id;
 
     public:
       // clear simt-stack, map and intialize csr
@@ -514,14 +517,18 @@ public:
 
       void reset(processor_t *const proc);
       void set_warp(warp_schedule *w);
+      void set_barrier_1();
+      void set_barrier_0();
+      bool get_barrier();
 
-      void init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid, uint64_t _wid, uint64_t _gds, uint64_t _lds) {
+      void init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid, uint64_t _wid, uint64_t _gds, uint64_t _lds, int warp_i) {
         numw->write(_numw);
         numt->write(_numt);
         tid->write(_tid);
         wid->write(_wid);
         gds->write(_gds);
         lds->write(_lds);
+        warp_id = warp_i;
       }
 
       struct simt_stack_entry_t

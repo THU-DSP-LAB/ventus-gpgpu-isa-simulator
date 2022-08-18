@@ -1169,3 +1169,41 @@ void processor_t::gpgpu_unit_t::set_warp(warp_schedule *warp)
 {
   w = warp;
 }
+void processor_t::gpgpu_unit_t::set_barrier_1()
+{
+  w->barriers[warp_id] = 1;
+}
+
+void processor_t::gpgpu_unit_t::set_barrier_0()
+{
+  w->barriers[warp_id] = 0;
+}
+
+bool processor_t::gpgpu_unit_t::get_barrier()
+{
+  //算一下barrier是否为全1
+  w->is_all_true = true;
+  for(int i=0;i<w->warp_number; i++){
+    if(w->barriers[i]==0){
+      w->is_all_true = false;
+    }
+  }
+  return w->is_all_true;
+}
+
+void warp_schedule::init_warp(std::string s)
+  {
+      std::string delim = " ";
+      std::vector<std::string> words{};
+
+      size_t pos = 0;
+      while ((pos = s.find(delim)) != std::string::npos) {
+          words.push_back(s.substr(0, pos));
+          s.erase(0, pos + delim.length());
+      }
+      warp_number = std::stoi(words[0]);
+      thread_number = std::stoi(words[1]);
+      barriers.resize(warp_number, 0);
+     
+
+  }
