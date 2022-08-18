@@ -139,6 +139,7 @@ void sim_t::interactive()
   funcs["q"] = funcs["quit"];
   funcs["help"] = &sim_t::interactive_help;
   funcs["h"] = funcs["help"];
+  funcs["simt-stack"] = &sim_t::interactive_simt_stack;
 
   while (!done())
   {
@@ -227,7 +228,8 @@ void sim_t::interactive_help(const std::string& cmd, const std::vector<std::stri
     "q                                 Alias for quit\n"
     "help                            # This screen!\n"
     "h                                 Alias for help\n"
-    "Note: Hitting enter is the same as: run 1"
+    "Note: Hitting enter is the same as: run 1\n"
+    "simt-stack <core>               # Display simt stack info given hartid\n"    
     << std::endl;
 }
 
@@ -575,4 +577,13 @@ void sim_t::interactive_until(const std::string& cmd, const std::vector<std::str
     set_procs_debug(noisy);
     step(1);
   }
+}
+
+void sim_t::interactive_simt_stack(const std::string& cmd, const std::vector<std::string>& args)
+{
+  if (args.size() < 1)
+     throw trap_interactive();
+
+  processor_t *p = get_core(args[0]);
+  p->gpgpu_unit.simt_stack.dump();
 }

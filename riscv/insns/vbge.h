@@ -1,3 +1,3 @@
 VV_LOOP_BRANCH({
-    res = SREG(vs2) >= SREG(vs1)
+    res = sreg_t(vs2) >= sreg_t(vs1);
 })

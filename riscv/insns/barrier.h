@@ -1,4 +1,1 @@
-//same as vbeq
-VV_LOOP_BRANCH({
-  res = vs2 == vs1
-})
+std::cout << "not implemented!" << std::endl;

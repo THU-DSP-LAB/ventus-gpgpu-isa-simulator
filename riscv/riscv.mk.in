@@ -887,6 +887,18 @@ riscv_insn_ext_v_ctrl = \
 	vsetivli \
 	vsetvli \
 	vsetvl \
+	
+
+riscv_insn_ext_v_gpgpu = \
+	vbeq \
+	vbne \
+	vblt \
+	vbge \
+	vbltu \
+	vbgeu \
+	join \
+	endprg \
+	barrier
 
 riscv_insn_ext_v = \
 	$(riscv_insn_ext_v_alu_fp) \
@@ -894,6 +906,7 @@ riscv_insn_ext_v = \
 	$(riscv_insn_ext_v_amo) \
 	$(riscv_insn_ext_v_ctrl) \
 	$(riscv_insn_ext_v_ldst) \
+	$(riscv_insn_ext_v_gpgpu) \
 
 riscv_insn_ext_h = \
 	hfence_gvma \
