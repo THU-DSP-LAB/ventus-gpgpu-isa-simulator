@@ -1182,7 +1182,16 @@ void processor_t::gpgpu_unit_t::set_barrier_1()
 
 void processor_t::gpgpu_unit_t::set_barrier_0()
 {
-  w->barriers[warp_id] = 0;
+  if(w->barrier_counter < w->warp_number){
+    w->barrier_counter++;
+  }
+  else{
+    for(int i=0;i<w->warp_number;i++)
+      w->barriers[i] = 0;
+
+    w->barrier_counter=0;
+  }
+  
 }
 
 bool processor_t::gpgpu_unit_t::get_barrier()

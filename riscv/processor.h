@@ -44,6 +44,7 @@ class warp_schedule
       int thread_number;
       std::vector<int> barriers;
       bool is_all_true;
+      int barrier_counter = 0;
 
   };
 
