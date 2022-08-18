@@ -1087,9 +1087,9 @@ void processor_t::gpgpu_unit_t::reset(processor_t *const proc)
   mstatus_val = set_field(mstatus_val, MSTATUS_VS, 1);
   state->mstatus->write(mstatus_val);
 
-  // initialize mask to all zero
-  uint64_t &mask = p->VU.elt<uint64_t>(0, 0);
-  mask = 0xffffffff;
+  // // initialize mask to all zero
+  // uint64_t &mask = p->VU.elt<uint64_t>(0, 0);
+  // mask = 0xffffffff;
 
   simt_stack.reset();
 }
@@ -1100,15 +1100,16 @@ void processor_t::gpgpu_unit_t::reset(processor_t *const proc)
 void processor_t::gpgpu_unit_t::simt_stack_t::pop_join(reg_t r_pc)
 {
   //弹出汇合点信息
-  if(_stack.top().is_part==1){
-    npc=r_pc;
-    mask=_stack.top().r_mask;
-    _stack.pop();
+  if(_stack.back().is_part == 1){
+    npc = r_pc;
+    mask = _stack.back().r_mask;
+    _stack.pop_back();
   }
   //弹出else分支信息
   else{
-    npc=_stack.top().else_pc;
-    mask=_stack.top().else_mask;
+    npc = _stack.back().else_pc;
+    mask = _stack.back().else_mask;
+    _stack.back().is_part = 1;
   }
 }
 
@@ -1120,37 +1121,37 @@ void processor_t::gpgpu_unit_t::simt_stack_t::push_branch
     //不用执行else，pair=1和is_part=1
     //pair:else路径掩码是否为0
     //is_part选择输出栈顶 0:else路径信息, 1:汇合点
-    simt_stack_entry_t push_stack = {1, NO_PC, r_mask, else_pc, else_mask, 1 };
-    _stack.push(push_stack);
-    npc=if_pc;
-    mask=if_mask;
+    simt_stack_entry_t new_entry(1, NO_PC, r_mask, else_pc, else_mask, 1);
+    _stack.push_back(new_entry);
+    npc = if_pc;
+    mask = if_mask;
   }
   else if(if_mask == 0){
     //不用执行if但要执行else，pair=0和is_part=1
     //is_part选择输出栈顶 0:else路径信息, 1:汇合点
-    simt_stack_entry_t push_stack = {0, NO_PC, r_mask, else_pc, else_mask, 1 };
-    _stack.push(push_stack);
-    npc=else_pc;
-    mask=else_mask;
+    simt_stack_entry_t new_entry(1, NO_PC, r_mask, else_pc, else_mask, 0);
+    _stack.push_back(new_entry);
+    npc = else_pc;
+    mask = else_mask;
   }
   else{
     //if,else 都要执行
-    simt_stack_entry_t push_stack = {0, NO_PC, r_mask, else_pc, else_mask, 0 };
-    _stack.push(push_stack);
-    npc=if_pc;
-    mask=if_mask;
+    simt_stack_entry_t new_entry(0, NO_PC, r_mask, else_pc, else_mask, 0);
+    _stack.push_back(new_entry);
+    npc = if_pc;
+    mask = if_mask;
   }
 }
 
 void processor_t::gpgpu_unit_t::simt_stack_t::pop()
 {
-  _stack.pop();
+  _stack.pop_back();
 }
 
 processor_t::gpgpu_unit_t::simt_stack_entry_t& 
 processor_t::gpgpu_unit_t::simt_stack_t::top()
 {
-  return _stack.top();
+  return _stack.back();
 }
 
 int processor_t::gpgpu_unit_t::simt_stack_t::size()
@@ -1160,5 +1161,6 @@ int processor_t::gpgpu_unit_t::simt_stack_t::size()
 
 void processor_t::gpgpu_unit_t::simt_stack_t::reset()
 {
-  while(_stack.empty()) _stack.pop();
+  _stack.clear();
+  mask = 0xffffffffffffffff;
 }

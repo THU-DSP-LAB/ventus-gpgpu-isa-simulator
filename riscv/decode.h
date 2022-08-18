@@ -117,7 +117,7 @@ public:
   uint64_t rvc_rs1s() { return 8 + x(7, 3); }
   uint64_t rvc_rs2s() { return 8 + x(2, 3); }
 
-  uint64_t v_vm() { /*return x(25, 1);*/ return 0; }
+  uint64_t v_vm() { return x(25, 1);}
   uint64_t v_wd() { return x(26, 1); }
   uint64_t v_nf() { return x(29, 3); }
   uint64_t v_simm5() { return xs(15, 5); }

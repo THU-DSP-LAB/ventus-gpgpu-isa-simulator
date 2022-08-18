@@ -522,7 +522,11 @@ public:
         simt_stack_entry_t() :is_part(), r_pc(), r_mask(), else_pc(), else_mask(), pair(){}
         simt_stack_entry_t(bool a, reg_t b, uint64_t c, reg_t d, uint64_t e, bool f) :is_part(a), r_pc(b), r_mask(c), else_pc(d), else_mask(e), pair(f){}
         void dump() {
-          std::cout << is_part << std::hex << std::setfill ('0') << std::setw(16) << r_pc << " " << r_mask << " " << else_pc << " " << else_mask << pair << std::endl;
+          std::cout << is_part << "\t"
+                    << std::hex << std::setfill ('0') << std::setw(16) << r_pc << "\t" 
+                    << std::hex << std::setfill ('0') << std::setw(16) << r_mask << "\t" 
+                    << std::hex << std::setfill ('0') << std::setw(16) << else_pc << "\t" 
+                    << else_mask << pair << std::endl;
         }
       };
 
@@ -545,16 +549,17 @@ public:
           void reset();
 
           void dump() {
-            std::stack<simt_stack_entry_t> temp_stack = _stack;
-            std::cout << "stack size: " << temp_stack.size() << std::endl;
-            while(!temp_stack.empty()) {
-              temp_stack.top().dump();
-              temp_stack.pop();
+            std::cout << "current mask:\t" << std::hex << std::setw(16) << std::setfill('0') << mask << std::endl;
+            std::cout << "current npc:\t" << std::hex << std::setw(16) << std::setfill('0') << npc << std::endl;
+            std::cout << "stack size: " << _stack.size() << std::endl;
+            if(!_stack.empty()) std::cout << "is_part\tr_pc\tr_mask\telse_pc\telse_mask\n";
+            for(auto it = _stack.begin(); it != _stack.end(); it ++) {
+              it->dump();
             }
           }
 
         private:
-          std::stack<simt_stack_entry_t> _stack;
+          std::vector<simt_stack_entry_t> _stack;
           reg_t npc;
           uint64_t mask;
       };

@@ -3,6 +3,12 @@
 #ifndef _RISCV_V_EXT_MACROS_H
 #define _RISCV_V_EXT_MACROS_H
 
+#include <iostream>
+#include <iomanip>
+
+// rvv-gpgpu-enable
+#define GPGPU_ENABLE true
+
 //
 // vector: masking skip helper
 //
@@ -15,8 +21,17 @@
   if (insn.v_vm() == 0) { \
     BODY; \
     bool skip = ((P.VU.elt<uint64_t>(0, midx) >> mpos) & 0x1) == 0; \
+    std::cout << "vm i = " << i << " skip = " << skip << std::endl; \
     if (skip) { \
         continue; \
+    } \
+  } \
+  if (GPGPU_ENABLE) { \
+    uint64_t mask = P.gpgpu_unit.simt_stack.get_mask(); \
+    bool skip = ((mask >> i) & 0x1) == 0; \
+    std::cout << "i = " << i << " skip = " << skip << std::endl; \
+    if(skip) { \
+      continue; \
     } \
   }
 
@@ -2084,6 +2099,16 @@ reg_t index[P.VU.vlmax]; \
   type_sew_t<x>::type vs1 = P.VU.elt<type_sew_t<x>::type>(rs1_num, i); \
   type_sew_t<x>::type vs2 = P.VU.elt<type_sew_t<x>::type>(rs2_num, i);
 
+#define VV_BRANCK_LOOP_SKIP() \
+  if (GPGPU_ENABLE) { \
+    uint64_t mask = P.gpgpu_unit.simt_stack.get_mask(); \
+    bool skip = ((mask >> i) & 0x1) == 0; \
+    std::cout << "i = " << i << " skip = " << skip << std::endl; \
+    if(skip) { \
+      continue; \
+    } \
+  }
+
 #define VV_LOOP_BRANCH_BASE \
   require(P.VU.vsew >= e8 && P.VU.vsew <= e64); \
   require_vector(true); \
@@ -2094,25 +2119,25 @@ reg_t index[P.VU.vlmax]; \
   reg_t rs2_num = insn.rs2(); \
   reg_t if_pc = npc; \
   reg_t else_pc = BRANCH_TARGET; \
-  uint64_t &cur_mask = P.VU.elt<uint64_t>(0, 0); \
-  uint64_t r_mask = cur_mask; \
-  uint64_t if_mask = 0; \
+  uint64_t r_mask = P.gpgpu_unit.simt_stack.get_mask(); \
+  uint64_t else_mask = 0; \
   for (reg_t i = P.VU.vstart->read(); i < vl; ++i) { \
-    VI_LOOP_ELEMENT_SKIP(); \
-    uint64_t mmask = UINT16_C(1) << mpos; \
+    VV_BRANCK_LOOP_SKIP(); \
+    uint64_t mmask = UINT16_C(1) << i; \
     uint64_t res = 0;
 
 
 #define VV_LOOP_BRANCH_END \
-    if_mask = (if_mask & ~mmask) | (((res) << mpos) & mmask); \
+    printf("%d: 0x%lx\n", i, res); \
+    else_mask = (else_mask & ~mmask) | (((res) << i) & mmask); \
   } \
   P.VU.vstart->write(0); \
-  uint64_t else_mask = ~if_mask & r_mask; 
+  uint64_t if_mask = ~else_mask & r_mask; \
+  printf("\n0x%016lx, 0x%016lx, 0x%016lx\n", r_mask, if_mask, else_mask);
 
 #define VV_BRANCH_SS_SET_PC_MASK \
   P.gpgpu_unit.simt_stack.push_branch(if_pc, if_mask, r_mask, else_pc, else_mask); \
-  SET_PC(P.gpgpu_unit.simt_stack.get_npc()); \
-  SET_MASK(P.gpgpu_unit.simt_stack.get_mask());
+  SET_PC(P.gpgpu_unit.simt_stack.get_npc());
 
 #define VV_LOOP_BRANCH_BODY(PARAMS, BODY) \
   VV_LOOP_BRANCH_BASE \
