@@ -22,6 +22,7 @@
 //怕重复定义了，先写在这
 #include <stack>
 #include <stdio.h>
+//#include <bitset>
 
 class processor_t;
 class mmu_t;
@@ -33,6 +34,19 @@ class disassembler_t;
 
 
 reg_t illegal_instruction(processor_t* p, insn_t insn, reg_t pc);
+
+//warp scheduler for warp and barrier
+class warp_schedule
+{
+  public:
+    void init_warp(std::string gpgpuarch);
+    int warp_number;
+    int thread_number;
+    std::vector<int> barriers;
+    bool is_all_true;
+    int barrier_counter = 0;
+
+};
 
 struct insn_desc_t  //mask
 {
@@ -478,14 +492,17 @@ public:
 
   class gpgpu_unit_t{
     private:
+      warp_schedule *w;
       processor_t *p;
       // custom csr
       csr_t_p numw;
       csr_t_p numt;
       csr_t_p tid;
-      csr_t_p wid;
+      csr_t_p wid;//warp id
       csr_t_p gds;
       csr_t_p lds;
+
+      // int warp_id;
 
     public:
       // clear simt-stack, map and intialize csr
@@ -497,10 +514,13 @@ public:
         wid(0),
         gds(0),
         lds(0),
-        simt_stack() {
-      }
+        simt_stack() {}
 
       void reset(processor_t *const proc);
+      void set_warp(warp_schedule *w);
+      void set_barrier_1();
+      void set_barrier_0();
+      bool get_barrier();
 
       void init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid, uint64_t _wid, uint64_t _gds, uint64_t _lds) {
         numw->write(_numw);
@@ -509,10 +529,9 @@ public:
         wid->write(_wid);
         gds->write(_gds);
         lds->write(_lds);
-        
+
         // init simt-stack
         simt_stack.init_mask(_numt);
-
       }
 
       struct simt_stack_entry_t

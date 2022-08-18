@@ -1099,8 +1099,14 @@ void processor_t::gpgpu_unit_t::reset(processor_t *const proc)
 
 void processor_t::gpgpu_unit_t::simt_stack_t::pop_join(reg_t r_pc)
 {
+  //else不用執行，if下來直接匯合點
+  if(_stack.back().pair == 1){
+    npc = r_pc;
+    mask = _stack.back().r_mask;
+    _stack.pop_back();
+  }
   //弹出汇合点信息
-  if(_stack.back().is_part == 1){
+  else if(_stack.back().is_part == 1){
     npc = r_pc;
     mask = _stack.back().r_mask & width_mask;
     _stack.pop_back();
@@ -1162,6 +1168,57 @@ int processor_t::gpgpu_unit_t::simt_stack_t::size()
 void processor_t::gpgpu_unit_t::simt_stack_t::reset()
 {
   _stack.clear();
-  // mask = 0xffffffffffffffff;
   init_mask(8);
 }
+
+void processor_t::gpgpu_unit_t::set_warp(warp_schedule *warp)
+{
+  w = warp;
+}
+void processor_t::gpgpu_unit_t::set_barrier_1()
+{
+  w->barriers[wid->read()] = 1;
+}
+
+void processor_t::gpgpu_unit_t::set_barrier_0()
+{
+  if(w->barrier_counter < w->warp_number){
+    w->barrier_counter++;
+  }
+  else{
+    for(int i=0;i<w->warp_number;i++)
+      w->barriers[i] = 0;
+
+    w->barrier_counter=0;
+  }
+  
+}
+
+bool processor_t::gpgpu_unit_t::get_barrier()
+{
+  //算一下barrier是否为全1
+  w->is_all_true = true;
+  for(int i=0;i<w->warp_number; i++){
+    if(w->barriers[i]==0){
+      w->is_all_true = false;
+    }
+  }
+  return w->is_all_true;
+}
+
+void warp_schedule::init_warp(std::string s)
+  {
+      std::string delim = " ";
+      std::vector<std::string> words{};
+
+      size_t pos = 0;
+      while ((pos = s.find(delim)) != std::string::npos) {
+          words.push_back(s.substr(0, pos));
+          s.erase(0, pos + delim.length());
+      }
+      warp_number = std::stoi(words[0]);
+      thread_number = std::stoi(words[1]);
+      barriers.resize(warp_number, 0);
+     
+
+  }
