@@ -1165,7 +1165,7 @@ void processor_t::gpgpu_unit_t::simt_stack_t::reset()
   mask = 0xffffffffffffffff;
 }
 
-void processor_t::gpgpu_unit_t::set_warp(sim_t *warp)
+void processor_t::gpgpu_unit_t::set_warp(warp_schedule *warp)
 {
   w = warp;
 }

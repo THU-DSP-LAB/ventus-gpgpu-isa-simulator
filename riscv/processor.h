@@ -34,6 +34,18 @@ class disassembler_t;
 
 reg_t illegal_instruction(processor_t* p, insn_t insn, reg_t pc);
 
+//warp scheduler for warp and barrier
+class warp_schedule
+  {
+    public:
+      void init_warp(std::string gpgpuarch);
+      int warp_number;
+      int thread_number;
+    private:
+      std::vector<int> barriers;
+
+  };
+  
 struct insn_desc_t  //mask
 {
   insn_bits_t match;
@@ -478,7 +490,7 @@ public:
 
   class gpgpu_unit_t{
     private:
-      sim_t *w;
+      warp_schedule *w;
       processor_t *p;
       // custom csr
       csr_t_p numw;
@@ -498,11 +510,10 @@ public:
         wid(0),
         gds(0),
         lds(0),
-        simt_stack() {},
-        init_warp() {}
+        simt_stack() {}
 
       void reset(processor_t *const proc);
-      void set_warp(sim_t *w);
+      void set_warp(warp_schedule *w);
 
       void init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid, uint64_t _wid, uint64_t _gds, uint64_t _lds) {
         numw->write(_numw);

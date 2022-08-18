@@ -445,7 +445,7 @@ void sim_t::proc_reset(unsigned id)
   debug_module.proc_reset(id);
 }
 
-void sim_t::warp_schedule::init_warp(std::string s)
+void warp_schedule::init_warp(std::string s)
   {
       std::string delim = " ";
       std::vector<std::string> words{};
