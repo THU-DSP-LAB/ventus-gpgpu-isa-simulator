@@ -2090,14 +2090,13 @@ reg_t index[P.VU.vlmax]; \
        npc = sext_xlen(x); \
      } while (0)
 
-#define SET_MASK(new_mask) \
-  do { \
-       cur_mask = new_mask; \
-    } while(0)
-
 #define VV_BRANCH_PARAMS(x) \
   type_sew_t<x>::type vs1 = P.VU.elt<type_sew_t<x>::type>(rs1_num, i); \
   type_sew_t<x>::type vs2 = P.VU.elt<type_sew_t<x>::type>(rs2_num, i);
+
+#define VV_BRANCH_U_PARAMS(x) \
+  type_usew_t<x>::type vs1 = P.VU.elt<type_sew_t<x>::type>(rs1_num, i); \
+  type_usew_t<x>::type vs2 = P.VU.elt<type_sew_t<x>::type>(rs2_num, i);
 
 #define VV_BRANCK_LOOP_SKIP() \
   if (GPGPU_ENABLE) { \
@@ -2148,5 +2147,9 @@ reg_t index[P.VU.vlmax]; \
 #define VV_LOOP_BRANCH(BODY) \
   VI_CHECK_MSS(true); \
   VV_LOOP_BRANCH_BODY(VV_BRANCH_PARAMS, BODY)
+
+#define VV_LOOP_U_BRANCH(BODY) \
+  VI_CHECK_MSS(true); \
+  VV_LOOP_BRANCH_BODY(VV_BRANCH_U_PARAMS, BODY)
 
 #endif

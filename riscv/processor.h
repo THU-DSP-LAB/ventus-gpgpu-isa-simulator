@@ -509,6 +509,10 @@ public:
         wid->write(_wid);
         gds->write(_gds);
         lds->write(_lds);
+        
+        // init simt-stack
+        simt_stack.init_mask(_numt);
+
       }
 
       struct simt_stack_entry_t
@@ -522,11 +526,12 @@ public:
         simt_stack_entry_t() :is_part(), r_pc(), r_mask(), else_pc(), else_mask(), pair(){}
         simt_stack_entry_t(bool a, reg_t b, uint64_t c, reg_t d, uint64_t e, bool f) :is_part(a), r_pc(b), r_mask(c), else_pc(d), else_mask(e), pair(f){}
         void dump() {
-          std::cout << is_part << "\t"
-                    << std::hex << std::setfill ('0') << std::setw(16) << r_pc << "\t" 
-                    << std::hex << std::setfill ('0') << std::setw(16) << r_mask << "\t" 
-                    << std::hex << std::setfill ('0') << std::setw(16) << else_pc << "\t" 
-                    << else_mask << pair << std::endl;
+          std::cout << "is_part: " << is_part << " "
+                    << "r_pc: " << std::hex << std::setw(16) << std::setfill('0') << r_pc << " " 
+                    << "r_mask: " << std::hex << std::setw(16) << std::setfill('0') << r_mask << " " 
+                    << "else_pc: " << std::hex << std::setw(16) << std::setfill('0') << else_pc << " " 
+                    << "else_mask: " << std::hex << std::setw(16) << std::setfill('0') << else_mask << " " 
+                    << "pair: " << pair << std::endl;
         }
       };
 
@@ -552,16 +557,29 @@ public:
             std::cout << "current mask:\t" << std::hex << std::setw(16) << std::setfill('0') << mask << std::endl;
             std::cout << "current npc:\t" << std::hex << std::setw(16) << std::setfill('0') << npc << std::endl;
             std::cout << "stack size: " << _stack.size() << std::endl;
-            if(!_stack.empty()) std::cout << "is_part\tr_pc\tr_mask\telse_pc\telse_mask\n";
             for(auto it = _stack.begin(); it != _stack.end(); it ++) {
               it->dump();
             }
+          }
+
+          void init_mask(int numt) {
+            mask_width = numt;
+            width_mask = 1;
+            for(int i = 0; i< numt - 1; i ++) 
+              width_mask = width_mask | (width_mask << 1);
+            mask = 0xffffffffffffffff & width_mask;
           }
 
         private:
           std::vector<simt_stack_entry_t> _stack;
           reg_t npc;
           uint64_t mask;
+
+          int mask_width;
+          uint64_t width_mask;
+
+          // bool all_one(uint64_t val) { return (val & width_mask) == width_mask; }
+          bool all_zero(uint64_t val) { return (val & width_mask) == 0; }
       };
 
       simt_stack_t simt_stack;

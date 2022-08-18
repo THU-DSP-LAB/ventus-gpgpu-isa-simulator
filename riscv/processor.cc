@@ -1102,13 +1102,13 @@ void processor_t::gpgpu_unit_t::simt_stack_t::pop_join(reg_t r_pc)
   //弹出汇合点信息
   if(_stack.back().is_part == 1){
     npc = r_pc;
-    mask = _stack.back().r_mask;
+    mask = _stack.back().r_mask & width_mask;
     _stack.pop_back();
   }
   //弹出else分支信息
   else{
     npc = _stack.back().else_pc;
-    mask = _stack.back().else_mask;
+    mask = _stack.back().else_mask & width_mask;
     _stack.back().is_part = 1;
   }
 }
@@ -1117,29 +1117,29 @@ void processor_t::gpgpu_unit_t::simt_stack_t::push_branch
     (reg_t if_pc, uint64_t if_mask, 
                      uint64_t r_mask, reg_t else_pc, uint64_t else_mask)
 {
-  if(else_mask == 0){ 
+  if(all_zero(else_mask)){ 
     //不用执行else，pair=1和is_part=1
     //pair:else路径掩码是否为0
     //is_part选择输出栈顶 0:else路径信息, 1:汇合点
     simt_stack_entry_t new_entry(1, NO_PC, r_mask, else_pc, else_mask, 1);
     _stack.push_back(new_entry);
     npc = if_pc;
-    mask = if_mask;
+    mask = if_mask & width_mask;
   }
-  else if(if_mask == 0){
+  else if(all_zero(if_mask)){
     //不用执行if但要执行else，pair=0和is_part=1
     //is_part选择输出栈顶 0:else路径信息, 1:汇合点
     simt_stack_entry_t new_entry(1, NO_PC, r_mask, else_pc, else_mask, 0);
     _stack.push_back(new_entry);
     npc = else_pc;
-    mask = else_mask;
+    mask = else_mask & width_mask;
   }
   else{
     //if,else 都要执行
     simt_stack_entry_t new_entry(0, NO_PC, r_mask, else_pc, else_mask, 0);
     _stack.push_back(new_entry);
     npc = if_pc;
-    mask = if_mask;
+    mask = if_mask & width_mask;
   }
 }
 
@@ -1162,5 +1162,6 @@ int processor_t::gpgpu_unit_t::simt_stack_t::size()
 void processor_t::gpgpu_unit_t::simt_stack_t::reset()
 {
   _stack.clear();
-  mask = 0xffffffffffffffff;
+  // mask = 0xffffffffffffffff;
+  init_mask(8);
 }
