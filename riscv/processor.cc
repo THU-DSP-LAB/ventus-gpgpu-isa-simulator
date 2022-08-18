@@ -1099,8 +1099,14 @@ void processor_t::gpgpu_unit_t::reset(processor_t *const proc)
 
 void processor_t::gpgpu_unit_t::simt_stack_t::pop_join(reg_t r_pc)
 {
+  //else不用執行，if下來直接匯合點
+  if(_stack.back().pair == 1){
+    npc = r_pc;
+    mask = _stack.back().r_mask;
+    _stack.pop_back();
+  }
   //弹出汇合点信息
-  if(_stack.back().is_part == 1){
+  else if(_stack.back().is_part == 1){
     npc = r_pc;
     mask = _stack.back().r_mask;
     _stack.pop_back();
