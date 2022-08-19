@@ -9,9 +9,10 @@ TARGET = $(TEST).riscv
 
 P ?= 1
 VARCH ?= vlen:256,elen:32
+GPGPUARCH ?= numw:4,numt:8
 DEBUG ?= -d
 ISA ?= rv64gv
-SPIKE_ARGS = $(DEBUG) -p$(P) --isa $(ISA) --varch $(VARCH)
+SPIKE_ARGS = $(DEBUG) -p$(P) --isa $(ISA) --varch $(VARCH) --gpgpuarch $(GPGPUARCH)
 
 all: $(TARGET)
 
