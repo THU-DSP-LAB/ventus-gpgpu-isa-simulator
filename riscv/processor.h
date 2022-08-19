@@ -39,12 +39,13 @@ reg_t illegal_instruction(processor_t* p, insn_t insn, reg_t pc);
 class warp_schedule
 {
   public:
-    void init_warp(std::string gpgpuarch);
+    void init_warp(const char *gpgpuarch);
     int warp_number;
     int thread_number;
     std::vector<int> barriers;
     bool is_all_true;
     int barrier_counter = 0;
+    void parse_gpgpuarch_string(const char *gpgpuarch);
 
 };
 

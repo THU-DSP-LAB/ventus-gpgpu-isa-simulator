@@ -17,7 +17,8 @@ main:
     addi        sp,sp,-16
     sd          s0,8(sp)
     addi        s0,sp,16
-    jal         gaussian
+    j           gaussian
+main_end:
     li          a5,0
     mv          a0,a5
     ld          s0,8(sp)
@@ -135,7 +136,7 @@ K2_B:
     addi        x7, x7, 1               # t+1
     blt         x7, x8, Kernel1
     endprg      x0, x0, x0
-    ret
+    j           main_end
 
 .section .data
 global_data:

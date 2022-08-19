@@ -65,6 +65,7 @@ public:
       isa(default_isa),
       priv(default_priv),
       varch(default_varch),
+      gpgpuarch("numw:4,numt:8"),
       mem_layout(default_mem_layout),
       hartids(default_hartids),
       explicit_hartids(false),
@@ -76,6 +77,7 @@ public:
   cfg_arg_t<const char *>            isa;
   cfg_arg_t<const char *>            priv;
   cfg_arg_t<const char *>            varch;
+  cfg_arg_t<const char *>            gpgpuarch;
   cfg_arg_t<std::vector<mem_cfg_t>>  mem_layout;
   std::optional<reg_t>               start_pc;
   cfg_arg_t<std::vector<int>>        hartids;

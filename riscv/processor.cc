@@ -91,6 +91,11 @@ static void bad_varch_string(const char* varch, const char *msg)
   bad_option_string("--varch", varch, msg);
 }
 
+static void bad_gpgpuarch_string(const char* gpgpuarch, const char *msg)
+{
+  bad_option_string("--gpgpuarch", gpgpuarch, msg);
+}
+
 static std::string get_string_token(std::string str, const char delimiter, size_t& pos)
 {
   size_t _pos = pos;
@@ -1206,21 +1211,41 @@ bool processor_t::gpgpu_unit_t::get_barrier()
   return w->is_all_true;
 }
 
-void warp_schedule::init_warp(std::string s)
-  {
-      std::string delim = " ";
-      std::vector<std::string> words{};
+void warp_schedule::init_warp(const char *s)
+{
+  parse_gpgpuarch_string(s);
+  barriers.resize(warp_number, 0);
+}
 
-      // size_t pos = 0;
-      // while ((pos = s.find(delim)) != std::string::npos) {
-      //     words.push_back(s.substr(0, pos));
-      //     s.erase(0, pos + delim.length());
-      // }
-      // warp_number = std::stoi(words[0]);
-      // thread_number = std::stoi(words[1]);
-      warp_number = 4;
-      thread_number =8;
-      barriers.resize(warp_number, 0);
-     
+void warp_schedule::parse_gpgpuarch_string(const char *s)
+{
+  std::string str = strtolower(s);
+  size_t pos = 0;
+  size_t len = str.length();
+  int numw = 0;
+  int numt = 0;
 
+  while (pos < len) {
+    std::string attr = get_string_token(str, ':', pos);
+
+    ++pos;
+
+    if (attr == "numt")
+      numt = get_int_token(str, ',', pos);
+    else if (attr == "numw")
+      numw = get_int_token(str, ',', pos);
+    else
+      bad_gpgpuarch_string(s, "Unsupported token");
+
+    ++pos;
   }
+
+  // The integer should be the power of 2
+  if (!check_pow2(numt) || !check_pow2(numw)) {
+    bad_gpgpuarch_string(s, "The integer value should be the power of 2");
+  }
+
+  thread_number = numt;
+  warp_number = numw;
+  // std::cout << "warp number: " << warp_number << " thread_number = " << thread_number << std::endl;
+}

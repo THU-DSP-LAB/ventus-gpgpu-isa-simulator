@@ -18,7 +18,8 @@ main:
     addi        sp,sp,-16
     sd          s0,8(sp)
     addi        s0,sp,16
-    jal         saxpy
+    j           saxpy
+main_end:
     li          a5,0
     mv          a0,a5
     ld          s0,8(sp)
@@ -53,7 +54,7 @@ L_ENDPRG:
     endprg      x0, x0, x0
     endprg      x0, x0, x0
     endprg      x0, x0, x0
-    ret
+    j           main_end
 
 .section .data
 global_data:

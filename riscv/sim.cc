@@ -76,11 +76,11 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
 
   debug_mmu = new mmu_t(this, NULL);
 
-  //TODO initialize warp
-  std::string gpgpuarch ="4 8";
-  w.init_warp(gpgpuarch);
+  // initialize warp schedule
+  w.init_warp(cfg->gpgpuarch());
   uint64_t gds=0;
   uint64_t lds=0;
+
   for (size_t i = 0; i < cfg->nprocs(); i++) {
     procs[i] = new processor_t(&isa, cfg->varch(), this, cfg->hartids()[i], halted,
                                log_file.get(), sout_);
