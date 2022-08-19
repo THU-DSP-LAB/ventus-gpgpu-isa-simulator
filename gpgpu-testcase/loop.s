@@ -1,16 +1,13 @@
 
 # v0 - 0
 # v1 - iter
-# v2 - all 1
-# v3 - res
+# v2 - res
+# for warp i, iterate v1[i] times and in each iteration v2[i] ++
+# in the end, v2 should be identical to loop_bound
 
 .section .data
 loop_bound:
     .word 12,11,10,8,5,4,3,0
-loop_sum:
-    .word 1,1,1,1,1,1,1,1
-
-
 
 .section .text
 
@@ -22,9 +19,7 @@ main:
 	li      t4, 32
 	vsetvli t4, t4, e32, ta, ma
     la      t0, loop_bound
-    la      t1, loop_sum
     vle32.v v1, (t0)
-    vle32.v v2, (t1)
 	j       start
 
 main_end:
@@ -39,6 +34,7 @@ start:
     join    v0, v0, LOOP_END
 LOOP:
     vadd.vi v1, v1, -1
+    vadd.vi v2, v2, 1
     join    v0, v0, LOOP_COND_EVAL
 LOOP_COND_EVAL:
     vblt    v0, v1, LOOP
