@@ -1,6 +1,6 @@
 CC = riscv64-unknown-elf-gcc
-CFLAG_C = -fno-common -fno-builtin-printf -specs=htif_nano.specs -c 
-CFLAG_LD = -static -specs=htif_nano.specs
+CFLAG_C = -fno-common -fno-builtin-printf -specs=htif_nano.specs -Wl,--defsym=__main=main -c 
+CFLAG_LD = -static -specs=htif_nano.specs -Wl,--defsym=__main=main
 
 TEST ?= branch-basic
 SRC = $(TEST).s
