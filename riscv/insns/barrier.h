@@ -1,4 +1,4 @@
-std::cout << "barrier" << std::endl;
+// std::cout << "barrier" << std::endl;
 SET_BARRIER_1;
 if(IS_ALL_TRUE){
     //set_pc(pc+4);

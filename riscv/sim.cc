@@ -87,6 +87,8 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
     procs[i]->gpgpu_unit.set_warp(&w);
     //现在一个warp就是一个core
     procs[i]->gpgpu_unit.init_warp(w.warp_number, w.thread_number, i*w.thread_number, i, gds, lds);
+    assert(w.warp_number == cfg->nprocs());
+    assert(w.thread_number == (procs[i]->VU.get_vlen() / procs[i]->VU.get_elen()));
   }
 
   make_dtb();

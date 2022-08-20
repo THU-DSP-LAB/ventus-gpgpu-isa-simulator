@@ -1,4 +1,7 @@
-
+# test for branch, include
+# 1. normal
+# 2. if mask is all zero
+# 3. else mask is all zero
 
 .section .data
 base:

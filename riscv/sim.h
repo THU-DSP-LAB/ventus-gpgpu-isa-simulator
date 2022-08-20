@@ -149,6 +149,7 @@ private:
   reg_t get_mem(const std::vector<std::string>& args);
   reg_t get_pc(const std::vector<std::string>& args);
   void interactive_simt_stack(const std::string& cmd, const std::vector<std::string>& args);
+  void interactive_warp_barrier(const std::string& cmd, const std::vector<std::string>& args);
 
   friend class processor_t;
   friend class mmu_t;

@@ -21,7 +21,6 @@
   if (insn.v_vm() == 0) { \
     BODY; \
     bool skip = ((P.VU.elt<uint64_t>(0, midx) >> mpos) & 0x1) == 0; \
-    std::cout << "vm i = " << i << " skip = " << skip << std::endl; \
     if (skip) { \
         continue; \
     } \
@@ -29,7 +28,6 @@
   if (GPGPU_ENABLE) { \
     uint64_t mask = P.gpgpu_unit.simt_stack.get_mask(); \
     bool skip = ((mask >> i) & 0x1) == 0; \
-    std::cout << "i = " << i << " skip = " << skip << std::endl; \
     if(skip) { \
       continue; \
     } \
@@ -2110,7 +2108,6 @@ reg_t index[P.VU.vlmax]; \
   if (GPGPU_ENABLE) { \
     uint64_t mask = P.gpgpu_unit.simt_stack.get_mask(); \
     bool skip = ((mask >> i) & 0x1) == 0; \
-    std::cout << "i = " << i << " skip = " << skip << std::endl; \
     if(skip) { \
       continue; \
     } \
@@ -2135,12 +2132,10 @@ reg_t index[P.VU.vlmax]; \
 
 
 #define VV_LOOP_BRANCH_END \
-    printf("%d: 0x%lx\n", i, res); \
     else_mask = (else_mask & ~mmask) | (((res) << i) & mmask); \
   } \
   P.VU.vstart->write(0); \
-  uint64_t if_mask = ~else_mask & r_mask; \
-  printf("\n0x%016lx, 0x%016lx, 0x%016lx\n", r_mask, if_mask, else_mask);
+  uint64_t if_mask = ~else_mask & r_mask;
 
 #define VV_BRANCH_SS_SET_PC_MASK \
   P.gpgpu_unit.simt_stack.push_branch(if_pc, if_mask, r_mask, else_pc, else_mask); \

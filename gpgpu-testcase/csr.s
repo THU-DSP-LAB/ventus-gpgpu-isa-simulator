@@ -1,4 +1,4 @@
-	
+# read write test for custom csr
 .section .data
 .balign 4
 test: 

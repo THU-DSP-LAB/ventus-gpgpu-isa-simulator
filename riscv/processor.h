@@ -546,12 +546,11 @@ public:
         simt_stack_entry_t() :is_part(), r_pc(), r_mask(), else_pc(), else_mask(), pair(){}
         simt_stack_entry_t(bool a, reg_t b, uint64_t c, reg_t d, uint64_t e, bool f) :is_part(a), r_pc(b), r_mask(c), else_pc(d), else_mask(e), pair(f){}
         void dump() {
-          std::cout << "is_part: " << is_part << " "
-                    << "r_pc: " << std::hex << std::setw(16) << std::setfill('0') << r_pc << " " 
-                    << "r_mask: " << std::hex << std::setw(16) << std::setfill('0') << r_mask << " " 
-                    << "else_pc: " << std::hex << std::setw(16) << std::setfill('0') << else_pc << " " 
-                    << "else_mask: " << std::hex << std::setw(16) << std::setfill('0') << else_mask << " " 
-                    << "pair: " << pair << std::endl;
+          std::cout << "[is_part] " << is_part << " "
+                    << "[r_mask] " << std::hex << std::setw(16) << std::setfill('0') << r_mask << " " 
+                    << "[else_pc] " << std::hex << std::setw(16) << std::setfill('0') << else_pc << " " 
+                    << "[else_mask] " << std::hex << std::setw(16) << std::setfill('0') << else_mask << " " 
+                    << "[pair] " << pair << std::endl;
         }
       };
 

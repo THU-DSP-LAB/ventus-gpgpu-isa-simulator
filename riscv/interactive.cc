@@ -140,6 +140,7 @@ void sim_t::interactive()
   funcs["help"] = &sim_t::interactive_help;
   funcs["h"] = funcs["help"];
   funcs["simt-stack"] = &sim_t::interactive_simt_stack;
+  funcs["warp-barrier"] = &sim_t::interactive_warp_barrier;
 
   while (!done())
   {
@@ -229,7 +230,8 @@ void sim_t::interactive_help(const std::string& cmd, const std::vector<std::stri
     "help                            # This screen!\n"
     "h                                 Alias for help\n"
     "Note: Hitting enter is the same as: run 1\n"
-    "simt-stack <core>               # Display simt stack info given hartid\n"    
+    "simt-stack <core>               # Display simt stack info given hartid\n"  
+    "warp-barrier                    # Display global warp barrier info\n"  
     << std::endl;
 }
 
@@ -586,4 +588,18 @@ void sim_t::interactive_simt_stack(const std::string& cmd, const std::vector<std
 
   processor_t *p = get_core(args[0]);
   p->gpgpu_unit.simt_stack.dump();
+}
+
+void sim_t::interactive_warp_barrier(const std::string&cmd, const std::vector<std::string>& args)
+{
+  if (args.size() > 0)
+    throw trap_interactive();
+  std::cout << "[warp number]: " << w.warp_number 
+            << " [thread number]: " << w.thread_number 
+            << " [warp counter]: " << w.barrier_counter << std::endl;
+  std::cout << "warp barrier: \n";
+  for (int warp = 0; warp < w.warp_number; warp ++) {
+    std::cout << "[warp " << warp << "]: " << w.barriers[warp] << " ";
+  }
+  std::cout << std::endl;
 }

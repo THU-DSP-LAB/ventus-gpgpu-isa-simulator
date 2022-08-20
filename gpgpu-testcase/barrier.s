@@ -18,8 +18,6 @@ main_end:
     .globl main_end
 
 BARRIER:
-    li      t0, 4       # 写死了，测的时候记得改，由硬件分配wid
-    csrw    wid, t0     # 写死了，测的时候记得改，由硬件分配wid
     csrr    t0, wid
     li      t1, 0
     

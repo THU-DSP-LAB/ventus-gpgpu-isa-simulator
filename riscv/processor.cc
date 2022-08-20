@@ -1187,7 +1187,7 @@ void processor_t::gpgpu_unit_t::set_barrier_1()
 
 void processor_t::gpgpu_unit_t::set_barrier_0()
 {
-  if(w->barrier_counter < w->warp_number){
+  if(w->barrier_counter < w->warp_number - 1){
     w->barrier_counter++;
   }
   else{

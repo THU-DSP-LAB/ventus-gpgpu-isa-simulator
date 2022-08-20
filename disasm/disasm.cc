@@ -583,6 +583,11 @@ static void NOINLINE add_vector_vv_insn(disassembler_t* d, const char* name, uin
   d->add_insn(new disasm_insn_t(name, match, mask, {&vd, &vs2, &vs1, opt, &vm}));
 }
 
+static void NOINLINE add_vector_branch_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
+{
+  d->add_insn(new disasm_insn_t(name, match, mask, {&vs2, &vs1, &branch_target}));
+}
+
 static void NOINLINE add_vector_vx_insn(disassembler_t* d, const char* name, uint32_t match, uint32_t mask)
 {
   d->add_insn(new disasm_insn_t(name, match, mask, {&vd, &vs2, &xrs1, opt, &vm}));
@@ -690,6 +695,7 @@ void disassembler_t::add_instructions(const isa_parser_t* isa)
   #define DEFINE_FX2TYPE(code) add_fx2type_insn(this, #code, match_##code, mask_##code);
   #define DEFINE_XFTYPE(code) add_xftype_insn(this, #code, match_##code, mask_##code);
   #define DEFINE_SFENCE_TYPE(code) add_sfence_insn(this, #code, match_##code, mask_##code);
+  #define DEFINE_VBRANCH_TYPE(code) add_vector_branch_insn(this, #code, match_##code, mask_##code);
 
   add_insn(new disasm_insn_t("unimp", match_csrrw|(CSR_CYCLE<<20), 0xffffffff, {}));
   add_insn(new disasm_insn_t("c.unimp", 0, 0xffff, {}));
@@ -754,6 +760,17 @@ void disassembler_t::add_instructions(const isa_parser_t* isa)
   DEFINE_BTYPE(bge)
   DEFINE_BTYPE(bltu)
   DEFINE_BTYPE(bgeu)
+
+  DEFINE_VBRANCH_TYPE(vbeq);
+  DEFINE_VBRANCH_TYPE(vbne);
+  DEFINE_VBRANCH_TYPE(vblt);
+  DEFINE_VBRANCH_TYPE(vbge);
+  DEFINE_VBRANCH_TYPE(vbltu);
+  DEFINE_VBRANCH_TYPE(vbgeu);
+  DEFINE_VBRANCH_TYPE(join);
+  DEFINE_RTYPE(barrier);
+  DEFINE_RTYPE(endprg);
+
 
   DEFINE_LTYPE(lui);
   DEFINE_LTYPE(auipc);
