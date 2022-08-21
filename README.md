@@ -1,4 +1,4 @@
-# Ventus RISC-V GPGPU isa simulator
+# Ventus RISC-V GPGPU ISA Simulator
 
 ## About
 
