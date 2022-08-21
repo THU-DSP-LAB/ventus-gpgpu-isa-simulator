@@ -1,81 +1,25 @@
-Spike RISC-V ISA Simulator
-============================
+# Ventus RISC-V GPGPU isa simulator
 
-About
--------------
+## About
 
-Spike, the RISC-V ISA Simulator, implements a functional model of one or more
-RISC-V harts.  It is named after the golden spike used to celebrate the
-completion of the US transcontinental railway.
+Ventus RISC-V GPGPU isa simulator, extends Spike with custom functionalities to support isa level simulation for Ventus RISC-V GPGPU.
 
-Spike supports the following RISC-V ISA features:
-  - RV32I and RV64I base ISAs, v2.1
-  - RV32E and RV64E base ISAs, v1.9
-  - Zifencei extension, v2.0
-  - Zicsr extension, v2.0
-  - M extension, v2.0
-  - A extension, v2.1
-  - F extension, v2.2
-  - D extension, v2.2
-  - Q extension, v2.2
-  - C extension, v2.0
-  - Zbkb, Zbkc, Zbkx, Zknd, Zkne, Zknh, Zksed, Zksh scalar cryptography extensions (Zk, Zkn, and Zks groups), v1.0
-  - Zkr virtual entropy source emulation, v1.0
-  - V extension, v1.0 (_requires a 64-bit host_)
-  - P extension, v0.9.2
-  - Zba extension, v1.0
-  - Zbb extension, v1.0
-  - Zbc extension, v1.0
-  - Zbs extension, v1.0
-  - Zfh and Zfhmin half-precision floating-point extensions, v1.0
-  - Zmmul integer multiplication extension, v1.0
-  - Zicbom, Zicbop, Zicboz cache-block maintenance extensions, v1.0
-  - Conformance to both RVWMO and RVTSO (Spike is sequentially consistent)
-  - Machine, Supervisor, and User modes, v1.11
-  - Hypervisor extension, v1.0
-  - Svnapot extension, v1.0
-  - Svpbmt extension, v1.0
-  - Svinval extension, v1.0
-  - CMO extension, v1.0
-  - Debug v0.14
-  - Smepmp extension v1.0
-  - Smstateen extension, v1.0
+This simulator is developed by 张泰然 and 郑名宸.
 
-As a Spike extension, the remainder of the proposed
-[Bit-Manipulation Extensions](https://github.com/riscv/riscv-bitmanip)
-is provided under the Spike-custom extension name _Xbitmanip_.
-These instructions (and, of course, the extension name) are not RISC-V
-standards.
+This simulator adds the following features into origin spike simulator:
+- support custom instruction for vector branch control and warp control
+  - vector branch control: vbeq, vbne, vblt, vbge, vbltu, vbgeu
+  - warp control: barrier, endprg
+- support custom csr: numw, numt, tid, wid, gds, lds
+- enhenced interactive mode commands to facilitate debugging of Ventus GPGPU programs
 
-These proposed bit-manipulation extensions can be split into further
-groups: Zbp, Zbs, Zbe, Zbf, Zbc, Zbm, Zbr, Zbt. Note that Zbc is
-ratified, but the original proposal contained some extra instructions
-(64-bit carryless multiplies) which are captured here.
+For more information of the original Spike, please refer to README-spike-origin.md
 
-To enable these extensions individually, use the Spike-custom
-extension names _XZbp_, _XZbs_, _XZbc_, and so on.
+## installation and usage
 
-Versioning and APIs
--------------------
+### build step
 
-Projects are versioned primarily to indicate when the API has been extended or
-rendered incompatible.  In that spirit, Spike aims to follow the
-[SemVer](https://semver.org/spec/v2.0.0.html) versioning scheme, in which
-major version numbers are incremented when backwards-incompatible API changes
-are made; minor version numbers are incremented when new APIs are added; and
-patch version numbers are incremented when bugs are fixed in
-a backwards-compatible manner.
-
-Spike's principal public API is the RISC-V ISA.  _The C++ interface to Spike's
-internals is **not** considered a public API at this time_, and
-backwards-incompatible changes to this interface _will_ be made without
-incrementing the major version number.
-
-Build Steps
----------------
-
-We assume that the RISCV environment variable is set to the RISC-V tools
-install path.
+Build step is identical to the origin build step of Spike. Assume that the RISCV enironment variable is set to the RISC-V tools install path.
 
     $ apt-get install device-tree-compiler
     $ mkdir build
@@ -84,222 +28,158 @@ install path.
     $ make
     $ [sudo] make install
 
-If your system uses the `yum` package manager, you can substitute
-`yum install dtc` for the first step.
+### compiling and running Ventus GPGPU program in Spike
 
-Build Steps on OpenBSD
-----------------------
+#### pre-requisition
+We executing Ventus GPGPU program with Spike in machine mode. To produce executable file, we tilize libgloss-htif and modifed version of riscv-gnu-toolchain to produce executable file. The following commands set the necessory environment.
 
-Install bash, gmake, dtc, and use clang.
 
-    $ pkg_add bash gmake dtc
-    $ exec bash
-    $ export CC=cc; export CXX=c++
-    $ mkdir build
-    $ cd build
-    $ ../configure --prefix=$RISCV
-    $ gmake
-    $ [doas] make install
+    # install riscv64-unknown-elf toolchain
+    $ git clone https://github.com/THU-DSP-LAB/riscv-gnu-toolchain.git
+    $ cd riscv-gnu-toolchain
+    $ mkdir build && cd build
+    $ ../configure --prefix=$RISCV --with-isa=rv64gv --with-abi=lp64d    --with-cmodel=medany
+    $ make
 
-Compiling and Running a Simple C Program
--------------------------------------------
+    # install libgloss-htif
+    $ cd ..
+    $ git clone https://github.com/ucb-bar/libgloss-htif.git
+    $ cd ligbloss-htif
+    $ mkdir build && cd build
+    $ ../configure --prefix=${RISCV}/riscv64-unknown-elf --host=riscv64-unknown-elf
+    $ make
+    $ make install
 
-Install spike (see Build Steps), riscv-gnu-toolchain, and riscv-pk.
+For futher reference, pleace refer to the corresponding instructions provided by libgloss-htif and riscv64-gnu-toolchain
 
-Write a short C program and name it hello.c.  Then, compile it into a RISC-V
-ELF binary named hello:
+#### compiling and running
+Assume compiling assembly code test.s, we use following commands.
 
-    $ riscv64-unknown-elf-gcc -o hello hello.c
+    $ riscv64-unknown-elf-gcc -fno-common -fno-builtin-printf -specs=htif_nano.specs -Wl,--defsym=__main=main -c test.s 
+    $ riscv64-unknown-elf-gcc -static -specs=htif_nano.specs -Wl,--defsym=__main=main test.o -o test.riscv
 
-Now you can simulate the program atop the proxy kernel:
+And use Spike to execute test.riscv.
 
-    $ spike pk hello
+    $ spike -d -p4 --isa=rv64gv --varch=vlen:256,elen:32 --gpgpuarch numw:4,numt:8 test.riscv
 
-Simulating a New Instruction
-------------------------------------
+We add gpgpuarch option to configure uArch parameters for Ventus GPGPU (numw to set total warp number and numt to set thread number per warp). Note that there are some constraints about the parameters: 
+1. numw must be equal to processor count (-p)
+2. numt must be equal to vlen divided by elen
+   
+For more spike options, use `spike -h`
 
-Adding an instruction to the simulator requires two steps:
+### interactive mode command enhancement
 
-  1.  Describe the instruction's functional behavior in the file
-      riscv/insns/<new_instruction_name>.h.  Examine other instructions
-      in that directory as a starting point.
+GPGPU execution is different from conventional CPU with vector extension in two aspect:
+1. use simt stack to control divergence and loop
+2. multiwarp managment
 
-  2.  Add the opcode and opcode mask to riscv/opcodes.h.  Alternatively,
-      add it to the riscv-opcodes package, and it will do so for you:
-        ```
-         $ cd ../riscv-opcodes
-         $ vi opcodes       // add a line for the new instruction
-         $ make install
-        ```
+We implement software models of simt stack and warp scheduling to support above features, and add enhanced interactive mode commands to display simt stack and warp scheduling information.
 
-  3.  Rebuild the simulator.
+| command | usage | function |
+| ------- | ----- | -------- |
+| simt-stack   | simt-stack \<core\>                  | Display simt stack info given hartid |
+| warp-barrier | warp-barrier                         | Display global warp barrier info(numw, numt and barrier bit vector) |
+| mem-region   | mem-region \<hex addr\> \<hex size\> | Show contents of physical memory given base memory and size |
 
-Interactive Debug Mode
----------------------------
+For more interactive mode commands, use `help` in interactive mode.
 
-To invoke interactive debug mode, launch spike with -d:
+## assembly programming introduction
 
-    $ spike -d pk hello
+In this section, we will introduce how to programm programs with Ventus GPGPU extension that can run in Spike. Since the software stack is not mature, this section may be changed a lot in the future.
 
-To see the contents of an integer register (0 is for core 0):
+### branch and loop assembly code
 
-    : reg 0 a0
+First, we introduce how to program branch and loop with custom instructions.
 
-To see the contents of a floating point register:
+Psuedo code for branch is shown as below.
+```assembly
+# if(condition(for example: vs1 == vs2))
+#   ture_branch_code;
+# else
+#   false_branch_code;
 
-    : fregs 0 ft0
-
-or:
-
-    : fregd 0 ft0
-
-depending upon whether you wish to print the register as single- or double-precision.
-
-To see the contents of a memory location (physical address in hex):
-
-    : mem 2020
-
-To see the contents of memory with a virtual address (0 for core 0):
-
-    : mem 0 2020
-
-You can advance by one instruction by pressing the enter key. You can also
-execute until a desired equality is reached:
-
-    : until pc 0 2020                   (stop when pc=2020)
-    : until reg 0 mie a                 (stop when register mie=0xa)
-    : until mem 2020 50a9907311096993   (stop when mem[2020]=50a9907311096993)
-
-Alternatively, you can execute as long as an equality is true:
-
-    : while mem 2020 50a9907311096993
-
-You can continue execution indefinitely by:
-
-    : r
-
-At any point during execution (even without -d), you can enter the
-interactive debug mode with `<control>-<c>`.
-
-To end the simulation from the debug prompt, press `<control>-<c>` or:
-
-    : q
-
-Debugging With Gdb
-------------------
-
-An alternative to interactive debug mode is to attach using gdb. Because spike
-tries to be like real hardware, you also need OpenOCD to do that. OpenOCD
-doesn't currently know about address translation, so it's not possible to
-easily debug programs that are run under `pk`. We'll use the following test
-program:
-```
-$ cat rot13.c 
-char text[] = "Vafgehpgvba frgf jnag gb or serr!";
-
-// Don't use the stack, because sp isn't set up.
-volatile int wait = 1;
-
-int main()
-{
-    while (wait)
-        ;
-
-    // Doesn't actually go on the stack, because there are lots of GPRs.
-    int i = 0;
-    while (text[i]) {
-        char lower = text[i] | 32;
-        if (lower >= 'a' && lower <= 'm')
-            text[i] += 13;
-        else if (lower > 'm' && lower <= 'z')
-            text[i] -= 13;
-        i++;
-    }
-
-done:
-    while (!wait)
-        ;
-}
-$ cat spike.lds 
-OUTPUT_ARCH( "riscv" )
-
-SECTIONS
-{
-  . = 0x10010000;
-  .text : { *(.text) }
-  .data : { *(.data) }
-}
-$ riscv64-unknown-elf-gcc -g -Og -o rot13-64.o -c rot13.c
-$ riscv64-unknown-elf-gcc -g -Og -T spike.lds -nostartfiles -o rot13-64 rot13-64.o
+BRANCH:
+    vbne        vs1, vs2, FALSE_BRANCH
+    true_branch_assembly_code
+    join        v0, v0, BRANCH_JOIN
+FALSE_BRANCH:
+    false_branch_assenbly_code
+    join        v0, v0, BRANCH_JOIN
+BRANCH_JOIN:
+    end_of_the_branch
 ```
 
-To debug this program, first run spike telling it to listen for OpenOCD:
-```
-$ spike --rbb-port=9824 -m0x10000000:0x20000 rot13-64
-Listening for remote bitbang connection on port 9824.
-```
-
-In a separate shell run OpenOCD with the appropriate configuration file:
-```
-$ cat spike.cfg 
-interface remote_bitbang
-remote_bitbang_host localhost
-remote_bitbang_port 9824
-
-set _CHIPNAME riscv
-jtag newtap $_CHIPNAME cpu -irlen 5 -expected-id 0x10e31913
-
-set _TARGETNAME $_CHIPNAME.cpu
-target create $_TARGETNAME riscv -chain-position $_TARGETNAME
-
-gdb_report_data_abort enable
-
-init
-halt
-$ openocd -f spike.cfg
-Open On-Chip Debugger 0.10.0-dev-00002-gc3b344d (2017-06-08-12:14)
-...
-riscv.cpu: target state: halted
+Psuedo code for loop is shown as below.
+```assembly
+    vblt    v0, v1, LOOP
+    join    v0, v0, LOOP_END
+LOOP:
+    loop_body
+    join    v0, v0, LOOP_COND_EVAL
+LOOP_COND_EVAL:
+    vblt    v0, v1, LOOP
+    join    v0, v0, LOOP_END
 ```
 
-In yet another shell, start your gdb debug session:
-```
-tnewsome@compy-vm:~/SiFive/spike-test$ riscv64-unknown-elf-gdb rot13-64
-GNU gdb (GDB) 8.0.50.20170724-git
-Copyright (C) 2017 Free Software Foundation, Inc.
-License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
-This is free software: you are free to change and redistribute it.
-There is NO WARRANTY, to the extent permitted by law.  Type "show copying"
-and "show warranty" for details.
-This GDB was configured as "--host=x86_64-pc-linux-gnu --target=riscv64-unknown-elf".
-Type "show configuration" for configuration details.
-For bug reporting instructions, please see:
-<http://www.gnu.org/software/gdb/bugs/>.
-Find the GDB manual and other documentation resources online at:
-<http://www.gnu.org/software/gdb/documentation/>.
-For help, type "help".
-Type "apropos word" to search for commands related to "word"...
-Reading symbols from rot13-64...done.
-(gdb) target remote localhost:3333
-Remote debugging using localhost:3333
-0x0000000010010004 in main () at rot13.c:8
-8	    while (wait)
-(gdb) print wait
-$1 = 1
-(gdb) print wait=0
-$2 = 0
-(gdb) print text
-$3 = "Vafgehpgvba frgf jnag gb or serr!"
-(gdb) b done 
-Breakpoint 1 at 0x10010064: file rot13.c, line 22.
-(gdb) c
-Continuing.
-Disabling abstract command writes to CSRs.
+### extra codes to produce executable file
 
-Breakpoint 1, main () at rot13.c:23
-23	    while (!wait)
-(gdb) print wait
-$4 = 0
-(gdb) print text
-...
+Since we use libgloss-htif to produce machine mode executable, extra codes need to be added.
+
+```assembly
+main:
+    addi    sp,sp,-16
+    sd      s0,8(sp)
+    addi    s0,sp,16
+	j       start_of_your_program
+
+main_end:
+	li      a5,0
+    mv      a0,a5
+    ld      s0,8(sp)
+    addi    sp,sp,16
+    ret
+
+start_of_your_program:
+    ...
+    j       main_end
 ```
+
+In future version, we may develop custom linker scripts to replace libgloss-htif and the extra codes will be unnecessary.
+
+### other conventions
+
+Current version needs the assembly program to obey following conventions to execute sucessfully in Spike. Some of them may be changed in future version.
+
+1. In Ventus GPGPU, vl is set in hardware. But in this simulator, extra vsetvli instrucions are needed to configure vl and other related parameters.
+2. We use .data directive to store data. Unlike in Ventus GPGPU hardware, we don't use gds and lds to get the global memory address. Instead we use la instruction to load start address of global/local memory into the register.
+
+### testcases
+
+We provided testcased in path gpgpu-testcase. To run the testcase, change directory to gpgpu-testcase and execute makefile script.
+
+1. compile the testcase
+    $ make TEST=[testcasename]
+
+2. invoke spike to run the testcase
+    $ make spike-sim TEST=[testcasename]
+    
+PS:
+- make spike-sim will alse compile the asssembly
+- testcasename is the name of testcase, e.g. loop
+- spike-sim have other parameters that can be configured via commandline
+  - P: processor count, defalut value is 4
+  - VARCH: rvv uArch parameter, default value is vlen:256,elen:32
+  - DEBUG: enable interactive mode, default value is -d
+  - ISA：supported isa, default value is rv64gv
+
+We provide the following testcases
+| name | function |
+| ---- | -------- |
+| branch-basic | test for simple branch |
+| branch-nested | test for nested branch |
+| loop | test for loop |
+| barrier | test for inter warp barrier |
+| gaussian | gaussian testcase |
+| saxpy | saxpy testcase implemented with extended gpgpu instructions |
+| saxpy2 | saxpy testcase implemented with conventional rvv instructions |
