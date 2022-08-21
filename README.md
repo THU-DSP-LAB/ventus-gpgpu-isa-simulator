@@ -2,7 +2,7 @@
 
 ## About
 
-Ventus RISC-V GPGPU isa simulator, extends Spike with custom functionalities to support isa level simulation for Ventus RISC-V GPGPU.
+Ventus RISC-V GPGPU isa simulator based on Spike.
 
 This simulator is developed by 张泰然 and 郑名宸.
 
