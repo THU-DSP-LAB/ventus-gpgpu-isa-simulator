@@ -5,6 +5,7 @@
 .equ CSR_GDS,   0x807
 .equ CSR_LDS,   0x806
 
+# data size is 64 -> use 8 warp, 8 thread/warp
 # data
 #   vector X                x10
 #   vector Y                x11
@@ -18,6 +19,9 @@ main:
     addi        sp,sp,-16
     sd          s0,8(sp)
     addi        s0,sp,16
+    li          t4, 32
+	vsetvli     t4, t4, e32, ta, ma
+    li          t4, 0
     j           saxpy
 main_end:
     li          a5,0

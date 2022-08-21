@@ -7,7 +7,7 @@ SRC = $(TEST).s
 OBJ = $(TEST).o
 TARGET = $(TEST).riscv
 
-P ?= 1
+P ?= 4
 VARCH ?= vlen:256,elen:32
 GPGPUARCH ?= numw:4,numt:8
 DEBUG ?= -d
