@@ -131,10 +131,10 @@ main:
     addi    sp,sp,-16
     sd      s0,8(sp)
     addi    s0,sp,16
-	j       start_of_your_program
+    j       start_of_your_program
 
 main_end:
-	li      a5,0
+    li      a5,0
     mv      a0,a5
     ld      s0,8(sp)
     addi    sp,sp,16
