@@ -36,7 +36,7 @@ class disassembler_t;
 reg_t illegal_instruction(processor_t* p, insn_t insn, reg_t pc);
 
 //warp scheduler for warp and barrier
-class warp_schedule
+class warp_schedule_t
 {
   public:
     void init_warp(const char *gpgpuarch);
@@ -493,7 +493,7 @@ public:
 
   class gpgpu_unit_t{
     private:
-      warp_schedule *w;
+      warp_schedule_t *w;
       processor_t *p;
       // custom csr
       csr_t_p numw;
@@ -518,22 +518,12 @@ public:
         simt_stack() {}
 
       void reset(processor_t *const proc);
-      void set_warp(warp_schedule *w);
+      void set_warp(warp_schedule_t *w);
       void set_barrier_1();
       void set_barrier_0();
       bool get_barrier();
 
-      void init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid, uint64_t _wid, uint64_t _gds, uint64_t _lds) {
-        numw->write(_numw);
-        numt->write(_numt);
-        tid->write(_tid);
-        wid->write(_wid);
-        gds->write(_gds);
-        lds->write(_lds);
-
-        // init simt-stack
-        simt_stack.init_mask(_numt);
-      }
+      void init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid, uint64_t _wid, uint64_t _gds, uint64_t _lds);
 
       struct simt_stack_entry_t
       {
@@ -562,8 +552,7 @@ public:
           simt_stack_entry_t& top();
           int size();
 
-          void push_branch
-          (reg_t if_pc, uint64_t if_mask, 
+          void push_branch(reg_t if_pc, uint64_t if_mask, 
                           uint64_t r_mask, reg_t else_pc, uint64_t else_mask); // push r_mask else_pc else_mask
           void pop_join(reg_t r_pc);   // 
 

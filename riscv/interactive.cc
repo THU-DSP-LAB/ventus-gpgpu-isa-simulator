@@ -141,6 +141,7 @@ void sim_t::interactive()
   funcs["h"] = funcs["help"];
   funcs["simt-stack"] = &sim_t::interactive_simt_stack;
   funcs["warp-barrier"] = &sim_t::interactive_warp_barrier;
+  funcs["mem-region"] = &sim_t::interactive_mem_region;
 
   while (!done())
   {
@@ -232,6 +233,7 @@ void sim_t::interactive_help(const std::string& cmd, const std::vector<std::stri
     "Note: Hitting enter is the same as: run 1\n"
     "simt-stack <core>               # Display simt stack info given hartid\n"  
     "warp-barrier                    # Display global warp barrier info\n"  
+    "mem-region <hex addr> <hex size># Show contents of physical memory given base memory and size\n"
     << std::endl;
 }
 
@@ -489,6 +491,49 @@ void sim_t::interactive_mem(const std::string& cmd, const std::vector<std::strin
   std::ostream out(sout_.rdbuf());
   out << std::hex << "0x" << std::setfill('0') << std::setw(max_xlen/4)
       << zext(get_mem(args), max_xlen) << std::endl;
+}
+
+void sim_t::interactive_mem_region(const std::string& cmd, const std::vector<std::string>& args)
+{
+  if(args.size() != 2)
+    throw trap_interactive();
+  
+  int max_xlen = procs[0]->get_isa().get_max_xlen();
+  int addr_advance = max_xlen / 8;
+  std::ostream out(sout_.rdbuf());
+  
+  reg_t base_addr = strtol(args[0].c_str(),NULL,16);
+  reg_t region_size = strtol(args[1].c_str(),NULL,16);
+  if (region_size % addr_advance != 0)
+    throw trap_interactive();
+  reg_t end_addr = base_addr + region_size;
+  std::cout << base_addr << " " << end_addr << std::endl;
+  
+
+  for(reg_t addr = base_addr; addr < end_addr; addr += addr_advance) {
+    std::cout << std::hex << "0x" << std::setfill('0') << std::setw(max_xlen/4)
+        << zext(base_addr, max_xlen) << ": ";
+    mmu_t* mmu = debug_mmu;
+    reg_t val;
+    switch(addr % 8)
+    {
+      case 0:
+        val = mmu->load_uint64(addr);
+        break;
+      case 4:
+        val = mmu->load_uint32(addr);
+        break;
+      case 2:
+      case 6:
+        val = mmu->load_uint16(addr);
+        break;
+      default:
+        val = mmu->load_uint8(addr);
+        break;
+    }
+    std::cout << std::hex << "0x" << std::setfill('0') << std::setw(max_xlen/4)
+        << val << std::endl;
+  }
 }
 
 void sim_t::interactive_str(const std::string& cmd, const std::vector<std::string>& args)

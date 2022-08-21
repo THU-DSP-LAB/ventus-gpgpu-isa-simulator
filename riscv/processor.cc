@@ -1092,10 +1092,6 @@ void processor_t::gpgpu_unit_t::reset(processor_t *const proc)
   mstatus_val = set_field(mstatus_val, MSTATUS_VS, 1);
   state->mstatus->write(mstatus_val);
 
-  // // initialize mask to all zero
-  // uint64_t &mask = p->VU.elt<uint64_t>(0, 0);
-  // mask = 0xffffffff;
-
   simt_stack.reset();
 }
 
@@ -1173,10 +1169,9 @@ int processor_t::gpgpu_unit_t::simt_stack_t::size()
 void processor_t::gpgpu_unit_t::simt_stack_t::reset()
 {
   _stack.clear();
-  init_mask(8);
 }
 
-void processor_t::gpgpu_unit_t::set_warp(warp_schedule *warp)
+void processor_t::gpgpu_unit_t::set_warp(warp_schedule_t *warp)
 {
   w = warp;
 }
@@ -1211,13 +1206,26 @@ bool processor_t::gpgpu_unit_t::get_barrier()
   return w->is_all_true;
 }
 
-void warp_schedule::init_warp(const char *s)
+void processor_t::gpgpu_unit_t::init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid, uint64_t _wid, uint64_t _gds, uint64_t _lds) {
+  numw->write(_numw);
+  numt->write(_numt);
+  tid->write(_tid);
+  wid->write(_wid);
+  gds->write(_gds);
+  lds->write(_lds);
+
+  // init simt-stack
+  simt_stack.init_mask(_numt);
+
+}
+
+void warp_schedule_t::init_warp(const char *s)
 {
   parse_gpgpuarch_string(s);
   barriers.resize(warp_number, 0);
 }
 
-void warp_schedule::parse_gpgpuarch_string(const char *s)
+void warp_schedule_t::parse_gpgpuarch_string(const char *s)
 {
   std::string str = strtolower(s);
   size_t pos = 0;

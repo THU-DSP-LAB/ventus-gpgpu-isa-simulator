@@ -73,7 +73,7 @@ public:
   void proc_reset(unsigned id);
 
 private:
-  warp_schedule w;
+  warp_schedule_t w;
   isa_parser_t isa;
   const cfg_t * const cfg;
   std::vector<std::pair<reg_t, mem_t*>> mems;
@@ -150,6 +150,7 @@ private:
   reg_t get_pc(const std::vector<std::string>& args);
   void interactive_simt_stack(const std::string& cmd, const std::vector<std::string>& args);
   void interactive_warp_barrier(const std::string& cmd, const std::vector<std::string>& args);
+  void interactive_mem_region(const std::string& cmd, const std::vector<std::string>& args);
 
   friend class processor_t;
   friend class mmu_t;
