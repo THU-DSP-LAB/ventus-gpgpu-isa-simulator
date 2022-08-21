@@ -31,7 +31,7 @@ Build step is identical to the origin build step of Spike. Assume that the RISCV
 ### compiling and running Ventus GPGPU program in Spike
 
 #### pre-requisition
-We executing Ventus GPGPU program with Spike in machine mode. To produce executable file, we tilize libgloss-htif and modifed version of riscv-gnu-toolchain to produce executable file. The following commands set the necessory environment.
+We executing Ventus GPGPU program with Spike in machine mode. To produce executable file, we utilize libgloss-htif and modifed version of riscv-gnu-toolchain to produce executable file. The following commands set the necessory environment.
 
 
     # install riscv64-unknown-elf toolchain
