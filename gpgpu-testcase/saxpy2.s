@@ -15,9 +15,6 @@ main:
     addi            sp,sp,-16
     sd              s0,8(sp)
     addi            s0,sp,16
-    li              t4, 32
-	vsetvli         t4, t4, e32, ta, ma
-    li              t4, 0
     j               saxpy2
 main_end:
     li              a5,0
@@ -28,6 +25,7 @@ main_end:
 saxpy2:
     csrr            t1, CSR_GDS
     la              t1, global_data
+    csrr            a4, vl
     lw              a0, 0(t1)
     lw              a3, 4(t1)
     addi            t2, a0, 31
@@ -37,6 +35,9 @@ saxpy2:
     add             a2, a1, t2
 
 saxpy:
+    li              t4, 32
+	vsetvli         a4, t4, e32, ta, ma
+    li              t4, 0
     vle32.v         v1, (a1)
     sub             a0, a0, a4
     slli            a4, a4, 2

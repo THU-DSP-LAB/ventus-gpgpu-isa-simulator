@@ -4,8 +4,8 @@ CFLAG_LD = -static -specs=htif_nano.specs -Wl,--defsym=__main=main
 
 TEST ?= branch-basic
 SRC = $(TEST).s
-OBJ = $(TEST).o
-TARGET = $(TEST).riscv
+OBJ = build/$(TEST).o
+TARGET = build/$(TEST).riscv
 
 P ?= 4
 VARCH ?= vlen:256,elen:32
@@ -20,10 +20,10 @@ spike-sim: $(TARGET)
 	spike $(SPIKE_ARGS) $(TARGET)
 
 $(OBJ): $(SRC)
-	$(CC) $(CFLAG_C) $(SRC)
+	$(CC) $(CFLAG_C) $(SRC) -o $(OBJ)
 
 $(TARGET): $(OBJ)
 	$(CC) $(CFLAG_LD) $(OBJ) -o $(TARGET)
 
 clean:
-	rm *.riscv *.o
+	rm build/*
