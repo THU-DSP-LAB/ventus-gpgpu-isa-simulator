@@ -17,7 +17,7 @@ For more information of the original Spike, please refer to README-spike-origin.
 
 ## document
 
-see document in ‘https://github.com/THU-DSP-LAB/riscv-gnu-toolchain/tree/main/rvv-gpgpu/documents’
+see document in  https://github.com/THU-DSP-LAB/riscv-gnu-toolchain/tree/main/rvv-gpgpu/documents
 
 ## installation and usage
 
