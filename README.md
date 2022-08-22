@@ -42,6 +42,7 @@ We execute Ventus GPGPU program with Spike in machine mode. To produce executabl
     $ git update riscv-binutils
     $ cd riscv-binutils
     $ git checkout main
+    $ cd ..
     $
     $ mkdir build && cd build
     $ ../configure --prefix=$RISCV --with-isa=rv64gv --with-abi=lp64d --with-cmodel=medany
