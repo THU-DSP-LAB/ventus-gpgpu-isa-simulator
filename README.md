@@ -37,6 +37,12 @@ We execute Ventus GPGPU program with Spike in machine mode. To produce executabl
     # install riscv64-unknown-elf toolchain
     $ git clone https://github.com/THU-DSP-LAB/riscv-gnu-toolchain.git
     $ cd riscv-gnu-toolchain
+    $
+    $ git init riscv-binutils
+    $ git update riscv-binutils
+    $ cd riscv-binutils
+    $ git checkout main
+    $
     $ mkdir build && cd build
     $ ../configure --prefix=$RISCV --with-isa=rv64gv --with-abi=lp64d --with-cmodel=medany
     $ make
