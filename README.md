@@ -15,6 +15,10 @@ This simulator adds the following features into origin spike simulator:
 
 For more information of the original Spike, please refer to README-spike-origin.md
 
+## document
+
+see document in ‘https://github.com/THU-DSP-LAB/riscv-gnu-toolchain/tree/main/rvv-gpgpu/documents’
+
 ## installation and usage
 
 ### build step
