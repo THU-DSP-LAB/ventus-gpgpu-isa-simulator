@@ -35,14 +35,14 @@ Build step is identical to the origin build step of Spike. Assume that the RISCV
 ### compiling and running Ventus GPGPU program in Spike
 
 #### pre-requisition
-We executing Ventus GPGPU program with Spike in machine mode. To produce executable file, we utilize libgloss-htif and modifed version of riscv-gnu-toolchain to produce executable file. The following commands set the necessory environment.
+We execute Ventus GPGPU program with Spike in machine mode. To produce executable file, we utilize libgloss-htif and the modifed version of riscv-gnu-toolchain. The following commands set the necessory environment.
 
 
     # install riscv64-unknown-elf toolchain
     $ git clone https://github.com/THU-DSP-LAB/riscv-gnu-toolchain.git
     $ cd riscv-gnu-toolchain
     $ mkdir build && cd build
-    $ ../configure --prefix=$RISCV --with-isa=rv64gv --with-abi=lp64d    --with-cmodel=medany
+    $ ../configure --prefix=$RISCV --with-isa=rv64gv --with-abi=lp64d --with-cmodel=medany
     $ make
 
     # install libgloss-htif
@@ -57,7 +57,7 @@ We executing Ventus GPGPU program with Spike in machine mode. To produce executa
 For futher reference, pleace refer to the corresponding instructions provided by libgloss-htif and riscv64-gnu-toolchain
 
 #### compiling and running
-Assume compiling assembly code test.s, we use following commands.
+Assuming assembly code test.s, we use following commands.
 
     $ riscv64-unknown-elf-gcc -fno-common -fno-builtin-printf -specs=htif_nano.specs -Wl,--defsym=__main=main -c test.s 
     $ riscv64-unknown-elf-gcc -static -specs=htif_nano.specs -Wl,--defsym=__main=main test.o -o test.riscv
@@ -128,7 +128,7 @@ LOOP_COND_EVAL:
 
 ### extra codes to produce executable file
 
-Since we use libgloss-htif to produce machine mode executable, extra codes need to be added.
+Since we use libgloss-htif to produce machine mode executable, extra codes are needed.
 
 ```assembly
 main:
@@ -153,10 +153,10 @@ In future version, we may develop custom linker scripts to replace libgloss-htif
 
 ### other conventions
 
-Current version needs the assembly program to obey following conventions to execute sucessfully in Spike. Some of them may be changed in future version.
+Current version needs the assembly program to obey following conventions to be executed sucessfully in Spike. Some of them may be changed in future version.
 
 1. In Ventus GPGPU, vl is set in hardware. But in this simulator, extra vsetvli instrucions are needed to configure vl and other related parameters.
-2. We use .data directive to store data. Unlike in Ventus GPGPU hardware, we don't use gds and lds to get the global memory address. Instead we use la instruction to load start address of global/local memory into the register.
+2. We use .data directive to store data. Unlike in Ventus GPGPU hardware, we don't use gds/lds to get the global/local memory address. Instead we use la instruction to load start address of global/local memory into the register.
 
 ### testcases
 
