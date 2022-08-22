@@ -30,8 +30,8 @@ Build step is identical to the origin build step of Spike. Assume that the RISCV
 
 ### compiling and running Ventus GPGPU program in Spike
 
-#### pre-requisition
-We execute Ventus GPGPU program with Spike in machine mode. To produce executable file, we utilize libgloss-htif and the modifed version of riscv-gnu-toolchain. The following commands set the necessory environment.
+#### prerequisites
+We execute Ventus GPGPU program with Spike in machine mode. To produce executable file, we utilize libgloss-htif and the modifed version of riscv-gnu-toolchain. The following commands set up the necessory environment.
 
 
     # install riscv64-unknown-elf toolchain
@@ -93,7 +93,7 @@ For more interactive mode commands, use `help` in interactive mode.
 
 ## assembly programming introduction
 
-In this section, we will introduce how to programm programs with Ventus GPGPU extension that can run in Spike. Since the software stack is not mature, this section may be changed a lot in the future.
+In this section, we will introduce how to program programs with Ventus GPGPU extension that can run in Spike. Since the software stack is not mature, this section may be changed a lot in the future.
 
 ### branch and loop assembly code
 
@@ -163,7 +163,7 @@ Current version needs the assembly program to obey following conventions to be e
 
 ### testcases
 
-We provided testcased in path gpgpu-testcase. To run the testcase, change directory to gpgpu-testcase and execute makefile script.
+We provided testcased in path gpgpu-testcase. To run the testcase, change directory to gpgpu-testcase and execute the makefile script.
 
 1. compile the testcase
     $ make TEST=[testcasename]
