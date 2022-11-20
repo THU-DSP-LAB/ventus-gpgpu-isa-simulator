@@ -47,7 +47,7 @@ We execute Ventus GPGPU program with Spike in machine mode. To produce executabl
     $ mkdir build && cd build
     $ ../configure --prefix=$RISCV --with-isa=rv64gv --with-abi=lp64d --with-cmodel=medany
     $ make
-
+    
     # install libgloss-htif
     $ cd ..
     $ git clone https://github.com/ucb-bar/libgloss-htif.git
@@ -73,6 +73,7 @@ We add gpgpuarch option to configure uArch parameters for Ventus GPGPU (numw to 
 1. numw must be equal to processor count (-p)
 2. numt must be equal to vlen divided by elen
    
+
 For more spike options, use `spike -h`
 
 ### interactive mode command enhancement
@@ -152,7 +153,9 @@ start_of_your_program:
     j       main_end
 ```
 
-In future version, we may develop custom linker scripts to replace libgloss-htif and the extra codes will be unnecessary.
+~~In future version, we may develop custom linker scripts to replace libgloss-htif and the extra codes will be unnecessary.~~
+
+**Now we develop scripts to add extra codes automatically. See [here](https://github.com/THU-DSP-LAB/ventus-gpgpu-isa-simulator/blob/main/gpgpu-testcase/autospike/AutoSpikeUsage.md).**
 
 ### other conventions
 
@@ -171,6 +174,7 @@ We provided testcased in path gpgpu-testcase. To run the testcase, change direct
 2. invoke spike to run the testcase
     $ make spike-sim TEST=[testcasename]
     
+
 PS:
 - make spike-sim will alse compile the asssembly
 - testcasename is the name of testcase, e.g. loop
