@@ -890,6 +890,7 @@ riscv_insn_ext_v_ctrl = \
 	
 
 riscv_insn_ext_v_gpgpu = \
+	vftta_vv \
 	vbeq \
 	vbne \
 	vblt \

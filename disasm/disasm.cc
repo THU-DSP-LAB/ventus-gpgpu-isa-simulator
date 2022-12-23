@@ -768,6 +768,8 @@ void disassembler_t::add_instructions(const isa_parser_t* isa)
   DEFINE_VBRANCH_TYPE(vbltu);
   DEFINE_VBRANCH_TYPE(vbgeu);
   DEFINE_VBRANCH_TYPE(join);
+  //DISASM_OPIV_V___INSN(vftta);
+  ////DEFINE_VECTOR_VV(vftta_vv);
   DEFINE_RTYPE(barrier);
   DEFINE_RTYPE(endprg);
 
@@ -1401,6 +1403,7 @@ void disassembler_t::add_instructions(const isa_parser_t* isa)
 
     //OPFVV/OPFVF
     //0b00_0000
+    DEFINE_VECTOR_VV(vftta_vv);
     DISASM_OPIV_VXI_INSN(vadd,         1, v);
     DISASM_OPIV_VX__INSN(vsub,         1);
     DISASM_OPIV__XI_INSN(vrsub,        1);
@@ -1581,6 +1584,7 @@ void disassembler_t::add_instructions(const isa_parser_t* isa)
 
     //OPFVV/OPFVF
     //0b00_0000
+    //DISASM_OPIV_V___INSN(vftta);
     DISASM_OPIV_VF_INSN(vfadd);
     DISASM_OPIV_S__INSN(vfredusum);
     DISASM_OPIV_VF_INSN(vfsub);
