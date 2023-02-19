@@ -78,15 +78,20 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
 
   // initialize warp schedule
   w.init_warp(cfg->gpgpuarch());
-  uint64_t gds=0;
-  uint64_t lds=0;
+  uint64_t pds=0xa0000000;
+  uint64_t lds=0xb0000000;
+  uint64_t knl=0;
+  uint64_t wgid=0;
+  uint64_t gidx=0;
+  uint64_t gidy=0;
+  uint64_t gidz=0;
 
   for (size_t i = 0; i < cfg->nprocs(); i++) {
     procs[i] = new processor_t(&isa, cfg->varch(), this, cfg->hartids()[i], halted,
                                log_file.get(), sout_);
     procs[i]->gpgpu_unit.set_warp(&w);
     //现在一个warp就是一个core
-    procs[i]->gpgpu_unit.init_warp(w.warp_number, w.thread_number, i*w.thread_number, i, gds, lds);
+    procs[i]->gpgpu_unit.init_warp(w.warp_number, w.thread_number, i*w.thread_number,wgid, i, pds, lds, knl, gidx,gidy,gidz);
     assert(w.warp_number == cfg->nprocs());
     assert(w.thread_number == (procs[i]->VU.get_vlen() / procs[i]->VU.get_elen()));
   }

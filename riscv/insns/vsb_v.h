@@ -1,0 +1,1 @@
+VI_GPU_ST_INDEX(e32,true,{MMU.store_uint8(baseBias + ((baseTid + vreg_inx)<<2),index[i]);});

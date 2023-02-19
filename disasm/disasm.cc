@@ -106,6 +106,26 @@ struct : public arg_t {
 
 struct : public arg_t {
   std::string to_string(insn_t insn) const {
+    std::stringstream s;
+    s << " "<< ((uint32_t)insn.i_imm() & 3584) << " " <<  ((uint32_t)insn.i_imm() & 448)<< " " <<((uint32_t)insn.i_imm() & 56) << " "<<((uint32_t)insn.i_imm() & 7)<< " ";
+    return s.str();
+  }
+} extimm;
+
+struct : public arg_t {
+  std::string to_string(insn_t insn) const {
+    return std::to_string((int)insn.v_simm11());
+  }
+} v_simm11;
+
+struct : public arg_t {
+  std::string to_string(insn_t insn) const {
+    return std::to_string((int)insn.v_s_simm11());
+  }
+} v_s_simm11;
+
+struct : public arg_t {
+  std::string to_string(insn_t insn) const {
     return std::to_string((int)insn.shamt());
   }
 } shamt;
@@ -120,7 +140,7 @@ struct : public arg_t {
 
 struct : public arg_t {
   std::string to_string(insn_t insn) const {
-    return std::to_string(insn.rs1());
+    return std::to_string(insn.v_zimm5()); // to distinguish zimm5 and rs1 when using regext{i} inst
   }
 } zimm5;
 
@@ -588,6 +608,41 @@ static void NOINLINE add_vector_branch_insn(disassembler_t* d, const char*name, 
   d->add_insn(new disasm_insn_t(name, match, mask, {&vs2, &vs1, &branch_target}));
 }
 
+static void NOINLINE add_vector_imm12_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
+{
+  d->add_insn(new disasm_insn_t(name, match, mask, {&vd, &vs1, &imm, opt,&vm}));
+}
+
+static void NOINLINE add_vector_load12_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
+{
+  d->add_insn(new disasm_insn_t(name, match, mask, {&vd, &v_address, &vs1,&imm, opt,&vm}));
+}
+
+static void NOINLINE add_vector_load_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
+{
+  d->add_insn(new disasm_insn_t(name, match, mask, {&vd, &v_address, &xrs1,&v_simm11,opt, &vm}));
+}
+
+static void NOINLINE add_vector_store12_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
+{
+  d->add_insn(new disasm_insn_t(name, match, mask, {&vs2, &v_address, &vs1, &v_s_simm11,opt,&vm}));
+}
+
+static void NOINLINE add_vector_store_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
+{
+  d->add_insn(new disasm_insn_t(name, match, mask, {&vs2, &v_address, &xrs1, &imm,opt,&vm}));
+}
+
+static void NOINLINE add_barrier_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
+{
+  d->add_insn(new disasm_insn_t(name, match, mask, {&xrd, &xrs2, &zimm5}));
+}
+
+static void NOINLINE add_regext_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
+{
+  d->add_insn(new disasm_insn_t(name, match, mask, {&xrd, &xrs1, &extimm}));
+}
+
 static void NOINLINE add_vector_vx_insn(disassembler_t* d, const char* name, uint32_t match, uint32_t mask)
 {
   d->add_insn(new disasm_insn_t(name, match, mask, {&vd, &vs2, &xrs1, opt, &vm}));
@@ -696,6 +751,13 @@ void disassembler_t::add_instructions(const isa_parser_t* isa)
   #define DEFINE_XFTYPE(code) add_xftype_insn(this, #code, match_##code, mask_##code);
   #define DEFINE_SFENCE_TYPE(code) add_sfence_insn(this, #code, match_##code, mask_##code);
   #define DEFINE_VBRANCH_TYPE(code) add_vector_branch_insn(this, #code, match_##code, mask_##code);
+  #define DEFINE_VVI12_TYPE(code) add_vector_imm12_insn(this, #code, match_##code, mask_##code);
+  #define DEFINE_VL_TYPE(code) add_vector_load_insn(this, #code, match_##code, mask_##code);
+  #define DEFINE_VS_TYPE(code) add_vector_store_insn(this, #code, match_##code, mask_##code);
+  #define DEFINE_VL12_TYPE(code) add_vector_load12_insn(this, #code, match_##code, mask_##code);
+  #define DEFINE_VS12_TYPE(code) add_vector_store12_insn(this, #code, match_##code, mask_##code);
+  #define DEFINE_BARRIER_TYPE(code) add_barrier_insn(this, #code, match_##code, mask_##code);
+  #define DEFINE_REGEXT_TYPE(code) add_regext_insn(this, #code, match_##code, mask_##code);
 
   add_insn(new disasm_insn_t("unimp", match_csrrw|(CSR_CYCLE<<20), 0xffffffff, {}));
   add_insn(new disasm_insn_t("c.unimp", 0, 0xffff, {}));
@@ -770,8 +832,29 @@ void disassembler_t::add_instructions(const isa_parser_t* isa)
   DEFINE_VBRANCH_TYPE(join);
   //DISASM_OPIV_V___INSN(vftta);
   ////DEFINE_VECTOR_VV(vftta_vv);
-  DEFINE_RTYPE(barrier);
+  DEFINE_BARRIER_TYPE(barrier);
   DEFINE_RTYPE(endprg);
+  DEFINE_VVI12_TYPE(vadd12_vi);
+  DEFINE_VVI12_TYPE(vsub12_vi);
+  DEFINE_VL12_TYPE(vlw12_v);
+  DEFINE_VL12_TYPE(vlh12_v);
+  DEFINE_VL12_TYPE(vlb12_v);
+  DEFINE_VL12_TYPE(vlhu12_v);
+  DEFINE_VL12_TYPE(vlbu12_v);
+  DEFINE_VS12_TYPE(vsw12_v);
+  DEFINE_VS12_TYPE(vsh12_v);
+  DEFINE_VS12_TYPE(vsb12_v);
+  DEFINE_VL_TYPE(vlw_v);
+  DEFINE_VL_TYPE(vlh_v);
+  DEFINE_VL_TYPE(vlb_v);
+  DEFINE_VL_TYPE(vlhu_v);
+  DEFINE_VL_TYPE(vlbu_v);
+  DEFINE_VS_TYPE(vsw_v);
+  DEFINE_VS_TYPE(vsh_v);
+  DEFINE_VS_TYPE(vsb_v);
+  DEFINE_REGEXT_TYPE(regext);
+  DEFINE_REGEXT_TYPE(regexti);
+
 
 
   DEFINE_LTYPE(lui);

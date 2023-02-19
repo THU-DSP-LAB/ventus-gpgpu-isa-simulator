@@ -890,7 +890,26 @@ riscv_insn_ext_v_ctrl = \
 	
 
 riscv_insn_ext_v_gpgpu = \
-	vftta_vv \
+	regext \
+	regexti \
+	vadd12_vi \
+	vsub12_vi \
+	vlw12_v \
+	vlh12_v \
+	vlhu12_v \
+	vlb12_v \
+	vlbu12_v \
+	vsw12_v \
+	vsh12_v \
+	vsb12_v \
+	vlw_v \
+	vlh_v \
+	vlb_v \
+	vlhu_v \
+	vlbu_v \
+	vsw_v \
+	vsh_v \
+	vsb_v \
 	vbeq \
 	vbne \
 	vblt \
@@ -899,7 +918,8 @@ riscv_insn_ext_v_gpgpu = \
 	vbgeu \
 	join \
 	endprg \
-	barrier
+	barrier \
+	barriersub
 
 riscv_insn_ext_v = \
 	$(riscv_insn_ext_v_alu_fp) \

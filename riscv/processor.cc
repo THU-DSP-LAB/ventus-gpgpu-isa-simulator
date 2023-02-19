@@ -1080,12 +1080,19 @@ void processor_t::gpgpu_unit_t::reset(processor_t *const proc)
   
   state_t *state = p->get_state();
   auto &csrmap = p->get_state()->csrmap;
+  csrmap[CSR_TID] = tid = std::make_shared<basic_csr_t>(proc, CSR_TID, 0);
   csrmap[CSR_NUMW] = numw = std::make_shared<basic_csr_t>(proc, CSR_NUMW, 0);
   csrmap[CSR_NUMT] = numt = std::make_shared<basic_csr_t>(proc, CSR_NUMT, 0);
-  csrmap[CSR_TID] = tid = std::make_shared<basic_csr_t>(proc, CSR_TID, 0);
+  csrmap[CSR_KNL] = knl = std::make_shared<basic_csr_t>(proc, CSR_KNL, 0);
+  csrmap[CSR_WGID] = wgid = std::make_shared<basic_csr_t>(proc, CSR_WGID, 0);
   csrmap[CSR_WID] = wid = std::make_shared<basic_csr_t>(proc, CSR_WID, 0);
-  csrmap[CSR_GDS] = gds = std::make_shared<basic_csr_t>(proc, CSR_GDS, 0);
+  csrmap[CSR_PDS] = pds = std::make_shared<basic_csr_t>(proc, CSR_PDS, 0);
   csrmap[CSR_LDS] = lds = std::make_shared<basic_csr_t>(proc, CSR_LDS, 0);
+  csrmap[CSR_GIDX] = gidx = std::make_shared<basic_csr_t>(proc, CSR_GIDX, 0);
+  csrmap[CSR_GIDY] = gidy = std::make_shared<basic_csr_t>(proc, CSR_GIDY, 0);
+  csrmap[CSR_GIDZ] = gidz = std::make_shared<basic_csr_t>(proc, CSR_GIDZ, 0);    
+  
+
   
   // initialize csrs to enable vecter extension
   reg_t mstatus_val = state->mstatus->read();
@@ -1206,13 +1213,18 @@ bool processor_t::gpgpu_unit_t::get_barrier()
   return w->is_all_true;
 }
 
-void processor_t::gpgpu_unit_t::init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid, uint64_t _wid, uint64_t _gds, uint64_t _lds) {
+void processor_t::gpgpu_unit_t::init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid,uint64_t _wgid, uint64_t _wid, uint64_t _pds, uint64_t _lds,uint64_t _knl,uint64_t _gidx,uint64_t _gidy,uint64_t _gidz) {
   numw->write(_numw);
   numt->write(_numt);
   tid->write(_tid);
   wid->write(_wid);
-  gds->write(_gds);
+  wgid->write(_wgid);
+  pds->write(_pds);
   lds->write(_lds);
+  knl->write(_knl);
+  gidx->write(_gidx);
+  gidy->write(_gidy);
+  gidz->write(_gidz);
 
   // init simt-stack
   simt_stack.init_mask(_numt);

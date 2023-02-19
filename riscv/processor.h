@@ -500,8 +500,13 @@ public:
       csr_t_p numt;
       csr_t_p tid;
       csr_t_p wid;//warp id
-      csr_t_p gds;
+      csr_t_p wgid;
+      csr_t_p pds;
       csr_t_p lds;
+      csr_t_p knl;
+      csr_t_p gidx;
+      csr_t_p gidy;
+      csr_t_p gidz;
 
       // int warp_id;
 
@@ -512,9 +517,14 @@ public:
         numw(0),
         numt(0),
         tid(0),
+        wgid(0),
         wid(0),
-        gds(0),
+        pds(0),
         lds(0),
+        knl(0),
+        gidx(0),
+        gidy(0),
+        gidz(0),
         simt_stack() {}
 
       void reset(processor_t *const proc);
@@ -523,7 +533,7 @@ public:
       void set_barrier_0();
       bool get_barrier();
 
-      void init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid, uint64_t _wid, uint64_t _gds, uint64_t _lds);
+      void init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid, uint64_t _wgid, uint64_t _wid,uint64_t _pds, uint64_t _lds,uint64_t _knl,uint64_t _gidx,uint64_t _gidy,uint64_t _gidz);
 
       struct simt_stack_entry_t
       {

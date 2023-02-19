@@ -33,6 +33,15 @@
     } \
   }
 
+#define VI12_LOOP_ELEMENT_SKIP(BODY) \
+  if (GPGPU_ENABLE) { \
+    uint64_t mask = P.gpgpu_unit.simt_stack.get_mask(); \
+    bool skip = ((mask >> i) & 0x1) == 0; \
+    if(skip) { \
+      continue; \
+    } \
+  }
+
 #define VI_ELEMENT_SKIP(inx) \
   if (inx >= vl) { \
     continue; \
@@ -42,6 +51,14 @@
     VI_LOOP_ELEMENT_SKIP(); \
   }
 
+#define VI12_ELEMENT_SKIP(inx) \
+  if (inx >= vl) { \
+    continue; \
+  } else if (inx < P.VU.vstart->read()) { \
+    continue; \
+  } else { \
+    VI12_LOOP_ELEMENT_SKIP(); \
+  }
 //
 // vector: operation and register acccess check helper
 //
@@ -231,6 +248,10 @@ static inline bool is_aligned(const unsigned val, const unsigned pos)
     VI_GENERAL_LOOP_BASE \
     VI_LOOP_ELEMENT_SKIP();
 
+#define VI12_LOOP_BASE \
+    VI_GENERAL_LOOP_BASE \
+    VI12_LOOP_ELEMENT_SKIP();
+
 #define VI_LOOP_END \
   } \
   P.VU.vstart->write(0);
@@ -365,6 +386,11 @@ static inline bool is_aligned(const unsigned val, const unsigned pos)
   type_sew_t<x>::type &vd = P.VU.elt<type_sew_t<x>::type>(rd_num, i, true); \
   type_sew_t<x>::type simm5 = (type_sew_t<x>::type)insn.v_simm5(); \
   type_sew_t<x>::type vs2 = P.VU.elt<type_sew_t<x>::type>(rs2_num, i);
+
+#define VI12_PARAMS(x) \
+  type_sew_t<x>::type &vd = P.VU.elt<type_sew_t<x>::type>(rd_num, i, true); \
+  type_sew_t<x>::type iimm = (type_sew_t<x>::type)insn.v_simm12(); \
+  type_sew_t<x>::type vs1 = P.VU.elt<type_sew_t<x>::type>(rs1_num, i); 
 
 #define XV_PARAMS(x) \
   type_sew_t<x>::type &vd = P.VU.elt<type_sew_t<x>::type>(rd_num, i, true); \
@@ -772,6 +798,24 @@ static inline bool is_aligned(const unsigned val, const unsigned pos)
     BODY; \
   } else if (sew == e64) { \
     VI_PARAMS(e64); \
+    BODY; \
+  } \
+  VI_LOOP_END 
+
+#define VI_VI12_LOOP(BODY) \
+  VI_CHECK_SSS(false) \
+  VI12_LOOP_BASE \
+  if (sew == e8) { \
+    VI12_PARAMS(e8); \
+    BODY; \
+  } else if (sew == e16) { \
+    VI12_PARAMS(e16); \
+    BODY; \
+  } else if (sew == e32) { \
+    VI12_PARAMS(e32); \
+    BODY; \
+  } else if (sew == e64) { \
+    VI12_PARAMS(e64); \
     BODY; \
   } \
   VI_LOOP_END 
@@ -1290,6 +1334,151 @@ reg_t index[P.VU.vlmax]; \
       default: \
         MMU.store_uint64(baseAddr + index[i] + fn * 8, \
           P.VU.elt<uint64_t>(vs3 + fn * flmul, vreg_inx)); \
+        break; \
+      } \
+    } \
+  } \
+  P.VU.vstart->write(0);
+
+// gpgpu load and store
+
+#define VI_GPU_LD12_INDEX(elt_width,is_seg,BODY) \
+  const reg_t nf = 1; \
+  const reg_t vl = P.VU.vl->read(); \
+  const reg_t baseAddr = insn.i_imm(); \
+  const reg_t vd = insn.rd(); \
+  if (!is_seg) \
+    require(nf == 1); \
+  VI_DUPLICATE_VREG(insn.rs1(), elt_width); \
+  for (reg_t i = 0; i < vl; ++i) { \
+    VI12_ELEMENT_SKIP(i); \
+    VI_STRIP(i); \
+    P.VU.vstart->write(i); \
+    for (reg_t fn = 0; fn < nf; ++fn) { \
+      switch (P.VU.vsew) { \
+        case e8: \
+          P.VU.elt<uint8_t>(vd , vreg_inx, true) = \
+            BODY;\
+          break; \
+        case e16: \
+          P.VU.elt<uint16_t>(vd , vreg_inx, true) = \
+            BODY;\
+          break; \
+        case e32: \
+          P.VU.elt<uint32_t>(vd , vreg_inx, true) = \
+            BODY;\
+          break; \
+        default: \
+          P.VU.elt<uint64_t>(vd , vreg_inx, true) = \
+            BODY;\
+          break; \
+      } \
+    } \
+  } \
+  P.VU.vstart->write(0);
+
+#define VI_GPU_LD_INDEX(elt_width,is_seg,BODY) \
+  const reg_t nf = 1; \
+  const reg_t vl = P.VU.vl->read(); \
+  const reg_t baseAddr = RS1 + insn.v_simm11(); \
+  const reg_t baseBias = P.get_csr(CSR_PDS) + (baseAddr & ~3) * P.get_csr(CSR_NUMW) * P.get_csr(CSR_NUMT) + (baseAddr & 3); \
+  const reg_t baseTid = P.get_csr(CSR_TID); \
+  const reg_t vd = insn.rd(); \
+  if (!is_seg) \
+    require(nf == 1); \
+  VI_DUPLICATE_VREG(insn.rs1(), elt_width); \
+  for (reg_t i = 0; i < vl; ++i) { \
+    VI12_ELEMENT_SKIP(i); \
+    VI_STRIP(i); \
+    P.VU.vstart->write(i); \
+    for (reg_t fn = 0; fn < nf; ++fn) { \
+      switch (P.VU.vsew) { \
+        case e8: \
+          P.VU.elt<uint8_t>(vd, vreg_inx, true) = \
+            BODY;\
+          break; \
+        case e16: \
+          P.VU.elt<uint16_t>(vd, vreg_inx, true) = \
+            BODY;\
+          break; \
+        case e32: \
+          P.VU.elt<uint32_t>(vd, vreg_inx, true) = \
+            BODY;\
+          break; \
+        default: \
+          P.VU.elt<uint64_t>(vd, vreg_inx, true) = \
+            BODY;\
+          break; \
+      } \
+    } \
+  } \
+  P.VU.vstart->write(0);
+
+#define VI_GPU_ST_INDEX(elt_width, is_seg,BODY) \
+  const reg_t nf = 1; \
+  const reg_t vl = P.VU.vl->read(); \
+  const reg_t baseAddr = RS1 + insn.v_s_simm11(); \
+  const reg_t baseBias = P.get_csr(CSR_PDS) + (baseAddr & ~3) * P.get_csr(CSR_NUMW) * P.get_csr(CSR_NUMT) + (baseAddr & 3); \
+  const reg_t baseTid = P.get_csr(CSR_TID); \
+  const reg_t vs3 = insn.rs2(); \
+  if (!is_seg) \
+    require(nf == 1); \
+  VI_DUPLICATE_VREG(insn.rs1(), elt_width); \
+  for (reg_t i = 0; i < vl; ++i) { \
+    VI_STRIP(i) \
+    VI12_ELEMENT_SKIP(i); \
+    P.VU.vstart->write(i); \
+    for (reg_t fn = 0; fn < nf; ++fn) { \
+      switch (P.VU.vsew) { \
+      case e8: \
+        MMU.store_uint8(baseAddr + index[i] + fn * 1, \
+          P.VU.elt<uint16_t>(vs3, vreg_inx)); \
+        break; \
+      case e16: \
+        MMU.store_uint16(baseAddr + index[i] + fn * 2, \
+          P.VU.elt<uint16_t>(vs3, vreg_inx)); \
+        break; \
+      case e32: \
+        BODY; \
+        break; \
+      default: \
+        MMU.store_uint64(baseAddr + index[i] + fn * 8, \
+          P.VU.elt<uint64_t>(vs3, vreg_inx)); \
+        break; \
+      } \
+    } \
+  } \
+  P.VU.vstart->write(0);
+
+#define VI_GPU_ST12_INDEX(elt_width, is_seg,BODY) \
+  const reg_t nf = 1; \
+  const reg_t vl = P.VU.vl->read(); \
+  const reg_t baseAddr = insn.s_imm(); \
+  const reg_t vs3 = insn.rs2(); \
+  if (!is_seg) \
+    require(nf == 1); \
+  VI_CHECK_ST_INDEX(elt_width); \
+  VI_DUPLICATE_VREG(insn.rs1(), elt_width); \
+  for (reg_t i = 0; i < vl; ++i) { \
+    VI_STRIP(i) \
+    VI12_ELEMENT_SKIP(i); \
+    P.VU.vstart->write(i); \
+    for (reg_t fn = 0; fn < nf; ++fn) { \
+      switch (P.VU.vsew) { \
+      case e8: \
+        MMU.store_uint8(baseAddr + index[i] + fn * 1, \
+          P.VU.elt<uint16_t>(vs3, vreg_inx)); \
+        break; \
+      case e16: \
+        MMU.store_uint16(baseAddr + index[i] + fn * 2, \
+          P.VU.elt<uint16_t>(vs3, vreg_inx)); \
+        break; \
+      case e32: \
+        BODY; \
+        break; \
+      default: \
+        MMU.store_uint64(baseAddr + index[i] + fn * 8, \
+          P.VU.elt<uint64_t>(vs3, vreg_inx)); \
         break; \
       } \
     } \

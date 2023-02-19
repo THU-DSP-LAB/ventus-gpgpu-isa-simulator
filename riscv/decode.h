@@ -28,9 +28,9 @@ typedef __int128 int128_t;
 typedef unsigned __int128 uint128_t;
 #endif
 
-const int NXPR = 32;
+const int NXPR = 256;
 const int NFPR = 32;
-const int NVPR = 32;
+const int NVPR = 256;
 const int NCSR = 4096;
 
 #define X_RA 1
@@ -134,6 +134,9 @@ public:
   uint64_t v_vta() { return x(26, 1); }
   uint64_t v_vma() { return x(27, 1); }
   uint64_t v_mew() { return x(28, 1); }
+  uint64_t v_simm12() {return xs(20,12);}
+  uint64_t v_simm11() {return xs(20,11);} 
+  uint64_t v_s_simm11() { return x(7, 5) + (xs(25, 6) << 5); }
 
   uint64_t p_imm2() { return x(20, 2); }
   uint64_t p_imm3() { return x(20, 3); }
