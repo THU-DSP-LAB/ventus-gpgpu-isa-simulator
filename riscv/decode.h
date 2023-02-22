@@ -74,14 +74,15 @@ const int NCSR = 4096;
 #define PC_ALIGN 2
 
 typedef uint64_t insn_bits_t;
-//TODO add simt stack decode
+
 class insn_t
 {
 public:
   insn_t() = default;
-  insn_t(insn_bits_t bits) : b(bits) {}
+  insn_t(insn_bits_t bits) : b(bits){}
   insn_bits_t bits() { return b; }
   int length() { return insn_length(b); }
+
   int64_t i_imm() { return xs(20, 12); }
   int64_t shamt() { return x(20, 6); }
   int64_t s_imm() { return x(7, 5) + (xs(25, 7) << 5); }
@@ -183,11 +184,11 @@ private:
 #define CHECK_REG(reg) ((void) 0)
 #define READ_REG(reg) ({ CHECK_REG(reg); STATE.XPR[reg]; })
 #define READ_FREG(reg) STATE.FPR[reg]
-#define RD READ_REG(insn.rd())
-#define RS1 READ_REG(insn.rs1())
-#define RS2 READ_REG(insn.rs2())
-#define RS3 READ_REG(insn.rs3())
-#define WRITE_RD(value) WRITE_REG(insn.rd(), value)
+#define RD READ_REG(insn.rd() | p->ext_rd())
+#define RS1 READ_REG(insn.rs1() | p->ext_rs1())
+#define RS2 READ_REG(insn.rs2() | p->ext_rs2())
+#define RS3 READ_REG(insn.rs3() | p->ext_rs3())
+#define WRITE_RD(value) WRITE_REG((insn.rd() | p->ext_rd()), value)
 
 #ifndef RISCV_ENABLE_COMMITLOG
 # define WRITE_REG(reg, value) ({ CHECK_REG(reg); STATE.XPR.write(reg, value); })
@@ -227,14 +228,14 @@ private:
 #define RVC_SP READ_REG(X_SP)
 
 // FPU macros
-#define FRS1 READ_FREG(insn.rs1())
-#define FRS2 READ_FREG(insn.rs2())
-#define FRS3 READ_FREG(insn.rs3())
+#define FRS1 READ_FREG(insn.rs1()| p->ext_rs1())
+#define FRS2 READ_FREG(insn.rs2()| p->ext_rs2())
+#define FRS3 READ_FREG(insn.rs3()| p->ext_rs3())
 #define dirty_fp_state  STATE.sstatus->dirty(SSTATUS_FS)
 #define dirty_ext_state STATE.sstatus->dirty(SSTATUS_XS)
 #define dirty_vs_state  STATE.sstatus->dirty(SSTATUS_VS)
 #define DO_WRITE_FREG(reg, value) (STATE.FPR.write(reg, value), dirty_fp_state)
-#define WRITE_FRD(value) WRITE_FREG(insn.rd(), value)
+#define WRITE_FRD(value) WRITE_FREG((insn.rd()| p->ext_rd()), value)
  
 #define SHAMT (insn.i_imm() & 0x3F)
 #define BRANCH_TARGET (pc + insn.sb_imm())
@@ -282,7 +283,7 @@ private:
   require(!is_overlapped(astart, asize, bstart, bsize))
 #define require_noover_widen(astart, asize, bstart, bsize) \
   require(!is_overlapped_widen(astart, asize, bstart, bsize))
-#define require_vm do { if (insn.v_vm() == 0) require(insn.rd() != 0); } while (0);
+#define require_vm do { if (insn.v_vm() == 0) require((insn.rd() | p->ext_rd()) != 0); } while (0);
 #define require_envcfg(field) \
   do { \
     if (((STATE.prv != PRV_M) && (m##field == 0)) || \

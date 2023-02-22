@@ -8,19 +8,19 @@ reg_t rs2_num = insn.rs2();
 
 switch(sew) {
 case e8:
-  WRITE_RD(P.VU.elt<int8_t>(rs2_num, 0));
+  WRITE_RD(P.VU.elt<int8_t>(2,rs2_num, 0));
   break;
 case e16:
-  WRITE_RD(P.VU.elt<int16_t>(rs2_num, 0));
+  WRITE_RD(P.VU.elt<int16_t>(2,rs2_num, 0));
   break;
 case e32:
-  WRITE_RD(P.VU.elt<int32_t>(rs2_num, 0));
+  WRITE_RD(P.VU.elt<int32_t>(2,rs2_num, 0));
   break;
 case e64:
   if (P.get_isa().get_max_xlen() <= sew)
-    WRITE_RD(P.VU.elt<uint64_t>(rs2_num, 0) & xmask);
+    WRITE_RD(P.VU.elt<uint64_t>(2,rs2_num, 0) & xmask);
   else
-    WRITE_RD(P.VU.elt<uint64_t>(rs2_num, 0));
+    WRITE_RD(P.VU.elt<uint64_t>(2,rs2_num, 0));
   break;
 }
 

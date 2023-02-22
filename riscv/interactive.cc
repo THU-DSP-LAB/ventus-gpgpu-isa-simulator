@@ -347,9 +347,14 @@ void sim_t::interactive_vreg(const std::string& cmd, const std::vector<std::stri
   const int vlen = (int)(p->VU.get_vlen()) >> 3;
   const int elen = (int)(p->VU.get_elen()) >> 3;
   const int num_elem = vlen/elen;
-
+  const int ext_imm1 = (int)(p->get_state()->regext_info.ext_rd);
+  const int ext_imm2 = (int)(p->get_state()->regext_info.ext_rs1);
+  const int ext_imm3 = (int)(p->get_state()->regext_info.ext_rs2);
+  const int ext_imm4 = (int)(p->get_state()->regext_info.ext_rs3);
+  const int ext_imm5 = (int)(p->get_state()->regext_info.ext_imm);
   std::ostream out(sout_.rdbuf());
-  out << std::dec << "VLEN=" << (vlen << 3) << " bits; ELEN=" << (elen << 3) << " bits" << std::endl;
+  out << std::dec << "VLEN=" << (vlen << 3) << " bits; ELEN=" << (elen << 3) << " bits"<<"; regext is "<< \
+  ext_imm1 <<" " <<ext_imm2<<" "<<ext_imm3<<" "<<ext_imm4<<" "<<ext_imm5<< std::endl;
 
   for (int r = rstart; r < rend; ++r) {
     out << std::setfill (' ') << std::left << std::setw(4) << vr_name[r] << std::right << ": ";
@@ -357,19 +362,19 @@ void sim_t::interactive_vreg(const std::string& cmd, const std::vector<std::stri
       uint64_t val;
       switch(elen){
         case 8:
-          val = p->VU.elt<uint64_t>(r, e);
+          val = p->VU.elt<uint64_t>(-1,r, e);
           out << std::dec << "[" << e << "]: 0x" << std::hex << std::setfill ('0') << std::setw(16) << val << "  ";
           break;
         case 4:
-          val = p->VU.elt<uint32_t>(r, e);
+          val = p->VU.elt<uint32_t>(-1,r, e);
           out << std::dec << "[" << e << "]: 0x" << std::hex << std::setfill ('0') << std::setw(8) << (uint32_t)val << "  ";
           break;
         case 2:
-          val = p->VU.elt<uint16_t>(r, e);
+          val = p->VU.elt<uint16_t>(-1,r, e);
           out << std::dec << "[" << e << "]: 0x" << std::hex << std::setfill ('0') << std::setw(8) << (uint16_t)val << "  ";
           break;
         case 1:
-          val = p->VU.elt<uint8_t>(r, e);
+          val = p->VU.elt<uint8_t>(-1,r, e);
           out << std::dec << "[" << e << "]: 0x" << std::hex << std::setfill ('0') << std::setw(8) << (int)(uint8_t)val << "  ";
           break;
       }

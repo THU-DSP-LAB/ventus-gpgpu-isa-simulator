@@ -186,7 +186,13 @@ void state_t::reset(processor_t* const proc, reg_t max_isa)
   pc = DEFAULT_RSTVEC;
   XPR.reset();
   FPR.reset();
-
+  regext_info.ext_imm=0;
+  regext_info.valid=0;
+  regext_info.ext_rd=0;
+  regext_info.ext_rs1=0;
+  regext_info.ext_rs2=0;
+  regext_info.ext_rs3=0;
+  regext_enable=false;
   // This assumes xlen is always max_xlen, which is true today (see
   // mstatus_csr_t::unlogged_write()):
   auto xlen = proc->get_isa().get_max_xlen();

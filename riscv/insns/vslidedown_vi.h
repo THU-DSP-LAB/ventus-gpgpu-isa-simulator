@@ -1,7 +1,7 @@
 // vslidedown.vi vd, vs2, rs1
 VI_CHECK_SLIDE(false);
 
-const reg_t sh = insn.v_zimm5();
+const reg_t sh = ( insn.v_zimm5() | p->ext_imm() );
 VI_LOOP_BASE
 
 reg_t offset = 0;

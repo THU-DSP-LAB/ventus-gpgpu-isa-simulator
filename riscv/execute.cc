@@ -135,7 +135,7 @@ static void commit_log_print_insn(processor_t *p, reg_t pc, insn_t insn)
       else
         fprintf(log_file, " %c%-2d ", prefix, rd);
       if (is_vreg)
-        commit_log_print_value(log_file, size, &p->VU.elt<uint8_t>(rd, 0));
+        commit_log_print_value(log_file, size, &p->VU.elt<uint8_t>(0,rd, 0));
       else
         commit_log_print_value(log_file, size, item.second.v);
     }
@@ -209,7 +209,12 @@ static inline reg_t execute_insn(processor_t* p, reg_t pc, insn_fetch_t fetch)
     throw;
   }
   p->update_histogram(pc);
-
+  if(p->get_state()->regext_enable){
+    p->get_state()->regext_enable=false;
+  }
+  else{
+    p->ext_clear();
+  }
   return npc;
 }
 

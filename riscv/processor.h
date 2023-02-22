@@ -149,6 +149,12 @@ struct state_t
   regfile_t<reg_t, NXPR, true> XPR;
   regfile_t<freg_t, NFPR, false> FPR;
 
+  struct regext_t{
+  //regext_t():ext_rd(0),ext_rs1(0),ext_rs2(0),ext_rs3(0),ext_imm(0),valid(0){}
+  uint64_t ext_rd,ext_rs1,ext_rs2,ext_rs3,ext_imm,valid;
+  };
+  regext_t regext_info;
+  bool regext_enable;
   // control and status registers
   std::unordered_map<reg_t, csr_t_p> csrmap;
   reg_t prv;    // TODO: Can this be an enum instead?
@@ -350,6 +356,37 @@ public:
 
   const char* get_symbol(uint64_t addr);
 
+
+  void ext_set(int64_t imm,bool is_i){
+    state.regext_info.ext_rd = imm & 7;
+    state.regext_info.valid = 1;
+    if(is_i){
+      state.regext_info.ext_rs1 = 0;
+      state.regext_info.ext_rs2 = (imm>>3)&7;
+      state.regext_info.ext_rs3 = 0;
+      state.regext_info.ext_imm = (imm>>6)&63;
+    }
+    else{
+      state.regext_info.ext_rs1 = (imm>>3)&7;
+      state.regext_info.ext_rs2 = (imm>>6)&7;
+      state.regext_info.ext_rs3 = (imm>>9)&7;
+      state.regext_info.ext_imm = 0;
+    }
+  }
+  void ext_clear(){
+    state.regext_info.valid=0;
+    state.regext_info.ext_imm=0;
+    state.regext_info.ext_rd=0;
+    state.regext_info.ext_rs1 = 0;
+    state.regext_info.ext_rs2 = 0;
+    state.regext_info.ext_rs3 = 0;
+  }
+  uint64_t ext_rs1(){ return state.regext_info.valid ? (state.regext_info.ext_rs1<<5)  : 0;}
+  uint64_t ext_rs2(){ return state.regext_info.valid ? (state.regext_info.ext_rs2<<5) : 0;}
+  uint64_t ext_rs3(){ return state.regext_info.valid ? (state.regext_info.ext_rs3<<5) : 0;}
+  uint64_t ext_rd(){ return state.regext_info.valid ? (state.regext_info.ext_rd<<5) : 0;}
+  int64_t ext_imm(){ return state.regext_info.valid ? ( (state.regext_info.ext_imm) << 58 >> 53) : 0;}
+
 private:
   const isa_parser_t * const isa;
 
@@ -422,7 +459,12 @@ public:
 
       // vector element for varies SEW
       template<class T>
-        T& elt(reg_t vReg, reg_t n, bool is_write = false){
+        T& elt(int reg_ext,reg_t vReg_to_ext, reg_t n, bool is_write = false){
+          reg_t vReg = vReg_to_ext;
+          if(reg_ext==0) vReg = vReg | p->ext_rd();
+          else if(reg_ext==1) vReg = vReg | p->ext_rs1();
+          else if(reg_ext==2) vReg = vReg | p->ext_rs2();
+          else if(reg_ext==3) vReg = vReg | p->ext_rs3();
           assert(vsew != 0);
           assert((VLEN >> 3)/sizeof(T) > 0);
           reg_t elts_per_reg = (VLEN >> 3) / (sizeof(T));

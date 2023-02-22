@@ -1,7 +1,7 @@
 // vslideup.vi vd, vs2, rs1
 VI_CHECK_SLIDE(true);
 
-const reg_t offset = insn.v_zimm5();
+const reg_t offset = ( insn.v_zimm5() | p->ext_imm() );
 VI_LOOP_BASE
 if (P.VU.vstart->read() < offset && i < offset)
   continue;
