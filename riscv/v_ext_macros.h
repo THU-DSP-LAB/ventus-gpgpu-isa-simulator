@@ -2273,13 +2273,13 @@ reg_t index[P.VU.vlmax]; \
   }
 
 // macro defination for rvv-gpgpu custom isa
-#define IS_ALL_TRUE P.gpgpu_unit.get_barrier()
+#define IS_ALL_TRUE P.gpgpu_unit.w->get_barrier()
 
 #define SET_BARRIER_1 \
-  P.gpgpu_unit.set_barrier_1() \
+  P.gpgpu_unit.w->set_barrier_1(P.get_csr(CSR_WID)) 
 
 #define SET_BARRIER_0 \
-  P.gpgpu_unit.set_barrier_0() \
+  P.gpgpu_unit.w->set_barrier_0() 
 
 #define SET_PC(x) \
   do { p->check_pc_alignment(x); \

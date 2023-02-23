@@ -39,14 +39,30 @@ reg_t illegal_instruction(processor_t* p, insn_t insn, reg_t pc);
 class warp_schedule_t
 {
   public:
+    warp_schedule_t(){
+      warp_number=0;thread_number=0;workgroup_number=0;workgroup_id=0;is_all_true=false;barrier_counter=0;
+    }
+    void set_warp_schedule(size_t w,size_t t,size_t wg,size_t wg_id){
+      warp_number=w;
+      thread_number=t;
+      workgroup_number=wg;
+      workgroup_id=wg_id;
+      barriers.resize(warp_number, 0);
+      }
     void init_warp(const char *gpgpuarch);
-    int warp_number;
-    int thread_number;
+    void set_barrier_1(uint64_t wid);
+    void set_barrier_0();
+    bool get_barrier();
+    void parse_gpgpuarch_string(const char *gpgpuarch);
+    ~warp_schedule_t(){}
+ 
+    size_t warp_number;
+    size_t thread_number;
+    size_t workgroup_number;
+    size_t workgroup_id;
     std::vector<int> barriers;
     bool is_all_true;
-    int barrier_counter = 0;
-    void parse_gpgpuarch_string(const char *gpgpuarch);
-
+    int barrier_counter;
 };
 
 struct insn_desc_t  //mask
@@ -534,15 +550,17 @@ public:
   //TODO simt struct
 
   class gpgpu_unit_t{
-    private:
+    public:
       warp_schedule_t *w;
+    private:
+      
       processor_t *p;
       // custom csr
       csr_t_p numw;
       csr_t_p numt;
       csr_t_p tid;
-      csr_t_p wid;//warp id
       csr_t_p wgid;
+      csr_t_p wid;//warp id
       csr_t_p pds;
       csr_t_p lds;
       csr_t_p knl;
@@ -570,10 +588,8 @@ public:
         simt_stack() {}
 
       void reset(processor_t *const proc);
-      void set_warp(warp_schedule_t *w);
-      void set_barrier_1();
-      void set_barrier_0();
-      bool get_barrier();
+      void set_warp(warp_schedule_t* w);
+      
 
       void init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid, uint64_t _wgid, uint64_t _wid,uint64_t _pds, uint64_t _lds,uint64_t _knl,uint64_t _gidx,uint64_t _gidy,uint64_t _gidz);
 

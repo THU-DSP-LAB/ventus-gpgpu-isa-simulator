@@ -1184,47 +1184,47 @@ void processor_t::gpgpu_unit_t::simt_stack_t::reset()
   _stack.clear();
 }
 
-void processor_t::gpgpu_unit_t::set_warp(warp_schedule_t *warp)
+void processor_t::gpgpu_unit_t::set_warp(warp_schedule_t* warp)
 {
   w = warp;
 }
-void processor_t::gpgpu_unit_t::set_barrier_1()
+void warp_schedule_t::set_barrier_1(uint64_t wid)
 {
-  w->barriers[wid->read()] = 1;
+  barriers[wid] = 1;
 }
 
-void processor_t::gpgpu_unit_t::set_barrier_0()
+void warp_schedule_t::set_barrier_0()
 {
-  if(w->barrier_counter < w->warp_number - 1){
-    w->barrier_counter++;
+  if(barrier_counter < warp_number - 1){
+    barrier_counter++;
   }
   else{
-    for(int i=0;i<w->warp_number;i++)
-      w->barriers[i] = 0;
+    for(int i=0;i<warp_number;i++)
+      barriers[i] = 0;
 
-    w->barrier_counter=0;
+    barrier_counter=0;
   }
   
 }
 
-bool processor_t::gpgpu_unit_t::get_barrier()
+bool warp_schedule_t::get_barrier()
 {
   //算一下barrier是否为全1
-  w->is_all_true = true;
-  for(int i=0;i<w->warp_number; i++){
-    if(w->barriers[i]==0){
-      w->is_all_true = false;
+  bool is_all_true = true;
+  for(int i=0;i<warp_number; i++){
+    if(barriers[i]==0){
+      is_all_true = false;
     }
   }
-  return w->is_all_true;
+  return is_all_true;
 }
 
 void processor_t::gpgpu_unit_t::init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid,uint64_t _wgid, uint64_t _wid, uint64_t _pds, uint64_t _lds,uint64_t _knl,uint64_t _gidx,uint64_t _gidy,uint64_t _gidz) {
   numw->write(_numw);
   numt->write(_numt);
   tid->write(_tid);
-  wid->write(_wid);
   wgid->write(_wgid);
+  wid->write(_wid);
   pds->write(_pds);
   lds->write(_lds);
   knl->write(_knl);
@@ -1248,8 +1248,9 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
   std::string str = strtolower(s);
   size_t pos = 0;
   size_t len = str.length();
-  int numw = 0;
-  int numt = 0;
+  size_t numw = 0;
+  size_t numt = 0;
+  size_t numwg = 0;
 
   while (pos < len) {
     std::string attr = get_string_token(str, ':', pos);
@@ -1260,6 +1261,8 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
       numt = get_int_token(str, ',', pos);
     else if (attr == "numw")
       numw = get_int_token(str, ',', pos);
+    else if (attr == "numwg")
+      numwg = get_int_token(str, ',', pos);
     else
       bad_gpgpuarch_string(s, "Unsupported token");
 
@@ -1267,11 +1270,12 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
   }
 
   // The integer should be the power of 2
-  if (!check_pow2(numt) || !check_pow2(numw)) {
+  if (!check_pow2(numt) ){//|| !check_pow2(numw)) {
     bad_gpgpuarch_string(s, "The integer value should be the power of 2");
   }
 
   thread_number = numt;
   warp_number = numw;
-  // std::cout << "warp number: " << warp_number << " thread_number = " << thread_number << std::endl;
+  workgroup_number = numwg;
+  std::cout << "warp number: " << warp_number << " thread number = " << thread_number << "  workgroup number = "<< workgroup_number << std::endl;
 }

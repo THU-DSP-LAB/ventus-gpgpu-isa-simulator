@@ -45,6 +45,7 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
     mems(mems),
     plugin_devices(plugin_devices),
     procs(std::max(cfg->nprocs(), size_t(1))),
+    workgroups(NULL),
     dtb_file(dtb_file ? dtb_file : ""),
     dtb_enabled(dtb_enabled),
     log_file(log_path),
@@ -77,24 +78,41 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
   debug_mmu = new mmu_t(this, NULL);
 
   // initialize warp schedule
+  
   w.init_warp(cfg->gpgpuarch());
-  uint64_t pds=0xa0000000;
-  uint64_t lds=0xb0000000;
+  uint64_t pds_base=0xa0000000;
+  uint64_t lds_base=0xa8000000;
   uint64_t knl=0;
   uint64_t wgid=0;
   uint64_t gidx=0;
   uint64_t gidy=0;
   uint64_t gidz=0;
 
-  for (size_t i = 0; i < cfg->nprocs(); i++) {
-    procs[i] = new processor_t(&isa, cfg->varch(), this, cfg->hartids()[i], halted,
+  uint64_t pds=pds_base;
+  uint64_t lds=lds_base;
+  uint64_t pds_size=(w.thread_number*w.warp_number)<<10;
+  uint64_t lds_size=(10*w.thread_number*w.warp_number)<<10;
+  workgroups = new warp_schedule_t[w.workgroup_number];
+  for (size_t i=0;i<w.workgroup_number;i++){
+    assert(w.warp_number>0 & w.workgroup_number>0 & w.thread_number>0);
+    assert(w.warp_number * w.workgroup_number == cfg->nprocs());
+    workgroups[i].set_warp_schedule(w.warp_number,w.thread_number,w.workgroup_number,i);
+
+    for (size_t j = 0; j < w.warp_number; j++) {
+      procs[i*w.warp_number+j] = new processor_t(&isa, cfg->varch(), this, cfg->hartids()[i*w.warp_number+j], halted,
                                log_file.get(), sout_);
-    procs[i]->gpgpu_unit.set_warp(&w);
-    //现在一个warp就是一个core
-    procs[i]->gpgpu_unit.init_warp(w.warp_number, w.thread_number, i*w.thread_number,wgid, i, pds, lds, knl, gidx,gidy,gidz);
-    assert(w.warp_number == cfg->nprocs());
-    assert(w.thread_number == (procs[i]->VU.get_vlen() / procs[i]->VU.get_elen()));
+    
+      procs[i*w.warp_number+j]->gpgpu_unit.set_warp(&workgroups[i]);//workgroups[i]);
+      //现在一个warp就是一个core
+      procs[i*w.warp_number+j]->gpgpu_unit.init_warp(w.warp_number, w.thread_number, j*w.thread_number, i,j, pds, lds, knl, gidx,gidy,gidz);
+      assert(w.thread_number == (procs[i]->VU.get_vlen() / procs[i]->VU.get_elen()));
+    }
+
+    pds=pds+pds_size;
+    lds=lds+lds_size;
   }
+
+  
 
   make_dtb();
 
@@ -186,6 +204,7 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
 
 sim_t::~sim_t()
 {
+  delete[] workgroups;
   for (size_t i = 0; i < procs.size(); i++)
     delete procs[i];
   delete debug_mmu;

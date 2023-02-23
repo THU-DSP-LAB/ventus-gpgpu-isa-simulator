@@ -74,6 +74,7 @@ public:
 
 private:
   warp_schedule_t w;
+  warp_schedule_t *workgroups;
   isa_parser_t isa;
   const cfg_t * const cfg;
   std::vector<std::pair<reg_t, mem_t*>> mems;

@@ -644,12 +644,15 @@ void sim_t::interactive_warp_barrier(const std::string&cmd, const std::vector<st
 {
   if (args.size() > 0)
     throw trap_interactive();
-  std::cout << "[warp number]: " << w.warp_number 
-            << " [thread number]: " << w.thread_number 
-            << " [warp counter]: " << w.barrier_counter << std::endl;
+  processor_t *p = get_core(args[0]);
+  std::cout << "[warp number]: " << p->gpgpu_unit.w->warp_number 
+            << " [thread number]: " << p->gpgpu_unit.w->thread_number 
+            << " [workgroup number]: " << p->gpgpu_unit.w->workgroup_number
+            << " [workgroup id]: " << p->gpgpu_unit.w->workgroup_id
+            << " [warp counter]: " << p->gpgpu_unit.w->barrier_counter << std::endl;
   std::cout << "warp barrier: \n";
-  for (int warp = 0; warp < w.warp_number; warp ++) {
-    std::cout << "[warp " << warp << "]: " << w.barriers[warp] << " ";
+  for (int warp = 0; warp < p->gpgpu_unit.w->warp_number; warp ++) {
+    std::cout << "[warp " << warp << "]: " << p->gpgpu_unit.w->barriers[warp] << " ";
   }
   std::cout << std::endl;
 }

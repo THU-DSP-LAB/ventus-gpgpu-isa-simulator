@@ -65,7 +65,7 @@ public:
       isa(default_isa),
       priv(default_priv),
       varch(default_varch),
-      gpgpuarch("numw:4,numt:8"),
+      gpgpuarch("numw:8,numt:32,numwg:4"),
       mem_layout(default_mem_layout),
       hartids(default_hartids),
       explicit_hartids(false),
