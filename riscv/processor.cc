@@ -114,6 +114,15 @@ static int get_int_token(std::string str, const char delimiter, size_t& pos)
   return (pos == _pos) ? 0 : stoi(str.substr(_pos, pos - _pos));
 }
 
+static uint64_t get_long_token(std::string str,const char delimiter, size_t& pos)
+{
+  size_t _pos = pos;
+  while (pos < str.length() && str[pos] != delimiter) {
+    ++pos;
+  }
+  return (pos == _pos) ? 0 : stoul(str.substr(_pos, pos - _pos),NULL,16);
+}
+
 static bool check_pow2(int val)
 {
   return ((val & (val - 1))) == 0;
@@ -1251,6 +1260,10 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
   size_t numw = 0;
   size_t numt = 0;
   size_t numwg = 0;
+  uint64_t ldssize=0;
+  uint64_t ldsbase=0xa0000000;
+  uint64_t pdssize=0;
+  uint64_t pdsbase=0xa8000000;
 
   while (pos < len) {
     std::string attr = get_string_token(str, ':', pos);
@@ -1263,9 +1276,16 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
       numw = get_int_token(str, ',', pos);
     else if (attr == "numwg")
       numwg = get_int_token(str, ',', pos);
+    else if (attr == "ldssize")
+      ldssize = get_long_token(str,',',pos);
+    else if (attr == "ldsbase")
+      ldsbase = get_long_token(str,',',pos);
+    else if (attr == "pdssize")
+      pdssize = get_long_token(str,',',pos);
+    else if (attr == "pdsbase")
+      pdsbase = get_long_token(str,',',pos);
     else
       bad_gpgpuarch_string(s, "Unsupported token");
-
     ++pos;
   }
 
@@ -1277,5 +1297,10 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
   thread_number = numt;
   warp_number = numw;
   workgroup_number = numwg;
-  std::cout << "warp number: " << warp_number << " thread number = " << thread_number << "  workgroup number = "<< workgroup_number << std::endl;
+  lds_size = ldssize == 0 ? (numw * numt )<< 10 : ldssize;
+  lds_base = ldsbase;
+  pds_size = pdssize == 0 ? (numw * numt )<< 10 : pdssize;
+  pds_base = pdsbase;
+  std::cout << "warp number: " << warp_number << " thread number = " << thread_number << "  workgroup number = "<< workgroup_number \
+      <<" lds size: "<<lds_size<<" lds base: "<<lds_base<<" pds size: "<<pds_size<<" pds base: "<<pds_base << std::endl;
 }

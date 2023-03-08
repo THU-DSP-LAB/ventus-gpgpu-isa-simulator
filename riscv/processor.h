@@ -41,6 +41,7 @@ class warp_schedule_t
   public:
     warp_schedule_t(){
       warp_number=0;thread_number=0;workgroup_number=0;workgroup_id=0;is_all_true=false;barrier_counter=0;
+      lds_base=0;lds_size=0;pds_base=0;pds_size=0;
     }
     void set_warp_schedule(size_t w,size_t t,size_t wg,size_t wg_id){
       warp_number=w;
@@ -63,6 +64,7 @@ class warp_schedule_t
     std::vector<int> barriers;
     bool is_all_true;
     int barrier_counter;
+    uint64_t lds_base,lds_size,pds_base,pds_size;
 };
 
 struct insn_desc_t  //mask

@@ -27,6 +27,17 @@ static void handle_signal(int sig)
   ctrlc_pressed = true;
   signal(sig, &handle_signal);
 }
+/*struct driver_info{
+  uint64_t pds_base=0xa0000000;
+  uint64_t lds_base=0xa8000000;
+  uint64_t knl=0;
+  uint64_t wgid=0;
+  uint64_t gidx=0;
+  uint64_t gidy=0;
+  uint64_t gidz=0;
+  uint64_t pds_size=(w.thread_number*w.warp_number)<<10;
+  uint64_t lds_size=(10*w.thread_number*w.warp_number)<<10;
+}*/
 
 sim_t::sim_t(const cfg_t *cfg, bool halted,
              std::vector<std::pair<reg_t, mem_t*>> mems,
@@ -80,18 +91,19 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
   // initialize warp schedule
   
   w.init_warp(cfg->gpgpuarch());
-  uint64_t pds_base=0xa0000000;
-  uint64_t lds_base=0xa8000000;
+  uint64_t pds_base=w.pds_base;
+  uint64_t lds_base=w.lds_base;
   uint64_t knl=0;
   uint64_t wgid=0;
   uint64_t gidx=0;
   uint64_t gidy=0;
   uint64_t gidz=0;
+  uint64_t pds_size=w.pds_size;
+  uint64_t lds_size=w.lds_size;
 
   uint64_t pds=pds_base;
   uint64_t lds=lds_base;
-  uint64_t pds_size=(w.thread_number*w.warp_number)<<10;
-  uint64_t lds_size=(10*w.thread_number*w.warp_number)<<10;
+
   workgroups = new warp_schedule_t[w.workgroup_number];
   for (size_t i=0;i<w.workgroup_number;i++){
     assert(w.warp_number>0 & w.workgroup_number>0 & w.thread_number>0);
