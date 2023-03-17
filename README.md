@@ -38,8 +38,8 @@ We execute Ventus GPGPU program with Spike in machine mode. To produce executabl
     $ git clone https://github.com/THU-DSP-LAB/riscv-gnu-toolchain.git
     $ cd riscv-gnu-toolchain
     $
-    $ git init riscv-binutils
-    $ git update riscv-binutils
+    $ git submodule init riscv-binutils
+    $ git submodule update riscv-binutils
     $ cd riscv-binutils
     $ git checkout main
     $ cd ..
@@ -67,11 +67,14 @@ Assuming assembly code test.s, we use following commands.
 
 And use Spike to execute test.riscv.
 
-    $ spike -d -p4 --isa=rv64gv --varch=vlen:256,elen:32 --gpgpuarch numw:4,numt:8 test.riscv
+    $ spike -d -p4 --isa=rv64gv --varch=vlen:256,elen:32 --gpgpuarch numw:4,numt:8,numwg:1 test.riscv
 
 We add gpgpuarch option to configure uArch parameters for Ventus GPGPU (numw to set total warp number and numt to set thread number per warp). Note that there are some constraints about the parameters: 
-1. numw must be equal to processor count (-p)
+1. numw * numwg must be equal to processor count (-p)
 2. numt must be equal to vlen divided by elen
+3. more option parameters could be added after numw, numt and numwg, here is an example:
+  numw:4,numt:8,numwg:2,kernelx:1,kernely:2,kernelz:1,ldssize:0x80000000,ldsbase:0x00001000,pdssize:0x90000000,pdsbase:0x00001000
+  you can offer workgroup dimensions with kernel_x/y/z, and ldssize & pdssize for each workgroup. 
    
 
 For more spike options, use `spike -h`
