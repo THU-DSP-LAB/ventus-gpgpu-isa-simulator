@@ -71,9 +71,15 @@ public:
 
   // Callback for processors to let the simulation know they were reset.
   void proc_reset(unsigned id);
+  bool get_reach_end() override{return reach_end.empty();}
+  void modify_reach_end() override{
+    reach_end.erase(reach_end.begin()+current_proc);
+    current_proc= current_proc==0?reach_end.size()-1:current_proc-1;
+  }
 
 private:
   warp_schedule_t w;
+  std::vector<uint64_t> reach_end;
   warp_schedule_t *workgroups;
   isa_parser_t isa;
   const cfg_t * const cfg;

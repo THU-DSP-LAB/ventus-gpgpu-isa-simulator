@@ -42,6 +42,7 @@ class warp_schedule_t
     warp_schedule_t(){
       warp_number=0;thread_number=0;workgroup_number=0;workgroup_id=0;is_all_true=false;barrier_counter=0;
       lds_base=0;lds_size=0;pds_base=0;pds_size=0;
+      workgroup_size_x=0;workgroup_size_y=0;workgroup_size_z=0;
     }
     void set_warp_schedule(size_t w,size_t t,size_t wg,size_t wg_id){
       warp_number=w;
@@ -61,6 +62,9 @@ class warp_schedule_t
     size_t thread_number;
     size_t workgroup_number;
     size_t workgroup_id;
+    size_t workgroup_size_x;
+    size_t workgroup_size_y;
+    size_t workgroup_size_z;
     std::vector<int> barriers;
     bool is_all_true;
     int barrier_counter;
@@ -293,6 +297,7 @@ public:
   void step(size_t n); // run for n cycles
   void put_csr(int which, reg_t val);
   uint32_t get_id() const { return id; }
+  simif_t* get_sim() const{return sim;}
   reg_t get_csr(int which, insn_t insn, bool write, bool peek = 0);
   reg_t get_csr(int which) { return get_csr(which, insn_t(0), false, true); }
   mmu_t* get_mmu() { return mmu; }

@@ -56,6 +56,7 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
     mems(mems),
     plugin_devices(plugin_devices),
     procs(std::max(cfg->nprocs(), size_t(1))),
+    reach_end(std::max(cfg->nprocs(),size_t(1))),
     workgroups(NULL),
     dtb_file(dtb_file ? dtb_file : ""),
     dtb_enabled(dtb_enabled),
@@ -94,7 +95,7 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
   uint64_t pds_base=w.pds_base;
   uint64_t lds_base=w.lds_base;
   uint64_t knl=0;
-  uint64_t wgid=0;
+  //uint64_t wgid=0;
   uint64_t gidx=0;
   uint64_t gidy=0;
   uint64_t gidz=0;
@@ -111,15 +112,26 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
     workgroups[i].set_warp_schedule(w.warp_number,w.thread_number,w.workgroup_number,i);
 
     for (size_t j = 0; j < w.warp_number; j++) {
+      reach_end[i*w.warp_number+j] = i*w.warp_number+j;
       procs[i*w.warp_number+j] = new processor_t(&isa, cfg->varch(), this, cfg->hartids()[i*w.warp_number+j], halted,
                                log_file.get(), sout_);
-    
+
       procs[i*w.warp_number+j]->gpgpu_unit.set_warp(&workgroups[i]);//workgroups[i]);
       //现在一个warp就是一个core
       procs[i*w.warp_number+j]->gpgpu_unit.init_warp(w.warp_number, w.thread_number, j*w.thread_number, i,j, pds, lds, knl, gidx,gidy,gidz);
       assert(w.thread_number == (procs[i]->VU.get_vlen() / procs[i]->VU.get_elen()));
     }
-
+    
+    gidx=gidx+1;
+    if(gidx==w.workgroup_size_x){
+      gidx=0;
+      gidy=gidy+1;
+    if(gidy==w.workgroup_size_y){
+      gidy=0;
+      gidz=gidz+1;
+      if(gidz==w.workgroup_size_z){gidz=0;}
+      }
+    }
     pds=pds+pds_size;
     lds=lds+lds_size;
   }
@@ -256,14 +268,14 @@ void sim_t::step(size_t n)
   for (size_t i = 0, steps = 0; i < n; i += steps)
   {
     steps = std::min(n - i, INTERLEAVE - current_step);
-    procs[current_proc]->step(steps);
-
+    procs[reach_end[current_proc]]->step(steps);
     current_step += steps;
     if (current_step == INTERLEAVE)
     {
       current_step = 0;
-      procs[current_proc]->get_mmu()->yield_load_reservation();
-      if (++current_proc == procs.size()) {
+      procs[reach_end[current_proc]]->get_mmu()->yield_load_reservation();
+      current_proc++;
+      if (current_proc == reach_end.size()) {
         current_proc = 0;
         if (clint) clint->increment(INTERLEAVE / INSNS_PER_RTC_TICK);
       }
