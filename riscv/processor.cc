@@ -1261,9 +1261,10 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
   size_t numt = 0;
   size_t numwg = 0;
   uint64_t ldssize=0;
-  uint64_t ldsbase=0xa0000000;
+  uint64_t ldsbase=0x70000000;
   uint64_t pdssize=0;
-  uint64_t pdsbase=0xa8000000;
+  uint64_t pdsbase=0x78000000;
+  size_t kernel_size[3]={0,1,1};
 
   while (pos < len) {
     std::string attr = get_string_token(str, ':', pos);
@@ -1276,6 +1277,12 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
       numw = get_int_token(str, ',', pos);
     else if (attr == "numwg")
       numwg = get_int_token(str, ',', pos);
+    else if (attr == "kernelx")
+      kernel_size[0] = get_int_token(str, ',', pos);
+    else if (attr == "kernely")
+      kernel_size[1] = get_int_token(str, ',', pos);
+    else if (attr == "kernelz")
+      kernel_size[2] = get_int_token(str, ',', pos);
     else if (attr == "ldssize")
       ldssize = get_long_token(str,',',pos);
     else if (attr == "ldsbase")
@@ -1301,6 +1308,17 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
   lds_base = ldsbase;
   pds_size = pdssize == 0 ? (numw * numt )<< 10 : pdssize;
   pds_base = pdsbase;
+
+  kernel_size[0] =  kernel_size[0]==0 ? (numwg/(kernel_size[1]*kernel_size[2])) : kernel_size[0];
+  workgroup_size_x=kernel_size[0];
+  workgroup_size_y=kernel_size[1];
+  workgroup_size_z=kernel_size[2];
+
+  if(!(kernel_size[0]*kernel_size[1]*kernel_size[2]==numwg)){
+    bad_gpgpuarch_string(s, "kernel size doesn't match total wg size");
+  }
+
   std::cout << "warp number: " << warp_number << " thread number = " << thread_number << "  workgroup number = "<< workgroup_number \
-      <<" lds size: "<<lds_size<<" lds base: "<<lds_base<<" pds size: "<<pds_size<<" pds base: "<<pds_base << std::endl;
+      <<" workgroup dimension:"<<kernel_size[0]<<"*"<<kernel_size[1]<<"*"<<kernel_size[2] \
+      <<std::hex<<" lds size: "<<lds_size<<" pds size: "<<pds_size<<" lds base: "<<lds_base<<" pds base: "<<pds_base << std::endl;
 }
