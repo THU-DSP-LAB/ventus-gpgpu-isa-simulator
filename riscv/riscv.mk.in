@@ -919,7 +919,9 @@ riscv_insn_ext_v_gpgpu = \
 	join \
 	endprg \
 	barrier \
-	barriersub
+	barriersub \
+	vftta_vv \
+	vfexp_v \
 
 riscv_insn_ext_v = \
 	$(riscv_insn_ext_v_alu_fp) \

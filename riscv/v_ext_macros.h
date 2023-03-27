@@ -5,7 +5,7 @@
 
 #include <iostream>
 #include <iomanip>
-
+#include <cmath>
 // rvv-gpgpu-enable
 #define GPGPU_ENABLE true
 

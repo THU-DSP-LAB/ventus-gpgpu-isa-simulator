@@ -1,4 +1,4 @@
-// vmpopc rd, vs2, vm
+// vftta.vv vd,vs2,vs1,vm
 require(P.VU.vsew >= e8 && P.VU.vsew <= e64);
 require_vector(true);
 reg_t vl = P.VU.vl->read();
