@@ -1,5 +1,6 @@
 p->get_sim()->modify_reach_end();
 if(p->get_sim()->get_reach_end()){
-      std::cout<<"all warps reach the endprg"<<std::endl;
-      abort();
+      std::cout<<"all warps reach the endprg. now proc 0 will end the simulation."<<std::endl;
+      p->get_sim()->append_reach_end();
+      //return 0;
     }

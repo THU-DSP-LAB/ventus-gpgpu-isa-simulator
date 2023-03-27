@@ -20,6 +20,7 @@ public:
   virtual const char* get_symbol(uint64_t addr) = 0;
   virtual bool get_reach_end() = 0;
   virtual void modify_reach_end() = 0;
+  virtual void append_reach_end() = 0;
 
 };
 
