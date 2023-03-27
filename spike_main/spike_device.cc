@@ -267,6 +267,19 @@ int spike_device::copy_from_dev(uint64_t vaddr, uint64_t size, void *data){
 
 
 int spike_device::run(){
+  uint64_t num_warp=1;
+  uint64_t num_thread=8;
+  uint64_t num_workgroup_x=1;
+  uint64_t num_workgroup_y=1;
+  uint64_t num_workgroup_z=1;
+  uint64_t num_workgroup=num_workgroup_x*num_workgroup_y*num_workgroup_z;
+  uint64_t num_processor=num_warp*num_workgroup;
+  uint64_t ldssize=0x1000;
+  uint64_t pdssize=0x1000;
+  uint64_t pdsbase=0x7a000000;
+  uint64_t start_pc=0x80000000;
+  uint64_t knlbase=0x80000000;
+
   cfg_t cfg(/*default_initrd_bounds=*/std::make_pair((reg_t)0, (reg_t)0),
             /*default_bootargs=*/nullptr,
             /*default_isa=*/"RV32GV",
@@ -439,17 +452,7 @@ int spike_device::run(){
   int argc=14;
   //mem的和sim的config可以直接赋值，但htif的只能通过命令行传
   //为了减少出错的可能，用spike默认模式转为字符串传递。
-  uint64_t num_warp=1;
-  uint64_t num_thread=8;
-  uint64_t num_workgroup_x=2;
-  uint64_t num_workgroup_y=4;
-  uint64_t num_workgroup_z=1;
-  uint64_t num_workgroup=8;
-  uint64_t num_processor=num_warp*num_workgroup;
-  uint64_t ldssize=0x1000;
-  uint64_t pdssize=0x1000;
-  uint64_t pdsbase=0x7a000000;
-  uint64_t start_pc=0x80000000;
+  
   char arg_num_core[10];
   char arg_vlen_elen[20];
   char arg_mem_scope[40];
@@ -464,7 +467,7 @@ int spike_device::run(){
   sprintf(arg_vlen_elen,"vlen:%ld,elen:%d",num_thread*32,32);
   sprintf(arg_mem_scope,"-m0x70000000:0x%lx",buffer.back().base+buffer.back().size);
   printf("vaddr mem scope is %s\n",arg_mem_scope);
-  sprintf(arg_start_pc,"--pc=0x%lx",start_pc+4);
+  sprintf(arg_start_pc,"--pc=0x%lx",start_pc);
   //strcat(arg_mem_scope,temp);
   //--------------------------------------------------num_core-------------------pc------mem_scope
   //-------------vlen_elen-----------gpgpu-------------------log_file_output
