@@ -278,7 +278,7 @@ int spike_device::run(){
   uint64_t pdssize=0x1000;
   uint64_t pdsbase=0x7a000000;
   uint64_t start_pc=0x80000000;
-  uint64_t knlbase=0x80000000;
+  uint64_t knlbase=0x8a000000;
 
   cfg_t cfg(/*default_initrd_bounds=*/std::make_pair((reg_t)0, (reg_t)0),
             /*default_bootargs=*/nullptr,
@@ -461,8 +461,8 @@ int spike_device::run(){
   char arg_start_pc[20];;
   printf("run log is written to %s\n",arg_log_file_output);
   sprintf(arg_num_core,"-p%ld",num_processor);
-  sprintf(arg_gpgpu,"numw:%ld,numt:%ld,numwg:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx",\
-        num_warp,num_thread,num_workgroup,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase);
+  sprintf(arg_gpgpu,"numw:%ld,numt:%ld,numwg:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx,knlbase:0x%lx",\
+        num_warp,num_thread,num_workgroup,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase,knlbase);
   printf("arg gpgpu is %s\n",arg_gpgpu);
   sprintf(arg_vlen_elen,"vlen:%ld,elen:%d",num_thread*32,32);
   sprintf(arg_mem_scope,"-m0x70000000:0x%lx",buffer.back().base+buffer.back().size);
@@ -495,7 +495,7 @@ int spike_device::run(){
   //std::vector<std::pair<reg_t, mem_t*>> mems = make_mems(cfg.mem_layout());
 
 
-  buffer_data = make_mems(cfg.mem_layout());
+  //buffer_data = make_mems(cfg.mem_layout());
 
   //初始化文件使用的是这个方法
   /*for (auto& m: mems){
@@ -561,8 +561,8 @@ int spike_device::run(){
 
   auto return_code = sim->run();
 
-  for (auto& mem : buffer_data)
-    delete mem.second;
+  //for (auto& mem : buffer_data)
+  //  delete mem.second;
 
   for (auto& plugin_device : plugin_devices)
     delete plugin_device.second;

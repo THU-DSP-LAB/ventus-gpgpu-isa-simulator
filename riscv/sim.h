@@ -76,7 +76,7 @@ public:
     reach_end.erase(reach_end.begin()+current_proc);
     current_proc= current_proc==0?reach_end.size()-1:current_proc-1;
   }
-  void append_reach_end() override{reach_end.push_back(0);}
+  void append_reach_end() override{reach_end.push_back(0);current_proc=0;}
 
 private:
   warp_schedule_t w;
