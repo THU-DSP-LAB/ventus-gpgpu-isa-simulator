@@ -190,7 +190,7 @@ spike_device::spike_device():sim(NULL),buffer(),buffer_data(){
 spike_device::~spike_device(){
   delete sim;
   for (auto& mem : buffer_data)
-    delete mem.second;
+    if(mem.second!=nullptr) {delete mem.second;mem.second=nullptr;}
 }
 int spike_device::alloc_local_mem(uint64_t size, uint64_t *vaddr){
   uint64_t base;
@@ -232,8 +232,9 @@ int spike_device::alloc_local_mem(uint64_t size, uint64_t *vaddr){
 
 int spike_device::free_local_mem(){
   buffer.clear();
-  for (auto& mem : buffer_data)
-    delete mem.second; 
+  for (auto& mem : buffer_data)  
+    if(mem.second!=nullptr) {delete mem.second;mem.second=nullptr;}
+  buffer_data.clear();  
   return 0; 
 }
 
@@ -266,19 +267,19 @@ int spike_device::copy_from_dev(uint64_t vaddr, uint64_t size, void *data){
 }
 
 
-int spike_device::run(){
-  uint64_t num_warp=1;
-  uint64_t num_thread=8;
-  uint64_t num_workgroup_x=1;
-  uint64_t num_workgroup_y=1;
-  uint64_t num_workgroup_z=1;
+int spike_device::run(meta_data knl_data,uint64_t knl_start_pc){
+  uint64_t num_warp=knl_data.wg_size;
+  uint64_t num_thread=knl_data.wf_size;
+  uint64_t num_workgroup_x=knl_data.kernel_size[0];
+  uint64_t num_workgroup_y=knl_data.kernel_size[1];
+  uint64_t num_workgroup_z=knl_data.kernel_size[2];
   uint64_t num_workgroup=num_workgroup_x*num_workgroup_y*num_workgroup_z;
   uint64_t num_processor=num_warp*num_workgroup;
-  uint64_t ldssize=0x1000;
-  uint64_t pdssize=0x1000;
-  uint64_t pdsbase=0x7a000000;
-  uint64_t start_pc=0x80000000;
-  uint64_t knlbase=0x8a000000;
+  uint64_t ldssize=knl_data.ldsSize;
+  uint64_t pdssize=knl_data.pdsSize*num_thread;
+  uint64_t pdsbase=knl_data.pdsBaseAddr;
+  uint64_t start_pc=knl_start_pc;
+  uint64_t knlbase=knl_data.metaDataBaseAddr;
 
   cfg_t cfg(/*default_initrd_bounds=*/std::make_pair((reg_t)0, (reg_t)0),
             /*default_bootargs=*/nullptr,
@@ -562,7 +563,7 @@ int spike_device::run(){
   auto return_code = sim->run();
 
   //for (auto& mem : buffer_data)
-  //  delete mem.second;
+    //delete mem.second;
 
   for (auto& plugin_device : plugin_devices)
     delete plugin_device.second;
