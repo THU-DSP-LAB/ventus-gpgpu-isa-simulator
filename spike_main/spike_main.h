@@ -88,7 +88,7 @@ class spike_device{
     int free_local_mem();
     int copy_to_dev(uint64_t dev_maddr, uint64_t size, void* data);
     int copy_from_dev(uint64_t dev_maddr, uint64_t size,void* data);
-    int run(meta_data knl_data,uint64_t knl_start_pc);
+    int run(meta_data knl_data,uint64_t knl_start_pc, char* filename, char* logname);
   private:
     sim_t* sim;
     std::vector<mem_cfg_t> buffer; //可以在分配时让buffer地址对齐4k

@@ -267,7 +267,7 @@ int spike_device::copy_from_dev(uint64_t vaddr, uint64_t size, void *data){
 }
 
 
-int spike_device::run(meta_data knl_data,uint64_t knl_start_pc){
+int spike_device::run(meta_data knl_data,uint64_t knl_start_pc, char* srcfilename, char* logfilename){
   uint64_t num_warp=knl_data.wg_size;
   uint64_t num_thread=knl_data.wf_size;
   uint64_t num_workgroup_x=knl_data.kernel_size[0];
@@ -458,9 +458,9 @@ int spike_device::run(meta_data knl_data,uint64_t knl_start_pc){
   char arg_vlen_elen[20];
   char arg_mem_scope[40];
   char arg_gpgpu[120];
-  char arg_log_file_output[]="--log=my2.log";
   char arg_start_pc[20];;
-  printf("run log is written to %s\n",arg_log_file_output);
+  char arg_logfilename[40];
+  sprintf(arg_logfilename,"--log=%s",logfilename);
   sprintf(arg_num_core,"-p%ld",num_processor);
   sprintf(arg_gpgpu,"numw:%ld,numt:%ld,numwg:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx,knlbase:0x%lx",\
         num_warp,num_thread,num_workgroup,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase,knlbase);
@@ -470,10 +470,10 @@ int spike_device::run(meta_data knl_data,uint64_t knl_start_pc){
   printf("vaddr mem scope is %s\n",arg_mem_scope);
   sprintf(arg_start_pc,"--pc=0x%lx",start_pc);
   //strcat(arg_mem_scope,temp);
-  //--------------------------------------------------num_core-------------------pc------mem_scope
+  //--------------------------------------------------num_core-------------------pc------mem_scope   //mem_scope is unused now.
   //-------------vlen_elen-----------gpgpu-------------------log_file_output
   char strings[][100]={"spike","-l", "--log-commits", " ","--isa", "rv64gv_zfh", " ","-m0x70000000:0x90000000",\
-       "--varch", " ","--gpgpuarch","numw:1,numt:8,numwg:1"," ","saxpy.riscv"};
+       "--varch", " ","--gpgpuarch","numw:1,numt:8,numwg:1"," "," "};
 
   char** argv=new char*[argc];
   for(int i=0;i<argc;i++){
@@ -481,7 +481,9 @@ int spike_device::run(meta_data knl_data,uint64_t knl_start_pc){
   }
   argv[11]=arg_gpgpu;
   argv[3]=arg_num_core;
-  argv[12]=arg_log_file_output;
+  argv[12]=arg_logfilename;
+  printf("src file is %s, run log is written to %s\n",srcfilename,logfilename);
+  argv[13]=srcfilename;
   argv[9]=arg_vlen_elen;
   argv[7]=arg_mem_scope;
   argv[6]=arg_start_pc;
@@ -570,13 +572,4 @@ int spike_device::run(meta_data knl_data,uint64_t knl_start_pc){
   delete[] argv;
   return return_code;    
 }
-
-int writefile(const char* filename,std::vector<mem_cfg_t> buffer_data){
-
-}
-
-int pocl_usage(){
-  //这部分交由pocl来写和制作更对吧。大不了加一个选项，可写可不写？
-}
-
 
