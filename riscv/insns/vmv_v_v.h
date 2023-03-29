@@ -1,5 +1,5 @@
-// vvmv.v.v vd, vs1
-VI_VV_MERGE_LOOP
+// vadd.vv vd, vs1, vs2, vm
+VI_VV_LOOP
 ({
   vd = vs1;
 })

@@ -4,7 +4,6 @@ project(${PROJECT})
 
 set(CMAKE_CXX_STANDARD 17)
 
-message("val of env is:$ENV{SPIKE_SRC_DIR}/spike_main")
 set(CMAKE_CXX_FLAGS -lstdc++)
 
 include_directories(${CMAKE_SOURCE_DIR}/include)

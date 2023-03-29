@@ -1,5 +1,5 @@
-// vmv.v.x vd, rs1
-VI_VX_MERGE_LOOP
+// vadd.vx vd, rs1, vs2, vm
+VI_VX_LOOP
 ({
   vd = rs1;
 })

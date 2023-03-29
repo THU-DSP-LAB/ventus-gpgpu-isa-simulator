@@ -1,5 +1,5 @@
-// vmv.v.i vd, simm5
-VI_VI_MERGE_LOOP
+// vadd.vi vd, simm5, vs2, vm
+VI_VI_LOOP
 ({
   vd = simm5;
 })

@@ -489,7 +489,7 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   //strcat(arg_mem_scope,temp);
   //--------------------------------------------------num_core-------------------pc------mem_scope   //mem_scope is unused now.
   //-------------vlen_elen-----------gpgpu-------------------log_file_output
-  char strings[][32]={"spike","-l", "--log-commits", " ","--isa", "rv64gv_zfh", " ","-m0x70000000:0x90000000",\
+  char strings[][32]={"spike","-l", "--log-commits", " ","--isa", "rv32gcv_zfh", " ","-m0x70000000:0x90000000",\
        "--varch", " ","--gpgpuarch","numw:1,numt:8,numwg:1"," "," "};
 
   char** argv=new char*[argc];

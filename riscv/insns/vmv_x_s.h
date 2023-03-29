@@ -1,27 +1,31 @@
-// vmv_x_s: rd = vs2[0]
+// vmv_x_s: rd = vs2[i]
+require(P.VU.vsew >= e8 && P.VU.vsew <= e64);
 require_vector(true);
-require(insn.v_vm() == 1);
-uint64_t xmask = UINT64_MAX >> (64 - P.get_isa().get_max_xlen());
-reg_t rs1 = RS1;
+reg_t vl = P.VU.vl->read();
 reg_t sew = P.VU.vsew;
+reg_t rd_num = insn.rd();
+reg_t rs1_num = insn.rs1();
 reg_t rs2_num = insn.rs2();
+require_align(rd_num, P.VU.vflmul);
+require_vm;
 
-switch(sew) {
-case e8:
-  WRITE_RD(P.VU.elt<int8_t>(2,rs2_num, 0));
-  break;
-case e16:
-  WRITE_RD(P.VU.elt<int16_t>(2,rs2_num, 0));
-  break;
-case e32:
-  WRITE_RD(P.VU.elt<int32_t>(2,rs2_num, 0));
-  break;
-case e64:
-  if (P.get_isa().get_max_xlen() <= sew)
-    WRITE_RD(P.VU.elt<uint64_t>(2,rs2_num, 0) & xmask);
-  else
-    WRITE_RD(P.VU.elt<uint64_t>(2,rs2_num, 0));
-  break;
+for (reg_t i = P.VU.vstart->read() ; i < P.VU.vl->read(); ++i) {
+  VI_LOOP_ELEMENT_SKIP();
+
+  switch (sew) {
+  case e8:
+    P.VU.elt<uint8_t>(0,rd_num, i, true) = i;
+    break;
+  case e16:
+    P.VU.elt<uint16_t>(0,rd_num, i, true) = i;
+    break;
+  case e32:
+    WRITE_RD(P.VU.elt<int32_t>(2,rs2_num, i));
+    break;
+  default:
+    P.VU.elt<uint64_t>(0,rd_num, i, true) = i;
+    break;
+  }
 }
 
 P.VU.vstart->write(0);
