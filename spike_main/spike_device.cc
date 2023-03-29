@@ -181,12 +181,14 @@ static std::vector<int> parse_hartids(const char *s)
 
 
 
-#define VBASEADDR 0x80000000
+#define VBASEADDR 0x70000000
 
 
 spike_device::spike_device():sim(NULL),buffer(),buffer_data(){
   srcfilename=new char[128];
   logfilename=new char[128];
+  uint64_t lds_vaddr;
+  alloc_local_mem(0x10000000,&lds_vaddr);
 };
 spike_device::~spike_device(){
   delete sim;delete[] srcfilename,logfilename;
@@ -290,6 +292,11 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   uint64_t pdsbase=knl_data->pdsBaseAddr;
   uint64_t start_pc=knl_start_pc;
   uint64_t knlbase=knl_data->metaDataBaseAddr;
+
+  if ((ldsSize)>0x10000000) {
+        fprintf(stderr, "lds size is too large. please modify VBASEADDR");
+        exit(-1);
+     }
 
   cfg_t cfg(/*default_initrd_bounds=*/std::make_pair((reg_t)0, (reg_t)0),
             /*default_bootargs=*/nullptr,
@@ -482,7 +489,7 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   //strcat(arg_mem_scope,temp);
   //--------------------------------------------------num_core-------------------pc------mem_scope   //mem_scope is unused now.
   //-------------vlen_elen-----------gpgpu-------------------log_file_output
-  char strings[][100]={"spike","-l", "--log-commits", " ","--isa", "rv64gv_zfh", " ","-m0x70000000:0x90000000",\
+  char strings[][32]={"spike","-l", "--log-commits", " ","--isa", "rv64gv_zfh", " ","-m0x70000000:0x90000000",\
        "--varch", " ","--gpgpuarch","numw:1,numt:8,numwg:1"," "," "};
 
   char** argv=new char*[argc];
