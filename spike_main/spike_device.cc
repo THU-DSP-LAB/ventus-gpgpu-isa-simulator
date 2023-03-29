@@ -185,10 +185,11 @@ static std::vector<int> parse_hartids(const char *s)
 
 
 spike_device::spike_device():sim(NULL),buffer(),buffer_data(){
-  
+  srcfilename=new char[128];
+  logfilename=new char[128];
 };
 spike_device::~spike_device(){
-  delete sim;
+  delete sim;delete[] srcfilename,logfilename;
   for (auto& mem : buffer_data)
     if(mem.second!=nullptr) {delete mem.second;mem.second=nullptr;}
 }
@@ -266,20 +267,29 @@ int spike_device::copy_from_dev(uint64_t vaddr, uint64_t size, void *data){
   return 0;
 }
 
+int spike_device::set_filename(const char* filename,const char* logname){
+  sprintf(srcfilename,"%s",filename);
+  if(logname==nullptr)
+    sprintf(logfilename,"%s.log",filename);
+  else
+    sprintf(logfilename,"%s",logname);  
+  return 0;  
+}
 
-int spike_device::run(meta_data knl_data,uint64_t knl_start_pc, char* srcfilename, char* logfilename){
-  uint64_t num_warp=knl_data.wg_size;
-  uint64_t num_thread=knl_data.wf_size;
-  uint64_t num_workgroup_x=knl_data.kernel_size[0];
-  uint64_t num_workgroup_y=knl_data.kernel_size[1];
-  uint64_t num_workgroup_z=knl_data.kernel_size[2];
+
+int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
+  uint64_t num_warp=knl_data->wg_size;
+  uint64_t num_thread=knl_data->wf_size;
+  uint64_t num_workgroup_x=knl_data->kernel_size[0];
+  uint64_t num_workgroup_y=knl_data->kernel_size[1];
+  uint64_t num_workgroup_z=knl_data->kernel_size[2];
   uint64_t num_workgroup=num_workgroup_x*num_workgroup_y*num_workgroup_z;
   uint64_t num_processor=num_warp*num_workgroup;
-  uint64_t ldssize=knl_data.ldsSize;
-  uint64_t pdssize=knl_data.pdsSize*num_thread;
-  uint64_t pdsbase=knl_data.pdsBaseAddr;
+  uint64_t ldssize=knl_data->ldsSize;
+  uint64_t pdssize=knl_data->pdsSize*num_thread;
+  uint64_t pdsbase=knl_data->pdsBaseAddr;
   uint64_t start_pc=knl_start_pc;
-  uint64_t knlbase=knl_data.metaDataBaseAddr;
+  uint64_t knlbase=knl_data->metaDataBaseAddr;
 
   cfg_t cfg(/*default_initrd_bounds=*/std::make_pair((reg_t)0, (reg_t)0),
             /*default_bootargs=*/nullptr,
@@ -454,12 +464,12 @@ int spike_device::run(meta_data knl_data,uint64_t knl_start_pc, char* srcfilenam
   //mem的和sim的config可以直接赋值，但htif的只能通过命令行传
   //为了减少出错的可能，用spike默认模式转为字符串传递。
   
-  char arg_num_core[10];
-  char arg_vlen_elen[20];
-  char arg_mem_scope[40];
-  char arg_gpgpu[120];
-  char arg_start_pc[20];;
-  char arg_logfilename[40];
+  char arg_num_core[16];
+  char arg_vlen_elen[32];
+  char arg_mem_scope[64];
+  char arg_gpgpu[128];
+  char arg_start_pc[32];;
+  char arg_logfilename[64];
   sprintf(arg_logfilename,"--log=%s",logfilename);
   sprintf(arg_num_core,"-p%ld",num_processor);
   sprintf(arg_gpgpu,"numw:%ld,numt:%ld,numwg:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx,knlbase:0x%lx",\
