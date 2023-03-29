@@ -293,7 +293,7 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   uint64_t start_pc=knl_start_pc;
   uint64_t knlbase=knl_data->metaDataBaseAddr;
 
-  if ((ldsSize)>0x10000000) {
+  if ((ldssize)>0x10000000) {
         fprintf(stderr, "lds size is too large. please modify VBASEADDR");
         exit(-1);
      }
