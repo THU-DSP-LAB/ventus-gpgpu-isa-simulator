@@ -4,13 +4,13 @@
 
 Ventus RISC-V GPGPU isa simulator based on Spike.
 
-This simulator is developed by 张泰然 and 郑名宸.
+This simulator is developed by 杨轲翔, 张泰然 and 郑名宸.
 
 This simulator adds the following features into origin spike simulator:
 - support custom instruction for vector branch control and warp control
   - vector branch control: vbeq, vbne, vblt, vbge, vbltu, vbgeu
   - warp control: barrier, endprg
-- support custom csr: numw, numt, tid, wid, gds, lds
+- support custom csr: numw, numt, numwg, tid, wid, pds, lds, knl
 - enhenced interactive mode commands to facilitate debugging of Ventus GPGPU programs
 
 For more information of the original Spike, please refer to README-spike-origin.md
@@ -19,19 +19,20 @@ For more information of the original Spike, please refer to README-spike-origin.
 
 ### build step
 
-Build step is identical to the origin build step of Spike. Assume that the RISCV enironment variable is set to the RISC-V tools install path.
+Build step is identical to the origin build step of Spike. Assume that the SPIKE_TARGET_DIR enironment variable is set to spike install path.
 
     $ apt-get install device-tree-compiler
     $ mkdir build
     $ cd build
-    $ ../configure --prefix=$RISCV
+    $ ../configure --prefix=$SPIKE_TARGET_DIR --enable-commitlog
     $ make
     $ [sudo] make install
 
 ### compiling and running Ventus GPGPU program in Spike
 
 #### prerequisites
-We execute Ventus GPGPU program with Spike in machine mode. To produce executable file, we utilize libgloss-htif and the modifed version of riscv-gnu-toolchain. The following commands set up the necessory environment.
+We execute Ventus GPGPU program with Spike in machine mode. To produce executable file, we utilize libgloss-htif and the modifed version of riscv-gnu-toolchain. 
+**update: htif is no longer necessary, and you can use link-script to configure function entry and other sections manually.**
 
 
     # install riscv64-unknown-elf toolchain
@@ -67,13 +68,13 @@ Assuming assembly code test.s, we use following commands.
 
 And use Spike to execute test.riscv.
 
-    $ spike -d -p4 --isa=rv64gv --varch=vlen:256,elen:32 --gpgpuarch numw:4,numt:8,numwg:1 test.riscv
+    $ spike -d -p4 --isa=rv64gv_zfh --varch=vlen:256,elen:32 --gpgpuarch numw:4,numt:8,numwg:1 test.riscv
 
 We add gpgpuarch option to configure uArch parameters for Ventus GPGPU (numw to set total warp number and numt to set thread number per warp). Note that there are some constraints about the parameters: 
 1. numw * numwg must be equal to processor count (-p)
 2. numt must be equal to vlen divided by elen
 3. more option parameters could be added after numw, numt and numwg, here is an example:
-  numw:4,numt:8,numwg:2,kernelx:1,kernely:2,kernelz:1,ldssize:0x80000000,ldsbase:0x00001000,pdssize:0x90000000,pdsbase:0x00001000
+  numw:4,numt:8,numwg:2,kernelx:1,kernely:2,kernelz:1,ldssize:0x80000000,ldsbase:0x00001000,pdssize:0x90000000,pdsbase:0x00001000,knlbase:0x90000000
   you can offer workgroup dimensions with kernel_x/y/z, and ldssize & pdssize for each workgroup. 
    
 
