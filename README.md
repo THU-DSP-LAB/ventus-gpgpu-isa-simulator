@@ -28,11 +28,30 @@ Build step is identical to the origin build step of Spike. Assume that the SPIKE
     $ make
     $ [sudo] make install
 
-### compiling and running Ventus GPGPU program in Spike
+### **(update)** compile ventus GPGPU program with clang and run in spike
+
+Now you can test spike-device with spike-driver in a baremetal mode.
+
+About Using clang and llvm to compile kernel.cl into kernel.elf, see [LLVM-project](github.com/THU-DSP-LAB/llvm-project).
+
+Then modify elf-filename, kernel argument and buffer data in `gpgpu-testcase/driver/test.cpp` .After that, run:
+
+    $ cd gpgpu-testcase/driver
+    $ export SPIKE_SRC_DIR=<path-to-spike-dir>
+    $ export SPIKE_TARGET_DIR=<path-to-spike-target-path>
+    $ mkdir build && cd build
+    $ cmake ..
+    $ make
+    $ ./spike_test
+    
+Spike running logfile `elf-filename.log` will be generated at current path.
+
+if spike_main.so cannot be found, add `<path-to-spike-target-path>/lib` into your `LD_LIBRARY_PATH`
+
+### **(deprecated)** compiling and running Ventus GPGPU program in Spike
 
 #### prerequisites
 We execute Ventus GPGPU program with Spike in machine mode. To produce executable file, we utilize libgloss-htif and the modifed version of riscv-gnu-toolchain. 
-**update: htif is no longer necessary, and you can use link-script to configure function entry and other sections manually.**
 
 
     # install riscv64-unknown-elf toolchain
