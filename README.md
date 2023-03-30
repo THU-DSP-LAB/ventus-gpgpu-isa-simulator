@@ -32,7 +32,7 @@ Build step is identical to the origin build step of Spike. Assume that the SPIKE
 
 Now you can test spike-device with spike-driver in a baremetal mode.
 
-About Using clang and llvm to compile kernel.cl into kernel.elf, see [LLVM-project](github.com/THU-DSP-LAB/llvm-project).
+About Using clang and llvm to compile kernel.cl into kernel.elf, see [LLVM-project](https://github.com/THU-DSP-LAB/llvm-project).
 
 Then modify elf-filename, kernel argument and buffer data in `gpgpu-testcase/driver/test.cpp` .After that, run:
 
