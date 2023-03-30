@@ -26,40 +26,49 @@ int main(){
     uint64_t num_processor=num_warp*num_workgroup;
     uint64_t ldssize=0x1000;
     uint64_t pdssize=0x1000;
-    uint64_t pdsbase=0x7a000000;
+    uint64_t pdsbase=0x8a000000;
     uint64_t start_pc=0x80000000;
     uint64_t knlbase=0x90000000;
-    meta_data meta(0,num_workgroups,num_thread,num_warp,knlbase,ldssize,pdssize,\
-        32,32,pdsbase);
-    char filename[]="saxpy.riscv";
+    meta_data meta(0,num_workgroups,num_thread,num_warp,knlbase,ldssize,pdssize,32,32,pdsbase);
+    char filename[]="vecadd.riscv";//set elf filename
 
-    //uint64_t buffer_num=3;
     uint64_t size_0=0x10000000;
-    uint64_t data_0[]={8,12,4,4,6};
+    float data_0[]={1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};//arg_1
     uint64_t vaddr_0;
     uint64_t size_1=0x10000000;
-    uint64_t data_1[]={8,12,4,4,6};
-    uint64_t vaddr_1;
+    float data_1[]={1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};//arg_2
+    uint64_t vaddr_1,vaddr_2,vaddr_3,vaddr_4;
 
     vt_device_h p=nullptr;
     vt_dev_open(&p);
-    vt_buf_alloc(p,size_0,&vaddr_0,0,0,0);
-    vt_buf_alloc(p,size_0,&vaddr_1,0,0,0);
-    vt_copy_to_dev(p,vaddr_1,data_1,40,0,0);
-
-    int64_t* data_moveback=new int64_t[5];
-    for(int i=0;i<5;i++) data_moveback[i]= -1;
-
-    vt_copy_from_dev(p,vaddr_1+8,data_moveback,32,0,0);
-    for(int i=0;i<5;i++) printf("%ld ",data_moveback[i]);
-    //再搬回来看一下是否成功
-
+    
+    vt_buf_alloc(p,size_0,&vaddr_0,0,0,0);//allocate for program
+    vt_buf_alloc(p,pdssize*num_thread*num_warp*num_workgroup,&pdsbase,0,0,0);//allocate for privatemem
+    vt_buf_alloc(p,16*4,&vaddr_1,0,0,0);//allocate arg1 buffer
+    vt_buf_alloc(p,16*4,&vaddr_2,0,0,0);//allocate arg2 buffer
+    vt_buf_alloc(p,16*4,&vaddr_3,0,0,0);//allocate metadata buffer
+    vt_buf_alloc(p,2*4,&vaddr_4,0,0,0);//allocate buffer base
+    vt_copy_to_dev(p,vaddr_1,data_0,16*4,0,0);
+    vt_copy_to_dev(p,vaddr_2,data_1,16*4,0,0);
+    meta.metaDataBaseAddr=vaddr_3;
+    meta.pdsBaseAddr=pdsbase;
+    uint32_t data_2[14];//metadata
+    for(int i=0;i<14;i++) data_2[i]=1;
+    data_2[0]=0x8000005c;
+    data_2[1]=(uint32_t)vaddr_4;
+    data_2[2]=meta.kernel_size[0];
+    data_2[9]=0;data_2[10]=0;data_2[11]=0;
+    vt_copy_to_dev(p,vaddr_3,data_2,14*4,0,0);
+    uint32_t data_3[2]={(uint32_t)vaddr_1,(uint32_t)vaddr_2};//buffer base
+    vt_copy_to_dev(p,vaddr_4,data_3,2*4,0,0);
+    
     vt_upload_kernel_file(p,filename,0);
     vt_start(p,&meta,0);
-    printf("finish running");
-
+    printf("finish running\n");
+    vt_copy_from_dev(p,vaddr_2,data_1,16*4,0,0);
+    vt_copy_from_dev(p,vaddr_1,data_0,16*4,0,0);
     vt_buf_free(p,0,nullptr,0,0);
-
-
+    for(int i=0;i<16;i++)
+        printf("%f %f ",data_0[i],data_1[i]);
     return 0;
 }
