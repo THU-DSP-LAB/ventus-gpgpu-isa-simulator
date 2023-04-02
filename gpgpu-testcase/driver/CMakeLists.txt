@@ -32,3 +32,7 @@ set_target_properties(${PROJECT} PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 add_executable(spike_test ./test.cpp)
 add_dependencies(spike_test ${PROJECT})
 target_link_libraries(spike_test PUBLIC ${PROJECT})
+
+add_executable(spike_gen ./test_mem_gen.cpp)
+add_dependencies(spike_gen ${PROJECT})
+target_link_libraries(spike_gen PUBLIC ${PROJECT})
