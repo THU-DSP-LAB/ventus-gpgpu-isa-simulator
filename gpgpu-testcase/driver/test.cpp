@@ -82,6 +82,6 @@ int main(){
     vt_copy_from_dev(p,vaddr_print,print_data,64*4,0,0);
     for(int i=0;i<64;i++)
         printf("%d ",print_data[i]);
-    
+    delete[] print_data;
     return 0;
 }
