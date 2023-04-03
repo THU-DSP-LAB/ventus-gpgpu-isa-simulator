@@ -38,6 +38,9 @@ int main(){
     uint64_t size_1=0x10000000;
     float data_1[]={1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};//arg_2
     uint64_t vaddr_1,vaddr_2,vaddr_3,vaddr_4;
+    
+    uint64_t vaddr_print;
+    uint64_t size_print=0x10000000;
 
     vt_device_h p=nullptr;
     vt_dev_open(&p);
@@ -48,6 +51,9 @@ int main(){
     vt_buf_alloc(p,16*4,&vaddr_2,0,0,0);//allocate arg2 buffer
     vt_buf_alloc(p,16*4,&vaddr_3,0,0,0);//allocate metadata buffer
     vt_buf_alloc(p,2*4,&vaddr_4,0,0,0);//allocate buffer base
+    
+    vt_buf_alloc(p,size_print,&vaddr_print,0,0,0);//allocate buffer base
+    
     vt_copy_to_dev(p,vaddr_1,data_0,16*4,0,0);
     vt_copy_to_dev(p,vaddr_2,data_1,16*4,0,0);
     meta.metaDataBaseAddr=vaddr_3;
@@ -58,6 +64,8 @@ int main(){
     data_2[1]=(uint32_t)vaddr_4;
     data_2[2]=meta.kernel_size[0];
     data_2[9]=0;data_2[10]=0;data_2[11]=0;
+    data_2[12]=(uint32_t)vaddr_print;data_2[13]=(uint32_t)size_print;
+    
     vt_copy_to_dev(p,vaddr_3,data_2,14*4,0,0);
     uint32_t data_3[2]={(uint32_t)vaddr_1,(uint32_t)vaddr_2};//buffer base
     vt_copy_to_dev(p,vaddr_4,data_3,2*4,0,0);
@@ -70,5 +78,10 @@ int main(){
     vt_buf_free(p,0,nullptr,0,0);
     for(int i=0;i<16;i++)
         printf("%f %f ",data_0[i],data_1[i]);
+    uint32_t *print_data=new uint32_t[64];
+    vt_copy_from_dev(p,vaddr_print,print_data,64*4,0,0);
+    for(int i=0;i<64;i++)
+        printf("%d ",print_data[i]);
+    
     return 0;
 }
