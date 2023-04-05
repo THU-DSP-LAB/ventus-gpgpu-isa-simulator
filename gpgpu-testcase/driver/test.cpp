@@ -57,6 +57,7 @@ int main(){
     data_2[0]=0x8000005c;
     data_2[1]=(uint32_t)vaddr_4;
     data_2[2]=meta.kernel_size[0];
+    data_2[6]=num_thread;
     data_2[9]=0;data_2[10]=0;data_2[11]=0;
     vt_copy_to_dev(p,vaddr_3,data_2,14*4,0,0);
     uint32_t data_3[2]={(uint32_t)vaddr_1,(uint32_t)vaddr_2};//buffer base
