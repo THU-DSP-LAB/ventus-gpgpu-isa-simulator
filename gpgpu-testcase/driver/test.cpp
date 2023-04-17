@@ -63,6 +63,7 @@ int main(){
     data_2[0]=0x8000005c;
     data_2[1]=(uint32_t)vaddr_4;
     data_2[2]=meta.kernel_size[0];
+    data_2[6]=num_thread;
     data_2[9]=0;data_2[10]=0;data_2[11]=0;
     data_2[12]=(uint32_t)vaddr_print;data_2[13]=(uint32_t)size_print;
     
