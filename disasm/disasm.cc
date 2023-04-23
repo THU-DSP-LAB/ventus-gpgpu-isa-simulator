@@ -104,6 +104,13 @@ struct : public arg_t {
   }
 } imm;
 
+
+struct : public arg_t {
+  std::string to_string(insn_t insn) const {
+    return std::to_string((int)insn.s_imm());
+  }
+} store_imm;
+
 struct : public arg_t {
   std::string to_string(insn_t insn) const {
     std::stringstream s;
@@ -623,22 +630,22 @@ static void NOINLINE add_vector_imm12_insn(disassembler_t* d, const char*name, u
 
 static void NOINLINE add_vector_load12_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
 {
-  d->add_insn(new disasm_insn_t(name, match, mask, {&vd, &v_address, &vs1,&imm}));
+  d->add_insn(new disasm_insn_t(name, match, mask, {&vd, &vs1,&imm}));
 }
 
 static void NOINLINE add_vector_load_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
 {
-  d->add_insn(new disasm_insn_t(name, match, mask, {&vd, &v_address, &xrs1,&v_simm11}));
+  d->add_insn(new disasm_insn_t(name, match, mask, {&vd, &xrs1,&v_simm11}));
 }
 
 static void NOINLINE add_vector_store12_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
 {
-  d->add_insn(new disasm_insn_t(name, match, mask, {&vs2, &v_address, &vs1, &imm}));
+  d->add_insn(new disasm_insn_t(name, match, mask, {&vs2, &vs1, &store_imm}));
 }
 
 static void NOINLINE add_vector_store_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
 {
-  d->add_insn(new disasm_insn_t(name, match, mask, {&vs2, &v_address, &xrs1, &v_s_simm11}));
+  d->add_insn(new disasm_insn_t(name, match, mask, {&vs2, &xrs1, &v_s_simm11}));
 }
 
 static void NOINLINE add_barrier_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
