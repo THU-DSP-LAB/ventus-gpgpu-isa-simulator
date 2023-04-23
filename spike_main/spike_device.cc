@@ -241,7 +241,7 @@ int spike_device::free_local_mem(){
   return 0; 
 }
 
-int spike_device::copy_to_dev(uint64_t vaddr, uint64_t size, void *data){
+int spike_device::copy_to_dev(uint64_t vaddr, uint64_t size,const void *data){
   uint64_t i=0;
   printf("to copy to 0x%lx with %ld bytes\n",vaddr,size);
   for (i=0; i<buffer.size(); ++i)
