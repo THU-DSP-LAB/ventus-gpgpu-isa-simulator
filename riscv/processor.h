@@ -169,7 +169,7 @@ struct state_t
 
   reg_t pc;
   regfile_t<reg_t, NXPR, true> XPR;
-  regfile_t<freg_t, NFPR, false> FPR;
+  regfile_t<freg_t, NFPR, true> FPR;
 
   struct regext_t{
   //regext_t():ext_rd(0),ext_rs1(0),ext_rs2(0),ext_rs3(0),ext_imm(0),valid(0){}
