@@ -191,8 +191,10 @@ private:
 #define WRITE_RD(value) WRITE_REG((insn.rd() | p->ext_rd()), value)
 
 #ifndef RISCV_ENABLE_COMMITLOG
-# define WRITE_REG(reg, value) ({ CHECK_REG(reg); STATE.XPR.write(reg, value); })
-# define WRITE_FREG(reg, value) DO_WRITE_FREG(reg, freg(value))
+//# define WRITE_REG(reg, value) ({ CHECK_REG(reg); STATE.XPR.write(reg, value); })
+# define WRITE_REG(reg, value) ({ CHECK_REG(reg); STATE.XPR.write(reg, value);DO_WRITE_FREG(reg, freg(f32((uint32_t)(value)))); })
+//# define WRITE_FREG(reg, value) DO_WRITE_FREG(reg, freg(value))
+# define WRITE_FREG(reg, value) ({DO_WRITE_FREG(reg, freg(value));CHECK_REG(reg); STATE.XPR.write(reg, static_cast<uint32_t>((value).v));})
 # define WRITE_VSTATUS {}
 #else
    /* 0 : int
@@ -206,11 +208,13 @@ private:
     STATE.log_reg_write[(reg) << 4] = {wdata, 0}; \
     CHECK_REG(reg); \
     STATE.XPR.write(reg, wdata); \
+    DO_WRITE_FREG(reg, freg(f32((uint32_t)(value)))) \
   })
 # define WRITE_FREG(reg, value) ({ \
     freg_t wdata = freg(value); /* value may have side effects */ \
     STATE.log_reg_write[((reg) << 4) | 1] = wdata; \
     DO_WRITE_FREG(reg, wdata); \
+    STATE.XPR.write(reg, static_cast<uint32_t>((value).v)); \
   })
 # define WRITE_VSTATUS STATE.log_reg_write[3] = {0, 0};
 #endif
