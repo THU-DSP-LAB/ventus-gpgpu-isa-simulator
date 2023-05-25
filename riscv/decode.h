@@ -29,7 +29,7 @@ typedef unsigned __int128 uint128_t;
 #endif
 
 const int NXPR = 256;
-const int NFPR = 32;
+const int NFPR = 256;
 const int NVPR = 256;
 const int NCSR = 4096;
 
@@ -195,7 +195,7 @@ inline uint32_t f32_into_x(float32_t f) { return static_cast<uint32_t>(f.v);}
 inline uint32_t f32_into_x(float64_t f) { return static_cast<uint32_t>(f.v);}
 #ifndef RISCV_ENABLE_COMMITLOG
 //# define WRITE_REG(reg, value) ({ CHECK_REG(reg); STATE.XPR.write(reg, value); })
-# define WRITE_REG(reg, value) ({ CHECK_REG(reg); STATE.XPR.write(reg, value);DO_WRITE_FREG(reg, freg(f32(static_cast<uint32_t>(value)))); })
+# define WRITE_REG(reg, value) ({ CHECK_REG(reg); STATE.XPR.write(reg, value);uint32_t wdata = value;if(STATE.sstatus->enabled(SSTATUS_FS)) {DO_WRITE_FREG(reg, freg(f32(wdata)));}  })
 //# define WRITE_FREG(reg, value) DO_WRITE_FREG(reg, freg(value))
 # define WRITE_FREG(reg, value) ({DO_WRITE_FREG(reg, freg(value));CHECK_REG(reg); STATE.XPR.write(reg, f32_into_x(value));})
 # define WRITE_VSTATUS {}
@@ -211,7 +211,8 @@ inline uint32_t f32_into_x(float64_t f) { return static_cast<uint32_t>(f.v);}
     STATE.log_reg_write[(reg) << 4] = {wdata, 0}; \
     CHECK_REG(reg); \
     STATE.XPR.write(reg, wdata); \
-    DO_WRITE_FREG(reg, freg(f32(static_cast<uint32_t>(value)))); \
+    uint32_t w2data = wdata; \
+    if(STATE.sstatus->enabled(SSTATUS_FS)) {DO_WRITE_FREG(reg, freg(f32(w2data)));} \
   })
 # define WRITE_FREG(reg, value) ({ \
     freg_t wdata = freg(value); /* value may have side effects */ \
