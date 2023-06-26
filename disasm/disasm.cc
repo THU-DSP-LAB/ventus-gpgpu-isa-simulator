@@ -851,6 +851,7 @@ void disassembler_t::add_instructions(const isa_parser_t* isa)
   DEFINE_VBRANCH_TYPE(vbltu);
   DEFINE_VBRANCH_TYPE(vbgeu);
   DEFINE_VBRANCH_TYPE(join);
+  DEFINE_VBRANCH_TYPE(setrpc);
   //DISASM_OPIV_V___INSN(vftta);
   ////DEFINE_VECTOR_VV(vftta_vv);
   DEFINE_BARRIER_TYPE(barrier);
