@@ -1106,7 +1106,7 @@ void processor_t::gpgpu_unit_t::reset(processor_t *const proc)
   csrmap[CSR_GIDX] = gidx = std::make_shared<basic_csr_t>(proc, CSR_GIDX, 0);
   csrmap[CSR_GIDY] = gidy = std::make_shared<basic_csr_t>(proc, CSR_GIDY, 0);
   csrmap[CSR_GIDZ] = gidz = std::make_shared<basic_csr_t>(proc, CSR_GIDZ, 0);    
-  
+  csrmap[CSR_RPC] = rpc = std::make_shared<basic_csr_t>(proc, CSR_RPC, 0);
 
   
   // initialize csrs to enable vecter extension
