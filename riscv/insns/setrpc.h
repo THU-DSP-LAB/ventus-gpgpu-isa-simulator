@@ -1,2 +1,2 @@
-P.gpgpu_unit.simt_stack.pop_join(BRANCH_TARGET);
-SET_PC(P.gpgpu_unit.simt_stack.get_npc());
+p->gpgpu_unit.rpc->write(RS1 + insn.i_imm());
+WRITE_RD(sext_xlen(RS1 + insn.i_imm()));

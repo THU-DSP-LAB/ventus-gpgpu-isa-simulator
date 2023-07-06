@@ -559,6 +559,7 @@ public:
   class gpgpu_unit_t{
     public:
       warp_schedule_t *w;
+      csr_t_p rpc;
     private:
       
       processor_t *p;
