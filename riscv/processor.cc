@@ -1120,13 +1120,11 @@ void processor_t::gpgpu_unit_t::reset(processor_t *const proc)
 // defination of simt_stack_t member function
 #define NO_PC 0
 
-void processor_t::gpgpu_unit_t::simt_stack_t::pop_join(reg_t current_pc)
+void processor_t::gpgpu_unit_t::simt_stack_t::pop_join()
 {
-  if(_stack.back().r_pc==current_pc){
-    npc = _stack.back().else_pc;
-    mask = _stack.back().else_mask;
-
-  }
+  npc = _stack.back().else_pc;
+  mask = _stack.back().else_mask;
+  _stack.pop_back();
   /*//else不用執行，if下來直接匯合點
   if(_stack.back().pair == 1){
     npc = r_pc;
@@ -1146,34 +1144,44 @@ void processor_t::gpgpu_unit_t::simt_stack_t::pop_join(reg_t current_pc)
     _stack.back().is_part = 1;
   }*/
 }
-
+int count_ones(uint64_t n){
+  int count=0;
+  while(n){
+    n&=n-1;
+    count++;
+  }
+  return count;
+}
 void processor_t::gpgpu_unit_t::simt_stack_t::push_branch
-    (reg_t if_pc, uint64_t if_mask, 
+    (reg_t r_pc,reg_t if_pc, uint64_t if_mask, 
                      uint64_t r_mask, reg_t else_pc, uint64_t else_mask)
 {
-  if(all_zero(else_mask)){ 
-    //不用执行else，pair=1和is_part=1
-    //pair:else路径掩码是否为0
-    //is_part选择输出栈顶 0:else路径信息, 1:汇合点
-    simt_stack_entry_t new_entry(1, NO_PC, r_mask, else_pc, else_mask, 1);
-    _stack.push_back(new_entry);
+  if(all_zero(else_mask)){
     npc = if_pc;
     mask = if_mask & width_mask;
   }
   else if(all_zero(if_mask)){
-    //不用执行if但要执行else，pair=0和is_part=1
-    //is_part选择输出栈顶 0:else路径信息, 1:汇合点
-    simt_stack_entry_t new_entry(1, NO_PC, r_mask, else_pc, else_mask, 0);
-    _stack.push_back(new_entry);
     npc = else_pc;
     mask = else_mask & width_mask;
   }
   else{
+    simt_stack_entry_t new_r_entry(0,r_pc,0,r_pc,r_mask,false);
+    _stack.push_back(new_r_entry);
     //if,else 都要执行
-    simt_stack_entry_t new_entry(0, NO_PC, r_mask, else_pc, else_mask, 0);
-    _stack.push_back(new_entry);
-    npc = if_pc;
-    mask = if_mask & width_mask;
+    int count_ones_if=count_ones(if_mask);
+    int count_ones_else=count_ones(else_mask);
+    if(count_ones_if<count_ones_else){
+      simt_stack_entry_t new_entry(0, r_pc, 0, else_pc, else_mask,false);
+      _stack.push_back(new_entry);
+      npc = if_pc;
+      mask = if_mask & width_mask;
+      }
+    else{
+      simt_stack_entry_t new_entry(0, r_pc, 0, if_pc, if_mask,false);
+      _stack.push_back(new_entry);
+      npc = else_pc;
+      mask = else_mask & width_mask;
+    }
   }
 }
 

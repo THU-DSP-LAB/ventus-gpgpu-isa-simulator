@@ -275,7 +275,7 @@ static int cto(reg_t val)
     val >>= 1, res++;
   return res;
 }
-
+int count_ones(uint64_t n);
 // this class represents one processor in a RISC-V machine.
 class processor_t : public abstract_device_t
 {
@@ -629,9 +629,9 @@ public:
           simt_stack_entry_t& top();
           int size();
 
-          void push_branch(reg_t if_pc, uint64_t if_mask, 
+          void push_branch(reg_t r_pc,reg_t if_pc, uint64_t if_mask, 
                           uint64_t r_mask, reg_t else_pc, uint64_t else_mask); // push r_mask else_pc else_mask
-          void pop_join(reg_t r_pc);   // 
+          void pop_join();   // 
 
           reg_t get_npc() { return npc; };
           uint64_t get_mask() { return mask; };
@@ -653,6 +653,9 @@ public:
             for(int i = 0; i< numt - 1; i ++) 
               width_mask = width_mask | (width_mask << 1);
             mask = 0xffffffffffffffff & width_mask;
+          }
+          bool stack_empty(){
+            return _stack.empty();
           }
 
         private:
