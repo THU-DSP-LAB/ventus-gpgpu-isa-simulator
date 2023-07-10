@@ -1120,9 +1120,14 @@ void processor_t::gpgpu_unit_t::reset(processor_t *const proc)
 // defination of simt_stack_t member function
 #define NO_PC 0
 
-void processor_t::gpgpu_unit_t::simt_stack_t::pop_join(reg_t r_pc)
+void processor_t::gpgpu_unit_t::simt_stack_t::pop_join(reg_t current_pc)
 {
-  //else不用執行，if下來直接匯合點
+  if(_stack.back().r_pc==current_pc){
+    npc = _stack.back().else_pc;
+    mask = _stack.back().else_mask;
+
+  }
+  /*//else不用執行，if下來直接匯合點
   if(_stack.back().pair == 1){
     npc = r_pc;
     mask = _stack.back().r_mask;
@@ -1139,7 +1144,7 @@ void processor_t::gpgpu_unit_t::simt_stack_t::pop_join(reg_t r_pc)
     npc = _stack.back().else_pc;
     mask = _stack.back().else_mask & width_mask;
     _stack.back().is_part = 1;
-  }
+  }*/
 }
 
 void processor_t::gpgpu_unit_t::simt_stack_t::push_branch

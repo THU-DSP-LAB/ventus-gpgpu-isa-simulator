@@ -1423,7 +1423,7 @@ reg_t index[P.VU.vlmax]; \
   const reg_t vs2 = insn.rs2(); \
   if (!is_seg) \
     require(nf == 1); \
-  VI_DUPLICATE_VREG(2,vs2, elt_width); \
+  VI_DUPLICATE_VREG(1,insn.rs1(), elt_width); \
   for (reg_t i = 0; i < vl; ++i) { \
     VI_STRIP(i) \
     VI12_ELEMENT_SKIP(i); \
