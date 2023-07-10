@@ -474,7 +474,7 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   char arg_num_core[16];
   char arg_vlen_elen[32];
   char arg_mem_scope[64];
-  char arg_gpgpu[128];
+  char arg_gpgpu[256];
   char arg_start_pc[32];;
   char arg_logfilename[64];
   sprintf(arg_logfilename,"--log=%s",logfilename);
