@@ -2328,7 +2328,7 @@ reg_t index[P.VU.vlmax]; \
   uint64_t if_mask = ~else_mask & r_mask;
 
 #define VV_BRANCH_SS_SET_PC_MASK \
-  P.gpgpu_unit.simt_stack.push_branch(if_pc, if_mask, r_mask, else_pc, else_mask); \
+  P.gpgpu_unit.simt_stack.push_branch(P.get_csr(CSR_RPC),if_pc, if_mask, r_mask, else_pc, else_mask); \
   SET_PC(P.gpgpu_unit.simt_stack.get_npc());
 
 #define VV_LOOP_BRANCH_BODY(PARAMS, BODY) \
