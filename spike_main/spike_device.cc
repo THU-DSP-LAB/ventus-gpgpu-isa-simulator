@@ -105,7 +105,7 @@ static std::vector<mem_cfg_t> parse_mem_layout(const char* arg)
   while (true) {
     auto base = strtoull(arg, &p, 0);
     if (!*p || *p != ':')
-      help();
+        printf("command line input fromat wrong\n");
     auto size = strtoull(p + 1, &p, 0);
 
     // page-align base and size
@@ -116,7 +116,7 @@ static std::vector<mem_cfg_t> parse_mem_layout(const char* arg)
       size += PGSIZE - size % PGSIZE;
 
     if (base + size < base)
-      help();
+        printf("page size alignmentation failed\n");
 
     if (size != size0) {
       fprintf(stderr, "Warning: the memory at  [0x%llX, 0x%llX] has been realigned\n"
@@ -188,7 +188,11 @@ spike_device::spike_device():sim(NULL),buffer(),buffer_data(){
   srcfilename=new char[128];
   logfilename=new char[128];
   uint64_t lds_vaddr;
+  uint64_t pc_src_vaddr;
+  printf("spike device initialize: allocating local memory: ");
   alloc_local_mem(0x10000000,&lds_vaddr);
+  printf("spike device initialize: allocating pc source memory: ");
+  alloc_local_mem(0x10000000, &pc_src_vaddr);
 };
 spike_device::~spike_device(){
   delete sim;delete[] srcfilename,logfilename;
