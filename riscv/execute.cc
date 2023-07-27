@@ -128,17 +128,32 @@ static void commit_log_print_insn(processor_t *p, reg_t pc, insn_t insn)
                 p->VU.vl->read());
         show_vec = true;
     }
-
     if (!is_vec) {
       if (prefix == 'c')
         fprintf(log_file, " c%d_%s ", rd, csr_name(rd));
       else
         fprintf(log_file, " %c%-2d ", prefix, rd);
-      if (is_vreg)
+      if (is_vreg) {
         commit_log_print_value(log_file, size, &p->VU.elt<uint8_t>(0,rd, 0));
+      }
       else
         commit_log_print_value(log_file, size, item.second.v);
-    }
+    } 
+    //如果是自定义分支相关指令，则打印mask
+    if ((insn.bits() & 0x7f) == 0x5b) {
+      //调用simt_stack的dump()函数，将要打印到cout的内容重定向到string流，然后调用fprintf函数打印到log_file
+        std::stringstream ss;
+        std::streambuf* oldCoutBuf = std::cout.rdbuf();
+
+        std::cout.rdbuf(ss.rdbuf());
+        p->gpgpu_unit.simt_stack.dump();
+        std::cout.rdbuf(oldCoutBuf);
+
+        char *simt_mask = new char[ss.str().length() + 1];
+        strcpy(simt_mask, ss.str().c_str());
+
+        fprintf(log_file, "%s", simt_mask);
+      }
   }
 
   for (auto item : load) {
