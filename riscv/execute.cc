@@ -64,6 +64,23 @@ const char* processor_t::get_symbol(uint64_t addr)
   return sim->get_symbol(addr);
 }
 
+void commit_log_print_simt_stack(processor_t *p, insn_t insn)
+{
+  //调用simt_stack的dump()函数，将要打印到cout的内容重定向到string流，然后调用fprintf函数打印到log_file
+  FILE *log_file = p->get_log_file();
+  std::stringstream ss;
+  std::streambuf* oldCoutBuf = std::cout.rdbuf();
+
+  std::cout.rdbuf(ss.rdbuf());
+  p->gpgpu_unit.simt_stack.dump();
+  std::cout.rdbuf(oldCoutBuf);
+
+  char *simt_mask = new char[ss.str().length() + 1];
+  strcpy(simt_mask, ss.str().c_str());
+
+  fprintf(log_file, "%s", simt_mask);
+  return;
+}
 static void commit_log_print_insn(processor_t *p, reg_t pc, insn_t insn)
 {
   FILE *log_file = p->get_log_file();
@@ -139,22 +156,10 @@ static void commit_log_print_insn(processor_t *p, reg_t pc, insn_t insn)
       else
         commit_log_print_value(log_file, size, item.second.v);
     } 
-    //如果是自定义分支相关指令，则打印mask
-    if ((insn.bits() & 0x7f) == 0x5b) {
-      //调用simt_stack的dump()函数，将要打印到cout的内容重定向到string流，然后调用fprintf函数打印到log_file
-        std::stringstream ss;
-        std::streambuf* oldCoutBuf = std::cout.rdbuf();
-
-        std::cout.rdbuf(ss.rdbuf());
-        p->gpgpu_unit.simt_stack.dump();
-        std::cout.rdbuf(oldCoutBuf);
-
-        char *simt_mask = new char[ss.str().length() + 1];
-        strcpy(simt_mask, ss.str().c_str());
-
-        fprintf(log_file, "%s", simt_mask);
-      }
   }
+//如果是自定义分支相关指令，则打印mask
+  if ((insn.bits() & 0x7f) == 0x5b) 
+    commit_log_print_simt_stack(p, insn);
 
   for (auto item : load) {
     fprintf(log_file, " mem ");
