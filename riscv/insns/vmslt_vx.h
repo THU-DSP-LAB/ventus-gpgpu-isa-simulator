@@ -1,5 +1,5 @@
 // vslt.vx  vd, vs2, vs1
-VI_VX_LOOP_CMP
+VI_VX_LOOP
 ({
-  res = vs2 < rs1;
+  vd = vs2 < rs1;
 })
