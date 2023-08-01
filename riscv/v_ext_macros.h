@@ -165,6 +165,15 @@ static inline bool is_aligned(const unsigned val, const unsigned pos)
     } \
   }
 
+#define VI12_CHECK_SSS(is_vs1) \
+  if (P.VU.vflmul > 1) { \
+    require_align(insn.rd(), P.VU.vflmul); \
+    require_align(insn.rs2(), P.VU.vflmul); \
+    if (is_vs1) { \
+      require_align(insn.rs1(), P.VU.vflmul); \
+    } \
+  }
+
 #define VI_CHECK_STORE(elt_width, is_mask_ldst) \
   require_vector(false); \
   reg_t veew = is_mask_ldst ? 1 : sizeof(elt_width##_t) * 8; \
@@ -389,7 +398,7 @@ static inline bool is_aligned(const unsigned val, const unsigned pos)
 
 #define VI12_PARAMS(x) \
   type_sew_t<x>::type &vd = P.VU.elt<type_sew_t<x>::type>(0,rd_num, i, true); \
-  type_sew_t<x>::type iimm = (type_sew_t<x>::type)insn.v_simm12(); \
+  type_sew_t<x>::type iimm = (type_sew_t<x>::type)(insn.i_imm()); \
   type_sew_t<x>::type vs1 = P.VU.elt<type_sew_t<x>::type>(1,rs1_num, i); 
 
 #define XV_PARAMS(x) \
@@ -803,7 +812,7 @@ static inline bool is_aligned(const unsigned val, const unsigned pos)
   VI_LOOP_END 
 
 #define VI_VI12_LOOP(BODY) \
-  VI_CHECK_SSS(false) \
+  VI12_CHECK_SSS(false) \
   VI12_LOOP_BASE \
   if (sew == e8) { \
     VI12_PARAMS(e8); \

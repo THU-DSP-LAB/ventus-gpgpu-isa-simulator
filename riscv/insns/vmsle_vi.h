@@ -1,5 +1,5 @@
 // vsle.vi vd, vs2, simm5
-VI_VI_LOOP_CMP
+VI_VI_LOOP
 ({
-  res = vs2 <= simm5;
+  vd = vs2 <= simm5;
 })
