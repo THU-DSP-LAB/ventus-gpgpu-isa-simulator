@@ -53,6 +53,7 @@ class warp_schedule_t
       }
     void init_warp(const char *gpgpuarch);
     void set_barrier_1(uint64_t wid);
+    void set_barrier_2(uint64_t wid);
     void set_barrier_0();
     bool get_barrier();
     void parse_gpgpuarch_string(const char *gpgpuarch);
