@@ -24,9 +24,9 @@ struct meta_data{  // 这个metadata是供驱动使用的，而不是给硬件�
 int main(){
     // printf("BUFFER SIZE: %d", PRINT_BUFFER_SIZE);
     // printf("BUFFER ADDR: %d", PRINT_BUFFER_ADDR);
-    uint64_t num_warp=2;
+    uint64_t num_warp=4;
     uint64_t num_thread=8;
-    uint64_t num_workgroups[3]={2,1,1};
+    uint64_t num_workgroups[3]={1,1,1};
     uint64_t num_workgroup=num_workgroups[0]*num_workgroups[1]*num_workgroups[2];
     uint64_t num_processor=num_warp*num_workgroup;
     uint64_t ldssize=0x1000;
