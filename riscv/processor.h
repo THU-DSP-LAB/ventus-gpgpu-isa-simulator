@@ -616,9 +616,9 @@ public:
           std::cout //<< "[is_part] " << is_part << " "
                     << "[r_pc] " << std::hex << std::setw(8) << std::setfill('0') << static_cast<uint32_t>(r_pc) << " " 
                     << "[else_pc] " << std::hex << std::setw(8) << std::setfill('0') << static_cast<uint32_t>(else_pc) << " " 
-                    << "[else_mask] " << std::hex << std::setw(8) << std::setfill('0') << else_mask << " " 
+                    << "[else_mask] " << std::hex << std::setw(8) << std::setfill('0') << else_mask << " ";
                     //<< "[pair] " << pair 
-                    << std::endl;
+                    // << std::endl;
         }
       };
 
@@ -640,10 +640,15 @@ public:
           void reset();
 
           void dump() {
-            std::cout << std::endl << "current mask:\t" << std::hex << std::setw(8) << std::setfill('0') << mask << std::endl;
-            std::cout << "current npc:\t" << std::hex << std::setw(8) << std::setfill('0') << static_cast<uint32_t>(npc) << std::endl;
-            std::cout << "stack size: " << _stack.size() << std::endl;
+            // std::cout << std::endl << "current mask:\t" << std::hex << std::setw(8) << std::setfill('0') << mask << std::endl;
+            // std::cout << "current npc:\t" << std::hex << std::setw(8) << std::setfill('0') << static_cast<uint32_t>(npc) << std::endl;
+            // std::cout << "stack size: " << _stack.size() << std::endl;
+
+            std::cout << " current mask:\t" << std::hex << std::setw(8) << std::setfill('0') << mask  \
+            << " current npc:\t" << std::hex << std::setw(8) << std::setfill('0') << static_cast<uint32_t>(npc) \
+            << " stack size: " << _stack.size(); 
             for(auto it = _stack.begin(); it != _stack.end(); it ++) {
+              std::cout << std::endl;
               it->dump();
             }
           }

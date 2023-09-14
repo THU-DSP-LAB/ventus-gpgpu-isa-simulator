@@ -151,6 +151,7 @@ static void commit_log_print_insn(processor_t *p, reg_t pc, insn_t insn)
       else
         fprintf(log_file, " %c%-2d ", prefix, rd);
       if (is_vreg) {
+        fprintf(log_file, "%08x ", p->gpgpu_unit.simt_stack.get_mask());
         commit_log_print_value(log_file, size, &p->VU.elt<uint8_t>(0,rd, 0));
       }
       else
