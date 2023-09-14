@@ -647,7 +647,8 @@ public:
             std::cout << " current mask:\t" << std::hex << std::setw(8) << std::setfill('0') << mask  \
             << " current npc:\t" << std::hex << std::setw(8) << std::setfill('0') << static_cast<uint32_t>(npc) \
             << " stack size: " << _stack.size(); 
-            for(auto it = _stack.begin(); it != _stack.end(); it ++) {
+            
+            for(auto it = _stack.rbegin(); it != _stack.rend(); it ++) {
               std::cout << std::endl;
               it->dump();
             }
