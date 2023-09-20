@@ -2,7 +2,10 @@
 
 ## About
 
+This is dazhouzi!!!!!!!!!!!
+
 This is [Ventus RISC-V GPGPU](https://github.com/THU-DSP-LAB/ventus-gpgpu) isa simulator based on Spike.
+
 
 We recommend using [ventus-llvm](https://github.com/THU-DSP-LAB/llvm-project) to build the complete toolchain for Ventus GPGPU. 
 
