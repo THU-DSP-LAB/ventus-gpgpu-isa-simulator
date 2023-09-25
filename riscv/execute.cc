@@ -41,11 +41,11 @@ static void commit_log_print_value(FILE *log_file, int width, const void *data)
     default:
       // max lengh of vector
       if (((width - 1) & width) == 0) {
-        const uint64_t *arr = (const uint64_t *)data;
+        const uint32_t *arr = (const uint32_t *)data;
 
         fprintf(log_file, "0x");
-        for (int idx = width / 64 - 1; idx >= 0; --idx) {
-          fprintf(log_file, "%016" PRIx64, arr[idx]);
+        for (int idx = width / 32 - 1; idx >= 0; --idx) {
+          fprintf(log_file, "%08" PRIx32" ", arr[idx]);
         }
       } else {
         abort();
