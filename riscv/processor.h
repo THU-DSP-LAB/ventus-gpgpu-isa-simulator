@@ -613,12 +613,9 @@ public:
         simt_stack_entry_t() :is_part(), r_pc(), r_mask(), else_pc(), else_mask(), pair(){}
         simt_stack_entry_t(bool a, reg_t b, uint64_t c, reg_t d, uint64_t e, bool f) :is_part(a), r_pc(b), r_mask(c), else_pc(d), else_mask(e), pair(f){}
         void dump() {
-          std::cout //<< "[is_part] " << is_part << " "
-                    << "[r_pc] " << std::hex << std::setw(8) << std::setfill('0') << static_cast<uint32_t>(r_pc) << " " 
+          std::cout << "[r_pc] " << std::hex << std::setw(8) << std::setfill('0') << static_cast<uint32_t>(r_pc) << " " 
                     << "[else_pc] " << std::hex << std::setw(8) << std::setfill('0') << static_cast<uint32_t>(else_pc) << " " 
                     << "[else_mask] " << std::hex << std::setw(8) << std::setfill('0') << else_mask << " ";
-                    //<< "[pair] " << pair 
-                    // << std::endl;
         }
       };
 
@@ -640,10 +637,6 @@ public:
           void reset();
 
           void dump() {
-            // std::cout << std::endl << "current mask:\t" << std::hex << std::setw(8) << std::setfill('0') << mask << std::endl;
-            // std::cout << "current npc:\t" << std::hex << std::setw(8) << std::setfill('0') << static_cast<uint32_t>(npc) << std::endl;
-            // std::cout << "stack size: " << _stack.size() << std::endl;
-
             std::cout << " current mask:\t" << std::hex << std::setw(8) << std::setfill('0') << mask  \
             << " current npc:\t" << std::hex << std::setw(8) << std::setfill('0') << static_cast<uint32_t>(npc) \
             << " stack size: " << _stack.size(); 
