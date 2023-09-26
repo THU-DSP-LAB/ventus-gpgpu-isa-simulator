@@ -140,3 +140,11 @@
 #  undef WORDS_BIGENDIAN
 # endif
 #endif
+
+#ifdef ENABLE_PRINTF
+#undef DEBUG
+#define DEBUG(x) x;
+#else
+#undef DEBUG
+#define DEBUG(x)
+#endif

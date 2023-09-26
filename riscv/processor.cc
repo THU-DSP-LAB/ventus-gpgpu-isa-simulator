@@ -1089,10 +1089,10 @@ void processor_t::trigger_updated(const std::vector<triggers::trigger_t *> &trig
 }
 
 // defination of gpgpu_unit_t
-void processor_t::gpgpu_unit_t::reset(processor_t *const proc) 
+void processor_t::gpgpu_unit_t::reset(processor_t *const proc)
 {
   p = proc;
-  
+
   state_t *state = p->get_state();
   auto &csrmap = p->get_state()->csrmap;
   csrmap[CSR_TID] = tid = std::make_shared<basic_csr_t>(proc, CSR_TID, 0);
@@ -1105,10 +1105,10 @@ void processor_t::gpgpu_unit_t::reset(processor_t *const proc)
   csrmap[CSR_LDS] = lds = std::make_shared<basic_csr_t>(proc, CSR_LDS, 0);
   csrmap[CSR_GIDX] = gidx = std::make_shared<basic_csr_t>(proc, CSR_GIDX, 0);
   csrmap[CSR_GIDY] = gidy = std::make_shared<basic_csr_t>(proc, CSR_GIDY, 0);
-  csrmap[CSR_GIDZ] = gidz = std::make_shared<basic_csr_t>(proc, CSR_GIDZ, 0);    
+  csrmap[CSR_GIDZ] = gidz = std::make_shared<basic_csr_t>(proc, CSR_GIDZ, 0);
   csrmap[CSR_RPC] = rpc = std::make_shared<basic_csr_t>(proc, CSR_RPC, 0);
 
-  
+
   // initialize csrs to enable vecter extension
   reg_t mstatus_val = state->mstatus->read();
   mstatus_val = set_field(mstatus_val, MSTATUS_VS, 1);
@@ -1153,7 +1153,7 @@ int count_ones(uint64_t n){
   return count;
 }
 void processor_t::gpgpu_unit_t::simt_stack_t::push_branch
-    (reg_t r_pc,reg_t if_pc, uint64_t if_mask, 
+    (reg_t r_pc,reg_t if_pc, uint64_t if_mask,
                      uint64_t r_mask, reg_t else_pc, uint64_t else_mask)
 {
   if(all_zero(else_mask)){
@@ -1190,7 +1190,7 @@ void processor_t::gpgpu_unit_t::simt_stack_t::pop()
   _stack.pop_back();
 }
 
-processor_t::gpgpu_unit_t::simt_stack_entry_t& 
+processor_t::gpgpu_unit_t::simt_stack_entry_t&
 processor_t::gpgpu_unit_t::simt_stack_t::top()
 {
   return _stack.back();
@@ -1226,7 +1226,7 @@ void warp_schedule_t::set_barrier_0()
 
     barrier_counter=0;
   }
-  
+
 }
 
 bool warp_schedule_t::get_barrier()
@@ -1335,7 +1335,7 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
     bad_gpgpuarch_string(s, "kernel size doesn't match total wg size");
   }
 
-  std::cout << "warp number: " << warp_number << " thread number = " << thread_number << "  workgroup number = "<< workgroup_number \
+  DEBUG(std::cout << "warp number: " << warp_number << " thread number = " << thread_number << "  workgroup number = "<< workgroup_number \
       <<" workgroup dimension:"<<kernel_size[0]<<"*"<<kernel_size[1]<<"*"<<kernel_size[2] \
-      <<std::hex<<" lds size: "<<lds_size<<" pds size: "<<pds_size<<" lds base: "<<lds_base<<" pds base: "<<pds_base<<" knl base: "<<knl_base << std::endl;
+      <<std::hex<<" lds size: "<<lds_size<<" pds size: "<<pds_size<<" lds base: "<<lds_base<<" pds base: "<<pds_base<<" knl base: "<<knl_base << std::endl;)
 }
