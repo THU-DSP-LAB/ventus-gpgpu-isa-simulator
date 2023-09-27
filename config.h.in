@@ -142,9 +142,9 @@
 #endif
 
 #ifdef ENABLE_PRINTF
-#undef DEBUG
-#define DEBUG(x) x;
+   #undef LOG
+   #define LOG(x) x
 #else
-#undef DEBUG
-#define DEBUG(x)
+   #undef LOG
+   #define LOG(x)
 #endif

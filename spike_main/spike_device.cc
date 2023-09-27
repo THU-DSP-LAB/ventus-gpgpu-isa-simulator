@@ -35,7 +35,7 @@ struct vAddr_info{
 
 
 static void help(int exit_code = 1){
-  DEBUG(fprintf(stderr, "now you are in help function");)
+  LOG(fprintf(stderr, "now you are in help function"));
   exit(exit_code);
 }
 
@@ -105,7 +105,7 @@ static std::vector<mem_cfg_t> parse_mem_layout(const char* arg)
   while (true) {
     auto base = strtoull(arg, &p, 0);
     if (!*p || *p != ':')
-        DEBUG(printf("command line input fromat wrong\n"););
+        LOG(printf("command line input fromat wrong\n"));
     auto size = strtoull(p + 1, &p, 0);
 
     // page-align base and size
@@ -116,12 +116,12 @@ static std::vector<mem_cfg_t> parse_mem_layout(const char* arg)
       size += PGSIZE - size % PGSIZE;
 
     if (base + size < base)
-        DEBUG(printf("page size alignmentation failed\n");)
+        LOG(printf("page size alignmentation failed\n"));
 
     if (size != size0) {
-      DEBUG(fprintf(stderr, "Warning: the memory at  [0x%llX, 0x%llX] has been realigned\n"
+      LOG(fprintf(stderr, "Warning: the memory at  [0x%llX, 0x%llX] has been realigned\n"
                       "to the %ld KiB page size: [0x%llX, 0x%llX]\n",
-              base0, base0 + size0 - 1, long(PGSIZE / 1024), base, base + size - 1);)
+              base0, base0 + size0 - 1, long(PGSIZE / 1024), base, base + size - 1));
     }
 
     res.push_back(mem_cfg_t(reg_t(base), reg_t(size)));
@@ -189,9 +189,9 @@ spike_device::spike_device():sim(NULL),buffer(),buffer_data(){
   logfilename=new char[128];
   uint64_t lds_vaddr;
   uint64_t pc_src_vaddr;
-  DEBUG(printf("spike device initialize: allocating local memory: ");)
+  LOG(printf("spike device initialize: allocating local memory: "));
   alloc_local_mem(0x10000000,&lds_vaddr);
-  DEBUG(printf("spike device initialize: allocating pc source memory: ");)
+  LOG(printf("spike device initialize: allocating pc source memory: "));
   alloc_local_mem(0x10000000, &pc_src_vaddr);
 };
 spike_device::~spike_device(){
@@ -223,12 +223,12 @@ int spike_device::alloc_local_mem(uint64_t size, uint64_t *vaddr){
     help();
 
   if (size != size0) {
-    DEBUG(fprintf(stderr, "Warning: the memory at  [0x%lX, 0x%lX] has been realigned\n"
+    LOG(fprintf(stderr, "Warning: the memory at  [0x%lX, 0x%lX] has been realigned\n"
                     "to the %ld KiB page size: [0x%lX, 0x%lX]\n",
-            base0, base0 + size0 - 1, long(PGSIZE / 1024), base, base + size - 1);)
+            base0, base0 + size0 - 1, long(PGSIZE / 1024), base, base + size - 1));
   }
 
-  DEBUG(printf("to allocate at 0x%lx with %ld bytes \n",base,size);)
+  LOG(printf("to allocate at 0x%lx with %ld bytes \n",base,size));
 
   buffer.push_back(mem_cfg_t(reg_t(base),reg_t(size)));
   buffer_data.push_back(std::pair(base,new mem_t(size)));
@@ -247,29 +247,29 @@ int spike_device::free_local_mem(){
 
 int spike_device::copy_to_dev(uint64_t vaddr, uint64_t size,const void *data){
   uint64_t i=0;
-  DEBUG(printf("to copy to 0x%lx with %ld bytes\n",vaddr,size);)
+  LOG(printf("to copy to 0x%lx with %ld bytes\n",vaddr,size));
   for (i=0; i<buffer.size(); ++i)
     if(vaddr>=buffer[i].base && vaddr<buffer[i].base +buffer[i].size){
       if( vaddr+size > buffer[i].base +buffer[i].size)
-        DEBUG(fprintf(stderr,"cannot copy to %#lx with size %lx\n",vaddr,size);)
+        LOG(fprintf(stderr,"cannot copy to %#lx with size %lx\n",vaddr,size));
       buffer_data[i].second->store(vaddr-buffer_data[i].first,size,(const uint8_t*)data);
       break;
     }
-  if(i==buffer.size()) DEBUG(fprintf(stderr,"vaddr do not fit buffer allocated.");)
+  if(i==buffer.size()) LOG(fprintf(stderr,"vaddr do not fit buffer allocated."));
   return 0;
 }
 
 int spike_device::copy_from_dev(uint64_t vaddr, uint64_t size, void *data){
   uint64_t i=0;
-  DEBUG(printf("to copy from 0x%lx with %ld bytes\n",vaddr,size);)
+  LOG(printf("to copy from 0x%lx with %ld bytes\n",vaddr,size));
   for (i=0; i<buffer.size(); ++i)
     if(vaddr>=buffer[i].base && vaddr<buffer[i].base +buffer[i].size){
       if( vaddr+size > buffer[i].base +buffer[i].size)
-        DEBUG(fprintf(stderr,"cannot copy to %#lx with size %lx\n",vaddr,size);)
+        LOG(fprintf(stderr,"cannot copy to %#lx with size %lx\n",vaddr,size));
       buffer_data[i].second->load(vaddr-buffer_data[i].first,size,(uint8_t*)data);
       break;
     }
-  if(i==buffer.size()) DEBUG(fprintf(stderr,"vaddr do not fit buffer allocated.");)
+  if(i==buffer.size()) LOG(fprintf(stderr,"vaddr do not fit buffer allocated."));
   return 0;
 }
 
@@ -298,7 +298,7 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   uint64_t knlbase=knl_data->metaDataBaseAddr;
 
   if ((ldssize)>0x10000000) {
-        DEBUG(fprintf(stderr, "lds size is too large. please modify VBASEADDR");)
+        LOG(fprintf(stderr, "lds size is too large. please modify VBASEADDR"));
         exit(-1);
      }
 
@@ -430,7 +430,7 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   parser.option(0, "extlib", 1, [&](const char *s){
     void *lib = dlopen(s, RTLD_NOW | RTLD_GLOBAL);
     if (lib == NULL) {
-      DEBUG(fprintf(stderr, "Unable to load extlib '%s': %s\n", s, dlerror());)
+      LOG(fprintf(stderr, "Unable to load extlib '%s': %s\n", s, dlerror()));
       exit(-1);
     }
   });
@@ -459,14 +459,14 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   FILE *cmd_file = NULL;
   parser.option(0, "debug-cmd", 1, [&](const char* s){
      if ((cmd_file = fopen(s, "r"))==NULL) {
-        DEBUG(fprintf(stderr, "Unable to open command file '%s'\n", s);)
+        LOG(fprintf(stderr, "Unable to open command file '%s'\n", s));
         exit(-1);
      }
   });
   parser.option(0, "blocksz", 1, [&](const char* s){
     blocksz = strtoull(s, 0, 0);
     if (((blocksz & (blocksz - 1))) != 0) {
-      DEBUG(fprintf(stderr, "--blocksz should be power of 2\n");)
+      LOG(fprintf(stderr, "--blocksz should be power of 2\n"));
       exit(-1);
     }
   });
@@ -485,10 +485,10 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   sprintf(arg_num_core,"-p%ld",num_processor);
   sprintf(arg_gpgpu,"numw:%ld,numt:%ld,numwg:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx,knlbase:0x%lx",\
         num_warp,num_thread,num_workgroup,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase,knlbase);
-  DEBUG(printf("arg gpgpu is %s\n",arg_gpgpu);)
+  LOG(printf("arg gpgpu is %s\n",arg_gpgpu));
   sprintf(arg_vlen_elen,"vlen:%ld,elen:%d",num_thread*32,32);
   sprintf(arg_mem_scope,"-m0x70000000:0x%lx",buffer.back().base+buffer.back().size);
-  DEBUG(printf("vaddr mem scope is %s\n",arg_mem_scope);)
+  LOG(printf("vaddr mem scope is %s\n",arg_mem_scope));
   sprintf(arg_start_pc,"--pc=0x%lx",start_pc);
   //strcat(arg_mem_scope,temp);
   //--------------------------------------------------num_core-------------------pc------mem_scope   //mem_scope is unused now.
@@ -510,9 +510,9 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   argv[7]=arg_mem_scope;
   argv[6]=arg_start_pc;
   for(int i=0;i<argc;i++){
-    DEBUG(printf("%s ",argv[i]);)
+    LOG(printf("%s ",argv[i]));
   }
-  DEBUG(printf("\n");)
+  LOG(printf("\n"));
 
   auto argv1=parser.parse(argv);
 
@@ -563,7 +563,7 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   }*/
 
   if (dump_dts) {
-    DEBUG(printf("%s", sim->get_dts());)
+    LOG(printf("%s", sim->get_dts()));
     return 0;
   }
 

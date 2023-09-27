@@ -2185,11 +2185,6 @@ ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
 ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
 ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
-# Check enviroment virable ENABLE_PRINTF
-if [ "$ENABLE_PRINTF" = "ON" ]; then
-    CXXFLAGS+=" -DENABLE_PRINTF=ON "
-fi
-
 ac_ext=cpp
 ac_cpp='$CXXCPP $CPPFLAGS'
 ac_compile='$CXX -c $CXXFLAGS $CPPFLAGS conftest.$ac_ext >&5'
@@ -3289,7 +3284,11 @@ if test "$ac_test_CFLAGS" = set; then
   CFLAGS=$ac_save_CFLAGS
 elif test $ac_cv_prog_cc_g = yes; then
   if test "$GCC" = yes; then
-    CFLAGS="-g -O2"
+    if [ "$ENABLE_PRINTF" = "ON" ]; then
+      CLAGS="-g -O2 -DENABLE_PRINTF"
+    else
+      CFLAGS="-g -O2"
+    fi
   else
     CFLAGS="-g"
   fi
@@ -3636,7 +3635,11 @@ if test "$ac_test_CXXFLAGS" = set; then
   CXXFLAGS=$ac_save_CXXFLAGS
 elif test $ac_cv_prog_cxx_g = yes; then
   if test "$GXX" = yes; then
-    CXXFLAGS="-g -O2"
+    if [ "$ENABLE_PRINTF" = "ON" ]; then
+      CXXFLAGS="-g -O2 -DENABLE_PRINTF"
+    else
+      CXXFLAGS="-g -O2"
+    fi
   else
     CXXFLAGS="-g"
   fi
