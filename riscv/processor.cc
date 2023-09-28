@@ -1214,6 +1214,11 @@ void warp_schedule_t::set_barrier_1(uint64_t wid)
 {
   barriers[wid] = 1;
 }
+void warp_schedule_t::set_barrier_2(uint64_t wid)
+{
+  barriers[wid] = 2;
+}
+
 
 void warp_schedule_t::set_barrier_0()
 {
@@ -1222,12 +1227,14 @@ void warp_schedule_t::set_barrier_0()
   }
   else{
     for(int i=0;i<warp_number;i++)
-      barriers[i] = 0;
+      if(barriers[i] == 1) barriers[i] = 0;
 
     barrier_counter=0;
   }
   
 }
+
+
 
 bool warp_schedule_t::get_barrier()
 {
