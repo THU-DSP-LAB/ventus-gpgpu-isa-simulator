@@ -79,6 +79,7 @@ class spike_device{
     int alloc_const_mem(uint64_t size, uint64_t *dev_maddr);
     int alloc_local_mem(uint64_t size, uint64_t *dev_maddr);
     int free_local_mem();
+    int free_local_mem(uint64_t paddr);
     int copy_to_dev(uint64_t dev_maddr, uint64_t size,const void* data);
     int copy_from_dev(uint64_t dev_maddr, uint64_t size,void* data);
     int run(meta_data* knl_data,uint64_t knl_start_pc);
