@@ -291,6 +291,22 @@ int spike_device::free_local_mem(){
   return 0; 
 }
 
+// todo: the memory management should be rewrite
+int spike_device::free_local_mem(uint64_t paddr) {
+  for (std::vector<mem_cfg_t>::iterator it = buffer.begin(); it != buffer.end(); it++ )
+    if(it->base == paddr) {
+      it = buffer.erase(it);
+      break;
+    }
+  for (std::vector<std::pair<reg_t, mem_t*>>::iterator it = buffer_data.begin(); it != buffer_data.end(); it++ )
+    if(it->first == paddr) {
+      delete it->second;
+      it = buffer_data.erase(it);
+      break;
+    }
+  return 0;
+}
+
 int spike_device::copy_to_dev(uint64_t vaddr, uint64_t size,const void *data){
   uint64_t i=0;
   printf("to copy to 0x%lx with %ld bytes\n",vaddr,size);
@@ -638,6 +654,7 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   for (auto& plugin_device : plugin_devices)
     delete plugin_device.second;
   delete[] argv;
+  delete sim;
   return return_code;    
 }
 
