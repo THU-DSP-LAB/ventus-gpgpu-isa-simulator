@@ -181,7 +181,9 @@ static std::vector<int> parse_hartids(const char *s)
 
 
 
-#define VBASEADDR 0x70000000
+#define VBASEADDR   0x70000000
+
+#define ARGBASEADDR 0x90000000
 
 
 spike_device::spike_device():sim(NULL),buffer(),buffer_data(){
@@ -190,15 +192,59 @@ spike_device::spike_device():sim(NULL),buffer(),buffer_data(){
   uint64_t lds_vaddr;
   uint64_t pc_src_vaddr;
   printf("spike device initialize: allocating local memory: ");
-  alloc_local_mem(0x10000000,&lds_vaddr);
+  alloc_const_mem(0x10000000,&lds_vaddr);
   printf("spike device initialize: allocating pc source memory: ");
-  alloc_local_mem(0x10000000, &pc_src_vaddr);
+  alloc_const_mem(0x10000000, &pc_src_vaddr);
 };
+
 spike_device::~spike_device(){
   delete sim;delete[] srcfilename,logfilename;
   for (auto& mem : buffer_data)
     if(mem.second!=nullptr) {delete mem.second;mem.second=nullptr;}
+  const_buffer.clear();
+  for (auto& mem : const_buffer_data)
+    if(mem.second!=nullptr) {delete mem.second;mem.second=nullptr;}
+  const_buffer_data.clear();
 }
+
+int spike_device::alloc_const_mem(uint64_t size, uint64_t *vaddr) {
+  uint64_t base;
+  #define PGSHIFT 12
+  const reg_t PGSIZE = 1 << PGSHIFT;
+  if(size <= 0 || vaddr == nullptr )
+        return -1;
+  if(const_buffer.empty()){
+    base=VBASEADDR;
+  }
+  else{
+    base=const_buffer.back().base+const_buffer.back().size;
+  }
+  
+
+  auto base0 = base, size0 = size;
+  size += base0 % PGSIZE;
+  base -= base0 % PGSIZE;
+  if (size % PGSIZE != 0)
+    size += PGSIZE - size % PGSIZE;
+
+  if (base + size < base)
+    help();
+
+  if (size != size0) {
+    fprintf(stderr, "Warning: the memory at  [0x%lX, 0x%lX] has been realigned\n"
+                    "to the %ld KiB page size: [0x%lX, 0x%lX]\n",
+            base0, base0 + size0 - 1, long(PGSIZE / 1024), base, base + size - 1);
+  }
+
+  printf("to allocate at 0x%lx with %ld bytes \n",base,size);
+
+  const_buffer.push_back(mem_cfg_t(reg_t(base),reg_t(size)));  
+  const_buffer_data.push_back(std::pair(base,new mem_t(size)));
+
+  *vaddr = base;
+  return 0;
+}
+
 int spike_device::alloc_local_mem(uint64_t size, uint64_t *vaddr){
   uint64_t base;
   #define PGSHIFT 12
@@ -206,7 +252,7 @@ int spike_device::alloc_local_mem(uint64_t size, uint64_t *vaddr){
   if(size <= 0 || vaddr == nullptr )
         return -1;
   if(buffer.empty()){
-    base=VBASEADDR;
+    base=ARGBASEADDR;
   }
   else{
     base=buffer.back().base+buffer.back().size;
@@ -239,7 +285,7 @@ int spike_device::alloc_local_mem(uint64_t size, uint64_t *vaddr){
 
 int spike_device::free_local_mem(){
   buffer.clear();
-  for (auto& mem : buffer_data)  
+  for (auto& mem : buffer_data)
     if(mem.second!=nullptr) {delete mem.second;mem.second=nullptr;}
   buffer_data.clear();  
   return 0; 
@@ -551,9 +597,10 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
     cfg.hartids = default_hartids;
   }
 
-   sim=new sim_t(&cfg, halted,
-      buffer_data, plugin_devices, htif_args, dm_config, log_path, dtb_enabled, dtb_file,cmd_file);
-
+  std::vector<std::pair<reg_t, mem_t*>> all_buffer_data(const_buffer_data);
+  for(auto ele : buffer_data) all_buffer_data.push_back(ele);
+  sim=new sim_t(&cfg, halted,
+      all_buffer_data, plugin_devices, htif_args, dm_config, log_path, dtb_enabled, dtb_file,cmd_file);
   std::unique_ptr<remote_bitbang_t> remote_bitbang((remote_bitbang_t *) NULL);
   /*std::unique_ptr<jtag_dtm_t> jtag_dtm(new jtag_dtm_t(sim->debug_module, dmi_rti));
   if (use_rbb) {
