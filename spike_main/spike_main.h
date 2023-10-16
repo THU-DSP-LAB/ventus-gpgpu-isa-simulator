@@ -76,6 +76,7 @@ class spike_device{
   public:
     spike_device();
     ~spike_device();
+    int alloc_const_mem(uint64_t size, uint64_t *dev_maddr);
     int alloc_local_mem(uint64_t size, uint64_t *dev_maddr);
     int free_local_mem();
     int copy_to_dev(uint64_t dev_maddr, uint64_t size,const void* data);
@@ -86,6 +87,8 @@ class spike_device{
     sim_t* sim;
     std::vector<mem_cfg_t> buffer; //可以在分配时让buffer地址对齐4k
     std::vector<std::pair<reg_t, mem_t*>> buffer_data;
+    std::vector<mem_cfg_t> const_buffer;
+    std::vector<std::pair<reg_t, mem_t*>> const_buffer_data;
     char* srcfilename;
     char* logfilename;
 };
