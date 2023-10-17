@@ -303,12 +303,29 @@ static inline bool is_aligned(const unsigned val, const unsigned pos)
   reg_t rs2_num = insn.rs2(); \
   for (reg_t i = P.VU.vstart->read(); i < vl; ++i) { \
     VI_LOOP_ELEMENT_SKIP(); \
-    uint64_t mmask = UINT64_C(1) << mpos; \
-    uint64_t &vdi = P.VU.elt<uint64_t>(0,insn.rd(), midx, true); \
     uint64_t res = 0;
 
 #define VI_LOOP_CMP_END \
-    vdi = (vdi & ~mmask) | (((res) << mpos) & mmask); \
+  switch (P.VU.vsew) { \
+    case e16: { \
+      uint16_t &vd = P.VU.elt<uint16_t>(0,rd_num, i, true); \
+      vd = res; \
+      break; \
+    } \
+    case e32: { \
+      uint32_t &vd = P.VU.elt<uint32_t>(0,rd_num, i, true); \
+      vd = res; \
+      break; \
+    } \
+    case e64: { \
+      uint64_t &vd = P.VU.elt<uint64_t>(0,rd_num, i, true); \
+      vd = res; \
+      break; \
+    } \
+    default: \
+      require(0); \
+      break; \
+    }; \
   } \
   P.VU.vstart->write(0);
 
@@ -1714,7 +1731,6 @@ reg_t index[P.VU.vlmax]; \
   for (reg_t i = P.VU.vstart->read(); i < vl; ++i) { \
     VI_LOOP_ELEMENT_SKIP(); \
     uint64_t mmask = UINT64_C(1) << mpos; \
-    uint64_t &vd = P.VU.elt<uint64_t>(0,rd_num, midx, true); \
     uint64_t res = 0;
 
 #define VI_VFP_LOOP_REDUCTION_BASE(width) \
@@ -1788,20 +1804,7 @@ reg_t index[P.VU.vlmax]; \
     } \
   }
 
-#define VI_VFP_LOOP_CMP_END \
-  switch (P.VU.vsew) { \
-    case e16: \
-    case e32: \
-    case e64: { \
-      vd = (vd & ~mmask) | (((res) << mpos) & mmask); \
-      break; \
-    } \
-    default: \
-      require(0); \
-      break; \
-    }; \
-  } \
-  P.VU.vstart->write(0);
+#define VI_VFP_LOOP_CMP_END VI_LOOP_CMP_END
 
 #define VI_VFP_VV_LOOP(BODY16, BODY32, BODY64) \
   VI_CHECK_SSS(true); \
