@@ -1342,7 +1342,7 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
     bad_gpgpuarch_string(s, "kernel size doesn't match total wg size");
   }
 
-  std::cout << "warp number: " << warp_number << " thread number = " << thread_number << "  workgroup number = "<< workgroup_number \
+  std::cout << std::dec<<"warp number: " << warp_number << " thread number = " << thread_number << "  workgroup number = "<< workgroup_number \
       <<" workgroup dimension:"<<kernel_size[0]<<"*"<<kernel_size[1]<<"*"<<kernel_size[2] \
-      <<std::hex<<" lds size: "<<lds_size<<" pds size: "<<pds_size<<" lds base: "<<lds_base<<" pds base: "<<pds_base<<" knl base: "<<knl_base << std::endl;
+      <<std::hex<<" lds size: 0x"<<lds_size<<" pds size: 0x"<<pds_size<<" lds base: 0x"<<lds_base<<" pds base: 0x"<<pds_base<<" knl base: 0x"<<knl_base << std::endl;
 }
