@@ -140,3 +140,11 @@
 #  undef WORDS_BIGENDIAN
 # endif
 #endif
+
+#ifdef ENABLE_PRINTF
+   #undef LOG
+   #define LOG(x) x
+#else
+   #undef LOG
+   #define LOG(x)
+#endif
