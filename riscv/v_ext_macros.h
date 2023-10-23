@@ -381,7 +381,7 @@ static inline bool is_aligned(const unsigned val, const unsigned pos)
   type_sew_t<x>::type vs1 = P.VU.elt<type_sew_t<x>::type>(1,rs1_num, i); \
   type_sew_t<x>::type vs2 = P.VU.elt<type_sew_t<x>::type>(2,rs2_num, i); \
   type_sew_t<x>::type rs1 = (type_sew_t<x>::type)RS1; \
-  type_sew_t<x>::type simm5 = (type_sew_t<x>::type)( (insn.v_simm5() & 31) | p->ext_imm() );
+  type_sew_t<x>::type simm5 = (type_sew_t<x>::type)( (insn.v_simm5()) | p->ext_imm() );
 
 #define VV_U_PARAMS(x) \
   type_usew_t<x>::type &vd = P.VU.elt<type_usew_t<x>::type>(0,rd_num, i, true); \
@@ -410,7 +410,7 @@ static inline bool is_aligned(const unsigned val, const unsigned pos)
 
 #define VI_PARAMS(x) \
   type_sew_t<x>::type &vd = P.VU.elt<type_sew_t<x>::type>(0,rd_num, i, true); \
-  type_sew_t<x>::type simm5 = (type_sew_t<x>::type)( (insn.v_simm5() & 31) | p->ext_imm() ); \
+  type_sew_t<x>::type simm5 = (type_sew_t<x>::type)( (insn.v_simm5()) | p->ext_imm() ); \
   type_sew_t<x>::type vs2 = P.VU.elt<type_sew_t<x>::type>(2,rs2_num, i);
 
 #define VI12_PARAMS(x) \
@@ -452,7 +452,7 @@ static inline bool is_aligned(const unsigned val, const unsigned pos)
   type_sew_t<x>::type vs2 = P.VU.elt<type_sew_t<x>::type>(2,rs2_num, i);
 
 #define VI_CMP_PARAMS(x) \
-  type_sew_t<x>::type simm5 = (type_sew_t<x>::type)( (insn.v_simm5() & 31) | p->ext_imm() ); \
+  type_sew_t<x>::type simm5 = (type_sew_t<x>::type)( (insn.v_simm5()) | p->ext_imm() ); \
   type_sew_t<x>::type vs2 = P.VU.elt<type_sew_t<x>::type>(2,rs2_num, i);
 
 #define VI_XI_SLIDEDOWN_PARAMS(x, off) \
@@ -484,7 +484,7 @@ static inline bool is_aligned(const unsigned val, const unsigned pos)
 #define XI_CARRY_PARAMS(x) \
   auto vs2 = P.VU.elt<type_sew_t<x>::type>(2,rs2_num, i); \
   auto rs1 = (type_sew_t<x>::type)RS1; \
-  auto simm5 = (type_sew_t<x>::type)( (insn.v_simm5() & 31) | p->ext_imm() ); \
+  auto simm5 = (type_sew_t<x>::type)( (insn.v_simm5()) | p->ext_imm() ); \
 
 #define VV_CARRY_PARAMS(x) \
   auto vs2 = P.VU.elt<type_sew_t<x>::type>(2,rs2_num, i); \
@@ -493,7 +493,7 @@ static inline bool is_aligned(const unsigned val, const unsigned pos)
 #define XI_WITH_CARRY_PARAMS(x) \
   auto vs2 = P.VU.elt<type_sew_t<x>::type>(2,rs2_num, i); \
   auto rs1 = (type_sew_t<x>::type)RS1; \
-  auto simm5 = (type_sew_t<x>::type)( (insn.v_simm5() & 31) | p->ext_imm() ); \
+  auto simm5 = (type_sew_t<x>::type)( (insn.v_simm5()) | p->ext_imm() ); \
   auto &vd = P.VU.elt<type_sew_t<x>::type>(0,rd_num, i, true);
 
 #define VV_WITH_CARRY_PARAMS(x) \
