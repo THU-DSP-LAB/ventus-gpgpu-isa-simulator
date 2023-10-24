@@ -410,7 +410,7 @@ public:
   uint64_t ext_rs3(){ return state.regext_info.valid ? (state.regext_info.ext_rs3<<5) : 0;}
   uint64_t ext_rd(){ return state.regext_info.valid ? (state.regext_info.ext_rd<<5) : 0;}
   int64_t ext_imm(){ return state.regext_info.valid ? ( (state.regext_info.ext_imm) << 58 >> 53) : 0;}
-
+  uint64_t ext_valid() { return state.regext_info.valid;}
 private:
   const isa_parser_t * const isa;
 
