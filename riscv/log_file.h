@@ -19,7 +19,7 @@ public:
     if (!path)
       return;
 
-    wrapped_file.reset(fopen(path, "w"));
+    wrapped_file.reset(fopen(path, "a"));
     if (! wrapped_file) {
       std::ostringstream oss;
       oss << "Failed to open log file at `" << path << "': "
