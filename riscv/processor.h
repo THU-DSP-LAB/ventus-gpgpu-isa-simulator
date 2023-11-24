@@ -69,7 +69,7 @@ class warp_schedule_t
     std::vector<int> barriers;
     bool is_all_true;
     int barrier_counter;
-    uint64_t lds_base,lds_size,pds_base,pds_size,knl_base;
+    uint64_t lds_base,lds_size,pds_base,pds_size,knl_base, curr_wgid;
 };
 
 struct insn_desc_t  //mask

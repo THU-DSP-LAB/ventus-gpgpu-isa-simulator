@@ -165,6 +165,7 @@ syscall_t::syscall_t(htif_t* htif)
 
   register_command(0, std::bind(&syscall_t::handle_syscall, this, _1), "syscall");
 
+#if 0
   int stdin_fd = dup(0), stdout_fd0 = dup(1), stdout_fd1 = dup(1);
   if (stdin_fd < 0 || stdout_fd0 < 0 || stdout_fd1 < 0)
     throw std::runtime_error("could not dup stdin/stdout");
@@ -172,6 +173,7 @@ syscall_t::syscall_t(htif_t* htif)
   fds.alloc(stdin_fd); // stdin -> stdin
   fds.alloc(stdout_fd0); // stdout -> stdout
   fds.alloc(stdout_fd1); // stderr -> stdout
+#endif
 }
 
 std::string syscall_t::do_chroot(const char* fn)
