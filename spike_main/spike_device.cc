@@ -344,7 +344,7 @@ int spike_device::set_filename(const char* filename,const char* logname){
   return 0;  
 }
 
-
+#define SPIKE_RUN_WG_NUM 1
 int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   uint64_t num_warp=knl_data->wg_size;
   uint64_t num_thread=knl_data->wf_size;
@@ -354,10 +354,12 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   uint64_t num_workgroup=num_workgroup_x*num_workgroup_y*num_workgroup_z;
   uint64_t num_processor=num_warp*num_workgroup;
   uint64_t ldssize=knl_data->ldsSize;
-  uint64_t pdssize=knl_data->pdsSize*num_thread;
+  //uint64_t pdssize=knl_data->pdsSize * num_thread;
+  uint64_t pdssize = 0x10000000;
   uint64_t pdsbase=knl_data->pdsBaseAddr;
   uint64_t start_pc=knl_start_pc;
   uint64_t knlbase=knl_data->metaDataBaseAddr;
+  uint64_t currwgid = 0;
 
   if ((ldssize)>0x10000000) {
         fprintf(stderr, "lds size is too large. please modify VBASEADDR");
@@ -545,8 +547,8 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   char arg_logfilename[64];
   sprintf(arg_logfilename,"--log=%s",logfilename);
   sprintf(arg_num_core,"-p%ld",num_processor);
-  sprintf(arg_gpgpu,"numw:%ld,numt:%ld,numwg:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx,knlbase:0x%lx",\
-        num_warp,num_thread,num_workgroup,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase,knlbase);
+  sprintf(arg_gpgpu,"numw:%ld,numt:%ld,numwg:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx,knlbase:0x%lx,currwgid:%lx",\
+        num_warp,num_thread,num_workgroup,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase,knlbase,currwgid);
   printf("arg gpgpu is %s\n",arg_gpgpu);
   sprintf(arg_vlen_elen,"vlen:%ld,elen:%d",num_thread*32,32);
   sprintf(arg_mem_scope,"-m0x70000000:0x%lx",buffer.back().base+buffer.back().size);
@@ -607,54 +609,68 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
     // we've only set the number of harts, not explicitly chosen their IDs).
     std::vector<int> default_hartids;
     default_hartids.reserve(nprocs());
-    for (size_t i = 0; i < nprocs(); ++i) {
+    for (size_t i = 0; i < num_warp * SPIKE_RUN_WG_NUM; ++i) {
       default_hartids.push_back(i);
     }
     cfg.hartids = default_hartids;
   }
 
   std::vector<std::pair<reg_t, mem_t*>> all_buffer_data(const_buffer_data);
-  for(auto ele : buffer_data) all_buffer_data.push_back(ele);
-  sim=new sim_t(&cfg, halted,
-      all_buffer_data, plugin_devices, htif_args, dm_config, log_path, dtb_enabled, dtb_file,cmd_file);
-  std::unique_ptr<remote_bitbang_t> remote_bitbang((remote_bitbang_t *) NULL);
-  /*std::unique_ptr<jtag_dtm_t> jtag_dtm(new jtag_dtm_t(sim->debug_module, dmi_rti));
-  if (use_rbb) {
-    remote_bitbang.reset(new remote_bitbang_t(rbb_port, &(*jtag_dtm)));
-    sim->set_remote_bitbang(&(*remote_bitbang));
-  }*/
+  for(auto ele : buffer_data) {
+      all_buffer_data.push_back(ele);
+    }
 
-  if (dump_dts) {
-    printf("%s", sim->get_dts());
-    return 0;
-  }
 
-  if (ic && l2) ic->set_miss_handler(&*l2);
-  if (dc && l2) dc->set_miss_handler(&*l2);
-  if (ic) ic->set_log(log_cache);
-  if (dc) dc->set_log(log_cache);
-  for (size_t i = 0; i < cfg.nprocs(); i++)
+  auto return_code = 0;
+//  char log_name[256] = {0};
+  for (uint64_t i = 0; i < num_workgroup / SPIKE_RUN_WG_NUM; i++)
   {
-    if (ic) sim->get_core(i)->get_mmu()->register_memtracer(&*ic);
-    if (dc) sim->get_core(i)->get_mmu()->register_memtracer(&*dc);
-    for (auto e : extensions)
-      sim->get_core(i)->register_extension(e());
-    sim->get_core(i)->get_mmu()->set_cache_blocksz(blocksz);
+      sim=new sim_t(&cfg, halted,
+              all_buffer_data, plugin_devices, htif_args, dm_config, log_path, dtb_enabled, dtb_file,cmd_file);
+      std::unique_ptr<remote_bitbang_t> remote_bitbang((remote_bitbang_t *) NULL);
+      /*std::unique_ptr<jtag_dtm_t> jtag_dtm(new jtag_dtm_t(sim->debug_module, dmi_rti));
+        if (use_rbb) {
+        remote_bitbang.reset(new remote_bitbang_t(rbb_port, &(*jtag_dtm)));
+        sim->set_remote_bitbang(&(*remote_bitbang));
+        }*/
+
+      if (dump_dts) {
+          printf("%s", sim->get_dts());
+          return 0;
+      }
+
+      if (ic && l2) ic->set_miss_handler(&*l2);
+      if (dc && l2) dc->set_miss_handler(&*l2);
+      if (ic) ic->set_log(log_cache);
+      if (dc) dc->set_log(log_cache);
+
+      for (size_t i = 0; i < num_warp; i++)
+      {
+          if (ic) sim->get_core(i)->get_mmu()->register_memtracer(&*ic);
+          if (dc) sim->get_core(i)->get_mmu()->register_memtracer(&*dc);
+          for (auto e : extensions)
+              sim->get_core(i)->register_extension(e());
+          sim->get_core(i)->get_mmu()->set_cache_blocksz(blocksz);
+      }
+
+      sim->set_debug(debug);
+      sim->configure_log(log, log_commits);
+      sim->set_histogram(histogram);
+
+      return_code = sim->run();
+      currwgid++;
+      sprintf(arg_gpgpu,"numw:%ld,numt:%ld,numwg:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx,knlbase:0x%lx,currwgid:%lx",\
+          num_warp,num_thread,num_workgroup,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase,knlbase,currwgid);
+  //    sprintf(log_name, "object_%ld.riscv.log", currwgid);
+  //    log_path = log_name;
+
+      delete sim;
   }
-
-  sim->set_debug(debug);
-  sim->configure_log(log, log_commits);
-  sim->set_histogram(histogram);
-
-  auto return_code = sim->run();
-
-  //for (auto& mem : buffer_data)
-    //delete mem.second;
 
   for (auto& plugin_device : plugin_devices)
     delete plugin_device.second;
   delete[] argv;
-  delete sim;
+//  delete sim;
   return return_code;    
 }
 

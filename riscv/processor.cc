@@ -1285,6 +1285,7 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
   uint64_t pdssize=0;
   uint64_t pdsbase=0x78000000;
   uint64_t knlbase=0x80000000;
+  uint64_t currwgid=0;
   size_t kernel_size[3]={0,1,1};
 
   while (pos < len) {
@@ -1314,6 +1315,8 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
       pdsbase = get_long_token(str,',',pos);
     else if (attr == "knlbase")
       knlbase = get_long_token(str,',',pos);
+    else if (attr == "currwgid")
+      currwgid = get_long_token(str,',',pos);
     else
       bad_gpgpuarch_string(s, "Unsupported token");
     ++pos;
@@ -1332,6 +1335,7 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
   pds_size = pdssize == 0 ? (numw * numt )<< 10 : pdssize;
   pds_base = pdsbase;
   knl_base = knlbase;
+  curr_wgid = currwgid;
 
   kernel_size[0] =  kernel_size[0]==0 ? (numwg/(kernel_size[1]*kernel_size[2])) : kernel_size[0];
   workgroup_size_x=kernel_size[0];
@@ -1342,7 +1346,9 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
     bad_gpgpuarch_string(s, "kernel size doesn't match total wg size");
   }
 
-  std::cout << std::dec<<"warp number: " << warp_number << " thread number = " << thread_number << "  workgroup number = "<< workgroup_number \
+  /*
+  std::cout << "--- warp number: " << warp_number << " thread number = " << thread_number << "  workgroup number = "<< workgroup_number \
       <<" workgroup dimension:"<<kernel_size[0]<<"*"<<kernel_size[1]<<"*"<<kernel_size[2] \
-      <<std::hex<<" lds size: 0x"<<lds_size<<" pds size: 0x"<<pds_size<<" lds base: 0x"<<lds_base<<" pds base: 0x"<<pds_base<<" knl base: 0x"<<knl_base << std::endl;
+      <<std::hex<<" lds size: "<<lds_size<<" pds size: "<<pds_size<<" lds base: "<<lds_base<<" pds base: "<<pds_base \
+      <<" knl base: "<<knl_base << " current workgroup id: " << curr_wgid << std::endl;*/
 }

@@ -102,14 +102,24 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
   uint64_t pds_size=w.pds_size;
   uint64_t lds_size=w.lds_size;
 
-  uint64_t pds=pds_base;
-  uint64_t lds=lds_base;
+  uint64_t pds = pds_base;
+  uint64_t lds = lds_base;
+
+  w.workgroup_number = 1;
+
+  uint64_t spike_curr_wgid = w.curr_wgid;
+
+  assert(spike_curr_wgid < w.workgroup_size_x * w.workgroup_size_y * w.workgroup_size_z);
+  gidz = spike_curr_wgid / (w.workgroup_size_x * w.workgroup_size_y);
+  gidy = (spike_curr_wgid % (w.workgroup_size_x * w.workgroup_size_y)) / w.workgroup_size_x;
+  gidx = (spike_curr_wgid % (w.workgroup_size_x * w.workgroup_size_y)) % w.workgroup_size_x;
+  //printf("simt() current_wgid is %ld, gidx %ld, gidy %ld, gidz %ld\n", spike_curr_wgid, gidx, gidy, gidz);
 
   workgroups = new warp_schedule_t[w.workgroup_number];
-  for (size_t i=0;i<w.workgroup_number;i++){
+  for (size_t i=0;i<w.workgroup_number;i++) {
     assert(w.warp_number>0 & w.workgroup_number>0 & w.thread_number>0);
     assert(w.warp_number * w.workgroup_number == cfg->nprocs());
-    workgroups[i].set_warp_schedule(w.warp_number,w.thread_number,w.workgroup_number,i);
+    workgroups[i].set_warp_schedule(w.warp_number,w.thread_number,w.workgroup_number, spike_curr_wgid);
 
     for (size_t j = 0; j < w.warp_number; j++) {
       reach_end[i*w.warp_number+j] = i*w.warp_number+j;
@@ -118,26 +128,33 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
 
       procs[i*w.warp_number+j]->gpgpu_unit.set_warp(&workgroups[i]);//workgroups[i]);
       //现在一个warp就是一个core
-      procs[i*w.warp_number+j]->gpgpu_unit.init_warp(w.warp_number, w.thread_number, j*w.thread_number, i,j, pds, lds, knl_base, gidx,gidy,gidz);
+      procs[i*w.warp_number+j]->gpgpu_unit.init_warp(w.warp_number, w.thread_number,
+              j * w.thread_number, spike_curr_wgid, j, pds, lds, knl_base, gidx, gidy, gidz);
       assert(w.thread_number == (procs[i]->VU.get_vlen() / procs[i]->VU.get_elen()));
     }
     
-    gidx=gidx+1;
-    if(gidx==w.workgroup_size_x){
-      gidx=0;
-      gidy=gidy+1;
-    if(gidy==w.workgroup_size_y){
-      gidy=0;
-      gidz=gidz+1;
-      if(gidz==w.workgroup_size_z){gidz=0;}
-      }
+#if 0
+    gidx = gidx+1;
+    if(gidx == w.workgroup_size_x) {
+        gidx = 0;
+        gidy = gidy + 1;
+
+        if(gidy == w.workgroup_size_y) {
+            gidy = 0;
+            gidz = gidz+1;
+
+            if(gidz == w.workgroup_size_z) {
+                gidz = 0;
+            }
+        }
     }
-    pds=pds+pds_size;
-    lds=lds+lds_size;
+#endif
+    pds = pds + pds_size;
+    lds = lds + lds_size;
   }
 
   
-
+#if 0
   make_dtb();
 
   void *fdt = (void *)dtb.c_str();
@@ -224,6 +241,8 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
                 << nprocs() << ").\n";
       exit(1);
   }
+#endif
+
 }
 
 sim_t::~sim_t()
