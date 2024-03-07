@@ -174,7 +174,7 @@ struct state_t
 
   struct regext_t{
   //regext_t():ext_rd(0),ext_rs1(0),ext_rs2(0),ext_rs3(0),ext_imm(0),valid(0){}
-  uint64_t ext_rd,ext_rs1,ext_rs2,ext_rs3,ext_imm,valid;
+  uint64_t ext_rd,ext_rs1,ext_rs2,ext_rs3,ext_imm,valid,validi;
   };
   regext_t regext_info;
   bool regext_enable;
@@ -389,6 +389,7 @@ public:
       state.regext_info.ext_rs2 = (imm>>3)&7;
       state.regext_info.ext_rs3 = 0;
       state.regext_info.ext_imm = (imm>>6)&63;
+      state.regext_info.validi = 1;
     }
     else{
       state.regext_info.ext_rs1 = (imm>>3)&7;
@@ -399,6 +400,7 @@ public:
   }
   void ext_clear(){
     state.regext_info.valid=0;
+    state.regext_info.validi=0;
     state.regext_info.ext_imm=0;
     state.regext_info.ext_rd=0;
     state.regext_info.ext_rs1 = 0;
@@ -410,7 +412,7 @@ public:
   uint64_t ext_rs3(){ return state.regext_info.valid ? (state.regext_info.ext_rs3<<5) : 0;}
   uint64_t ext_rd(){ return state.regext_info.valid ? (state.regext_info.ext_rd<<5) : 0;}
   int64_t ext_imm(){ return state.regext_info.valid ? ( (state.regext_info.ext_imm) << 58 >> 53) : 0;}
-  uint64_t ext_valid() { return state.regext_info.valid;}
+  uint64_t ext_valid() { return state.regext_info.validi;}
 private:
   const isa_parser_t * const isa;
 
