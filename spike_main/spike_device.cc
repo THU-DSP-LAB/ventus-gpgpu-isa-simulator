@@ -626,7 +626,11 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   for (uint64_t i = 0; i < num_workgroup / SPIKE_RUN_WG_NUM; i++)
   {
       sim=new sim_t(&cfg, halted,
-              all_buffer_data, plugin_devices, htif_args, dm_config, log_path, dtb_enabled, dtb_file,cmd_file);
+              all_buffer_data, plugin_devices, htif_args, dm_config, log_path, dtb_enabled, dtb_file,
+#ifdef HAVE_BOOST_ASIO
+              nullptr, nullptr,
+#endif
+              cmd_file);
       std::unique_ptr<remote_bitbang_t> remote_bitbang((remote_bitbang_t *) NULL);
       /*std::unique_ptr<jtag_dtm_t> jtag_dtm(new jtag_dtm_t(sim->debug_module, dmi_rti));
         if (use_rbb) {
