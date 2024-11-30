@@ -236,7 +236,7 @@ int spike_device::alloc_const_mem(uint64_t size, uint64_t *vaddr) {
             base0, base0 + size0 - 1, long(PGSIZE / 1024), base, base + size - 1);
   }
 
-  printf("to allocate at 0x%lx with %ld bytes \n",base,size);
+  printf("to allocate at 0x%lx with 0x%lx bytes \n",base,size);
 
   const_buffer.push_back(mem_cfg_t(reg_t(base),reg_t(size)));  
   const_buffer_data.push_back(std::pair(base,new mem_t(size)));
@@ -274,7 +274,7 @@ int spike_device::alloc_local_mem(uint64_t size, uint64_t *vaddr){
             base0, base0 + size0 - 1, long(PGSIZE / 1024), base, base + size - 1);
   }
 
-  printf("to allocate at 0x%lx with %ld bytes \n",base,size);
+  printf("to allocate at 0x%lx with 0x%lx bytes (to 0x%lx) \n",base,size,base+size);
 
   buffer.push_back(mem_cfg_t(reg_t(base),reg_t(size)));  
   buffer_data.push_back(std::pair(base,new mem_t(size)));
@@ -309,7 +309,7 @@ int spike_device::free_local_mem(uint64_t paddr) {
 
 int spike_device::copy_to_dev(uint64_t vaddr, uint64_t size,const void *data){
   uint64_t i=0;
-  printf("to copy to 0x%lx with %ld bytes\n",vaddr,size);
+  printf("to copy to 0x%lx with 0x%lx bytes (to 0x%lx)\n",vaddr,size,vaddr+size);
   for (i=0; i<buffer.size(); ++i)
     if(vaddr>=buffer[i].base && vaddr<buffer[i].base +buffer[i].size){
       if( vaddr+size > buffer[i].base +buffer[i].size)
@@ -323,7 +323,7 @@ int spike_device::copy_to_dev(uint64_t vaddr, uint64_t size,const void *data){
 
 int spike_device::copy_from_dev(uint64_t vaddr, uint64_t size, void *data){
   uint64_t i=0;
-  printf("to copy from 0x%lx with %ld bytes\n",vaddr,size);
+  printf("to copy from 0x%lx with 0x%lx bytes (to 0x%lx)\n",vaddr,size,vaddr+size);
   for (i=0; i<buffer.size(); ++i)
     if(vaddr>=buffer[i].base && vaddr<buffer[i].base +buffer[i].size){
       if( vaddr+size > buffer[i].base +buffer[i].size)
@@ -623,8 +623,10 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
 
   auto return_code = 0;
 //  char log_name[256] = {0};
+  printf("Spike Device Start! srcfilename=%s, num workgroup is %ld\n",srcfilename,num_workgroup);
   for (uint64_t i = 0; i < num_workgroup / SPIKE_RUN_WG_NUM; i++)
   {
+    printf("run workgroup %ld with srcfilename=%s\n", i, srcfilename);
       sim=new sim_t(&cfg, halted,
               all_buffer_data, plugin_devices, htif_args, dm_config, log_path, dtb_enabled, dtb_file,
 #ifdef HAVE_BOOST_ASIO

@@ -1608,6 +1608,63 @@ reg_t index[P.VU.vlmax]; \
   P.VU.vstart->write(0);
 
 //
+// custom GPU AMO
+// currently use original risc-v amo-encoding,
+// but is interpreted as a vector operation
+//
+#define VI_GPU_AMO(op, type, idx_type) \
+  require_vector(false); \
+  require_align(insn.rd(), P.VU.vflmul); \
+  require(P.VU.vsew <= P.get_xlen() && P.VU.vsew >= 32); \
+  require_align(insn.rd(), P.VU.vflmul); \
+  float vemul = ((float)idx_type / P.VU.vsew * P.VU.vflmul); \
+  require(vemul >= 0.125 && vemul <= 8); \
+  require_align(insn.rs2(), vemul); \
+  if (insn.v_wd()) { \
+    require_vm; \
+    if (idx_type > P.VU.vsew) { \
+      if (insn.rd() != insn.rs2()) \
+        require_noover(insn.rd(), P.VU.vflmul, insn.rs2(), vemul); \
+    } else if (idx_type < P.VU.vsew) { \
+      if (vemul < 1) { \
+        require_noover(insn.rd(), P.VU.vflmul, insn.rs2(), vemul); \
+      } else { \
+        require_noover_widen(insn.rd(), P.VU.vflmul, insn.rs2(), vemul); \
+      } \
+    } \
+  } \
+  VI_DUPLICATE_VREG(1, insn.rs1(), idx_type); /* store vrs1 in index */ \
+  const reg_t vl = P.VU.vl->read(); \
+  const reg_t baseAddr = RS1; \
+  const reg_t vd = insn.rd(); \
+  for (reg_t i = P.VU.vstart->read(); i < vl; ++i) { \
+    VI_ELEMENT_SKIP(i); \
+    VI_STRIP(i); /* let vreg_inx = i */ \
+    P.VU.vstart->write(i); \
+    switch (P.VU.vsew) { \
+    case e32: { \
+      auto vs2 = P.VU.elt< type ## 32_t>(2, insn.rs2(), vreg_inx); \
+      /* addr = rs1+vrs2[i], perform op on mem[addr] (noted as lhs), return original lhs */ \
+      auto val = MMU.amo_uint32(index[i], [&](type ## 32_t lhs) { op }); \
+      /* if (insn.v_wd()) */ \
+        P.VU.elt< type ## 32_t>(0, vd, vreg_inx, true) = val; /* write vrd = val */ \
+      } \
+      break; \
+    case e64: { \
+      auto vs2 = P.VU.elt< type ## 64_t>(2, insn.rs2(), vreg_inx); \
+      auto val = MMU.amo_uint64(index[i], [&](type ## 64_t lhs) { op }); \
+      /* if (insn.v_wd()) */ \
+        P.VU.elt< type ## 64_t>(0, vd, vreg_inx, true) = val; \
+      } \
+      break; \
+    default: \
+      require(0); \
+      break; \
+    } \
+  } \
+  P.VU.vstart->write(0);
+
+//
 // vector: amo 
 //
 #define VI_AMO(op, type, idx_type) \
@@ -1631,20 +1688,21 @@ reg_t index[P.VU.vlmax]; \
       } \
     } \
   } \
-  VI_DUPLICATE_VREG(2,insn.rs2(), idx_type); \
+  VI_DUPLICATE_VREG(2,insn.rs2(), idx_type); /* store vrs2 in index */ \
   const reg_t vl = P.VU.vl->read(); \
   const reg_t baseAddr = RS1; \
   const reg_t vd = insn.rd(); \
   for (reg_t i = P.VU.vstart->read(); i < vl; ++i) { \
     VI_ELEMENT_SKIP(i); \
-    VI_STRIP(i); \
+    VI_STRIP(i); /* let vreg_inx = i */ \
     P.VU.vstart->write(i); \
     switch (P.VU.vsew) { \
     case e32: { \
-      auto vs3 = P.VU.elt< type ## 32_t>(0,vd, vreg_inx); \
+      auto vs3 = P.VU.elt< type ## 32_t>(0,vd, vreg_inx); /* vs3 = vd */ \ 
+      /* addr = rs1 + vrs2[i], perform op on mem[addr] (noted as lhs), return original lhs */ \
       auto val = MMU.amo_uint32(baseAddr + index[i], [&](type ## 32_t lhs) { op }); \
       if (insn.v_wd()) \
-        P.VU.elt< type ## 32_t>(0,vd, vreg_inx, true) = val; \
+        P.VU.elt< type ## 32_t>(0,vd, vreg_inx, true) = val; /* write vd = val */ \
       } \
       break; \
     case e64: { \

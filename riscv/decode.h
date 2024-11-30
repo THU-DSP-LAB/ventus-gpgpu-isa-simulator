@@ -147,7 +147,7 @@ public:
 
 private:
   insn_bits_t b;
-  uint64_t x(int lo, int len) { return (b >> lo) & ((insn_bits_t(1) << len) - 1); }
+  uint64_t x(int lo, int len) { return (b >> lo) & ((insn_bits_t(1) << len) - 1); } // extract bits[lo+len:lo]
   uint64_t xs(int lo, int len) { return int64_t(b) << (64 - lo - len) >> (64 - len); }
   uint64_t imm_sign() { return xs(31, 1); }
 };
