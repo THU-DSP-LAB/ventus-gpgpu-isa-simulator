@@ -623,10 +623,8 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
 
   auto return_code = 0;
 //  char log_name[256] = {0};
-  printf("Spike Device Start! srcfilename=%s, num workgroup is %ld\n",srcfilename,num_workgroup);
   for (uint64_t i = 0; i < num_workgroup / SPIKE_RUN_WG_NUM; i++)
   {
-    printf("run workgroup %ld with srcfilename=%s\n", i, srcfilename);
       sim=new sim_t(&cfg, halted,
               all_buffer_data, plugin_devices, htif_args, dm_config, log_path, dtb_enabled, dtb_file,
 #ifdef HAVE_BOOST_ASIO
