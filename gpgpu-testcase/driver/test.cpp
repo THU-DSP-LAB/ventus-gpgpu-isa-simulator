@@ -2,6 +2,10 @@
 #include <iostream>
 using namespace std;
 
+#ifndef KERNEL_ADDRESS
+#define KERNEL_ADDRESS  0x800000b8  // need modify 
+#endif
+
 struct meta_data{  // 这个metadata是供驱动使用的，而不是给硬件的
     uint64_t kernel_id;
     uint64_t kernel_size[3];///> 每个kernel的workgroup三维数目
@@ -63,7 +67,7 @@ int main(){
     meta.pdsBaseAddr=pdsbase;
     uint32_t data_2[14];//metadata
     for(int i=0;i<14;i++) data_2[i]=1;
-    data_2[0]=0x80000098;
+    data_2[0]=KERNEL_ADDRESS;
     data_2[1]=(uint32_t)vaddr_4;
     data_2[2]=meta.kernel_size[0];
     data_2[6]=num_thread;

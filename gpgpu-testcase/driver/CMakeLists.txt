@@ -2,8 +2,17 @@ cmake_minimum_required(VERSION 3.21)
 set(PROJECT spike_driver)
 project(${PROJECT})
 
-set(CMAKE_CXX_STANDARD 17)
+# Define KERNEL_ADDRESS if not already defined (default: 0x800000b8)
+if(NOT DEFINED KERNEL_ADDRESS)
+   message(STATUS "KERNEL_ADDRESS not specified, using default address 0x800000b8")
+   set(KERNEL_ADDRESS "0x800000b8")
+else()
+   message(STATUS "Using specified KERNEL_ADDRESS: ${KERNEL_ADDRESS}") 
+endif()
 
+add_compile_definitions(KERNEL_ADDRESS=${KERNEL_ADDRESS})
+
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_FLAGS -lstdc++)
 
 include_directories(${CMAKE_SOURCE_DIR}/include)
@@ -24,10 +33,8 @@ add_library(${PROJECT} SHARED ${SRCS})
 
 target_link_libraries(${PROJECT} PUBLIC spike_main)
 
-
 set_target_properties(${PROJECT} PROPERTIES OUTPUT_NAME "${PROJECT}")
 set_target_properties(${PROJECT} PROPERTIES CLEAN_DIRECT_OUTPUT 1)
-
 
 add_executable(spike_test ./test.cpp)
 add_dependencies(spike_test ${PROJECT})
