@@ -1106,6 +1106,7 @@ void processor_t::gpgpu_unit_t::reset(processor_t *const proc)
   csrmap[CSR_GIDX] = gidx = std::make_shared<basic_csr_t>(proc, CSR_GIDX, 0);
   csrmap[CSR_GIDY] = gidy = std::make_shared<basic_csr_t>(proc, CSR_GIDY, 0);
   csrmap[CSR_GIDZ] = gidz = std::make_shared<basic_csr_t>(proc, CSR_GIDZ, 0);    
+  csrmap[CSR_PRINT] = clprintf = std::make_shared<basic_csr_t>(proc, CSR_PRINT, 0);    
   csrmap[CSR_RPC] = rpc = std::make_shared<basic_csr_t>(proc, CSR_RPC, 0);
 
   
@@ -1248,7 +1249,7 @@ bool warp_schedule_t::get_barrier()
   return is_all_true;
 }
 
-void processor_t::gpgpu_unit_t::init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid,uint64_t _wgid, uint64_t _wid, uint64_t _pds, uint64_t _lds,uint64_t _knl,uint64_t _gidx,uint64_t _gidy,uint64_t _gidz) {
+void processor_t::gpgpu_unit_t::init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid,uint64_t _wgid, uint64_t _wid, uint64_t _pds, uint64_t _lds,uint64_t _knl,uint64_t _gidx,uint64_t _gidy,uint64_t _gidz, uint64_t _clprintf) {
   numw->write(_numw);
   numt->write(_numt);
   tid->write(_tid);
@@ -1260,6 +1261,7 @@ void processor_t::gpgpu_unit_t::init_warp(uint64_t _numw, uint64_t _numt, uint64
   gidx->write(_gidx);
   gidy->write(_gidy);
   gidz->write(_gidz);
+  clprintf->write(_clprintf);
 
   // init simt-stack
   simt_stack.init_mask(_numt);

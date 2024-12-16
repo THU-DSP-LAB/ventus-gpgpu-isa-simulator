@@ -578,6 +578,7 @@ public:
       csr_t_p gidx;
       csr_t_p gidy;
       csr_t_p gidz;
+      csr_t_p clprintf;
 
       // int warp_id;
 
@@ -596,13 +597,14 @@ public:
         gidx(0),
         gidy(0),
         gidz(0),
+        clprintf(0),
         simt_stack() {}
 
       void reset(processor_t *const proc);
       void set_warp(warp_schedule_t* w);
       
 
-      void init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid, uint64_t _wgid, uint64_t _wid,uint64_t _pds, uint64_t _lds,uint64_t _knl,uint64_t _gidx,uint64_t _gidy,uint64_t _gidz);
+      void init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid, uint64_t _wgid, uint64_t _wid,uint64_t _pds, uint64_t _lds,uint64_t _knl,uint64_t _gidx,uint64_t _gidy,uint64_t _gidz, uint64_t _clprintf);
 
       struct simt_stack_entry_t
       {

@@ -99,6 +99,7 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
   uint64_t gidx=0;
   uint64_t gidy=0;
   uint64_t gidz=0;
+  uint64_t clprintf=0x80000800;
   uint64_t pds_size=w.pds_size;
   uint64_t lds_size=w.lds_size;
 
@@ -129,7 +130,7 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
       procs[i*w.warp_number+j]->gpgpu_unit.set_warp(&workgroups[i]);//workgroups[i]);
       //现在一个warp就是一个core
       procs[i*w.warp_number+j]->gpgpu_unit.init_warp(w.warp_number, w.thread_number,
-              j * w.thread_number, spike_curr_wgid, j, pds, lds, knl_base, gidx, gidy, gidz);
+              j * w.thread_number, spike_curr_wgid, j, pds, lds, knl_base, gidx, gidy, gidz, clprintf);
       assert(w.thread_number == (procs[i]->VU.get_vlen() / procs[i]->VU.get_elen()));
     }
     
