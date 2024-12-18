@@ -105,7 +105,7 @@ static std::vector<mem_cfg_t> parse_mem_layout(const char* arg)
   while (true) {
     auto base = strtoull(arg, &p, 0);
     if (!*p || *p != ':')
-        printf("command line input fromat wrong\n");
+        fprintf(stderr, "command line input fromat wrong\n");
     auto size = strtoull(p + 1, &p, 0);
 
     // page-align base and size
@@ -116,7 +116,7 @@ static std::vector<mem_cfg_t> parse_mem_layout(const char* arg)
       size += PGSIZE - size % PGSIZE;
 
     if (base + size < base)
-        printf("page size alignmentation failed\n");
+        fprintf(stderr, "page size alignmentation failed\n");
 
     if (size != size0) {
       fprintf(stderr, "Warning: the memory at  [0x%llX, 0x%llX] has been realigned\n"
@@ -191,9 +191,9 @@ spike_device::spike_device():sim(NULL),buffer(),buffer_data(){
   logfilename=new char[128];
   uint64_t lds_vaddr;
   uint64_t pc_src_vaddr;
-  printf("spike device initialize: allocating local memory: ");
+  fprintf(stderr, "spike device initialize: allocating local memory: ");
   alloc_const_mem(0x10000000,&lds_vaddr);
-  printf("spike device initialize: allocating pc source memory: ");
+  fprintf(stderr, "spike device initialize: allocating pc source memory: ");
   alloc_const_mem(0x10000000, &pc_src_vaddr);
 };
 
@@ -236,7 +236,7 @@ int spike_device::alloc_const_mem(uint64_t size, uint64_t *vaddr) {
             base0, base0 + size0 - 1, long(PGSIZE / 1024), base, base + size - 1);
   }
 
-  printf("to allocate at 0x%lx with %ld bytes \n",base,size);
+  fprintf(stderr,"to allocate at 0x%lx with %ld bytes \n",base,size);
 
   const_buffer.push_back(mem_cfg_t(reg_t(base),reg_t(size)));  
   const_buffer_data.push_back(std::pair(base,new mem_t(size)));
@@ -274,7 +274,7 @@ int spike_device::alloc_local_mem(uint64_t size, uint64_t *vaddr){
             base0, base0 + size0 - 1, long(PGSIZE / 1024), base, base + size - 1);
   }
 
-  printf("to allocate at 0x%lx with %ld bytes \n",base,size);
+  fprintf(stderr, "to allocate at 0x%lx with %ld bytes \n",base,size);
 
   buffer.push_back(mem_cfg_t(reg_t(base),reg_t(size)));  
   buffer_data.push_back(std::pair(base,new mem_t(size)));
@@ -309,7 +309,7 @@ int spike_device::free_local_mem(uint64_t paddr) {
 
 int spike_device::copy_to_dev(uint64_t vaddr, uint64_t size,const void *data){
   uint64_t i=0;
-  printf("to copy to 0x%lx with %ld bytes\n",vaddr,size);
+  fprintf(stderr, "to copy to 0x%lx with %ld bytes\n",vaddr,size);
   for (i=0; i<buffer.size(); ++i)
     if(vaddr>=buffer[i].base && vaddr<buffer[i].base +buffer[i].size){
       if( vaddr+size > buffer[i].base +buffer[i].size)
@@ -323,7 +323,7 @@ int spike_device::copy_to_dev(uint64_t vaddr, uint64_t size,const void *data){
 
 int spike_device::copy_from_dev(uint64_t vaddr, uint64_t size, void *data){
   uint64_t i=0;
-  printf("to copy from 0x%lx with %ld bytes\n",vaddr,size);
+  fprintf(stderr, "to copy from 0x%lx with %ld bytes\n",vaddr,size);
   for (i=0; i<buffer.size(); ++i)
     if(vaddr>=buffer[i].base && vaddr<buffer[i].base +buffer[i].size){
       if( vaddr+size > buffer[i].base +buffer[i].size)
@@ -549,10 +549,10 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   sprintf(arg_num_core,"-p%ld",num_processor);
   sprintf(arg_gpgpu,"numw:%ld,numt:%ld,numwg:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx,knlbase:0x%lx,currwgid:%lx",\
         num_warp,num_thread,num_workgroup,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase,knlbase,currwgid);
-  printf("arg gpgpu is %s\n",arg_gpgpu);
+  fprintf(stderr, "arg gpgpu is %s\n",arg_gpgpu);
   sprintf(arg_vlen_elen,"vlen:%ld,elen:%d",num_thread*32,32);
   sprintf(arg_mem_scope,"-m0x70000000:0x%lx",buffer.back().base+buffer.back().size);
-  printf("vaddr mem scope is %s\n",arg_mem_scope);
+  fprintf(stderr, "vaddr mem scope is %s\n",arg_mem_scope);
   sprintf(arg_start_pc,"--pc=0x%lx",start_pc);
   //strcat(arg_mem_scope,temp);
   //--------------------------------------------------num_core-------------------pc------mem_scope   //mem_scope is unused now.
@@ -567,15 +567,15 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   argv[11]=arg_gpgpu;
   argv[3]=arg_num_core;
   argv[12]=arg_logfilename;
-  printf("src file is %s, run log is written to %s\n",srcfilename,logfilename);
+  fprintf(stderr, "src file is %s, run log is written to %s\n",srcfilename,logfilename);
   argv[13]=srcfilename;
   argv[9]=arg_vlen_elen;
   argv[7]=arg_mem_scope;
   argv[6]=arg_start_pc;
   for(int i=0;i<argc;i++){
-    printf("%s ",argv[i]);
+    fprintf(stderr, "%s ",argv[i]);
   }
-  printf("\n");
+  fprintf(stderr, "\n");
 
   auto argv1=parser.parse(argv); 
 
@@ -639,7 +639,7 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
         }*/
 
       if (dump_dts) {
-          printf("%s", sim->get_dts());
+          fprintf(stderr, "%s", sim->get_dts());
           return 0;
       }
 

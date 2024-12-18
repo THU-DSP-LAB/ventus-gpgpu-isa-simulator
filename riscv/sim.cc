@@ -99,7 +99,7 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
   uint64_t gidx=0;
   uint64_t gidy=0;
   uint64_t gidz=0;
-  uint64_t clprintf=0x80000800;
+  uint64_t clprintf=0x8fffe000;
   uint64_t pds_size=w.pds_size;
   uint64_t lds_size=w.lds_size;
 
