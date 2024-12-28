@@ -1406,16 +1406,16 @@ reg_t index[P.VU.vlmax]; \
 #define VI_GPU_LD_INDEX(elt_width,is_seg,BODY) \
   const reg_t nf = 1; \
   const reg_t vl = P.VU.vl->read(); \
-  const reg_t baseAddr = RS1 + insn.v_simm11(); \
-  const reg_t baseBias = P.get_csr(CSR_PDS) + (baseAddr & ~3) * P.get_csr(CSR_NUMW) * P.get_csr(CSR_NUMT) + (baseAddr & 3); \
   const reg_t baseTid = P.get_csr(CSR_TID); \
   const reg_t vd = insn.rd(); \
   if (!is_seg) \
     require(nf == 1); \
-  VI_DUPLICATE_VREG(1,insn.rs1(), elt_width); \
+  VI_DUPLICATE_VREG(1,insn.rs1(), elt_width); /* index = vrs1 */ \
   for (reg_t i = 0; i < vl; ++i) { \
+    const reg_t baseAddr = index[i] + insn.v_simm11(); \
+    const reg_t baseBias = P.get_csr(CSR_PDS) + (baseAddr & ~3) * P.get_csr(CSR_NUMW) * P.get_csr(CSR_NUMT); \
     VI12_ELEMENT_SKIP(i); \
-    VI_STRIP(i); \
+    VI_STRIP(i); /* vreg_inx = i */ \
     P.VU.vstart->write(i); \
     for (reg_t fn = 0; fn < nf; ++fn) { \
       switch (P.VU.vsew) { \
@@ -1443,14 +1443,14 @@ reg_t index[P.VU.vlmax]; \
 #define VI_GPU_ST_INDEX(elt_width, is_seg,BODY) \
   const reg_t nf = 1; \
   const reg_t vl = P.VU.vl->read(); \
-  const reg_t baseAddr = RS1 + insn.v_s_simm11(); \
-  const reg_t baseBias = P.get_csr(CSR_PDS) + (baseAddr & ~3) * P.get_csr(CSR_NUMW) * P.get_csr(CSR_NUMT) + (baseAddr & 3); \
   const reg_t baseTid = P.get_csr(CSR_TID); \
   const reg_t vs2 = insn.rs2(); \
   if (!is_seg) \
     require(nf == 1); \
   VI_DUPLICATE_VREG(1,insn.rs1(), elt_width); \
   for (reg_t i = 0; i < vl; ++i) { \
+    const reg_t baseAddr = index[i] + insn.v_simm11(); \
+    const reg_t baseBias = P.get_csr(CSR_PDS) + (baseAddr & ~3) * P.get_csr(CSR_NUMW) * P.get_csr(CSR_NUMT); \
     VI_STRIP(i) \
     VI12_ELEMENT_SKIP(i); \
     P.VU.vstart->write(i); \
