@@ -42,7 +42,7 @@ class warp_schedule_t
     warp_schedule_t(){
       warp_number=0;thread_number=0;workgroup_number=0;workgroup_id=0;is_all_true=false;barrier_counter=0;
       lds_base=0;lds_size=0;pds_base=0;pds_size=0;knl_base=0;
-      workgroup_size_x=0;workgroup_size_y=0;workgroup_size_z=0;
+      num_wg_x=0;num_wg_y=0;num_wg_z=0;
     }
     void set_warp_schedule(size_t w,size_t t,size_t wg,size_t wg_id){
       warp_number=w;
@@ -63,9 +63,15 @@ class warp_schedule_t
     size_t thread_number;
     size_t workgroup_number;
     size_t workgroup_id;
-    size_t workgroup_size_x;
-    size_t workgroup_size_y;
-    size_t workgroup_size_z;
+    size_t num_wg_x;
+    size_t num_wg_y;
+    size_t num_wg_z;
+    size_t numt_per_wg_x;
+    size_t numt_per_wg_y;
+    size_t numt_per_wg_z;
+    uint64_t threadID_globaloffset_x;
+    uint64_t threadID_globaloffset_y;
+    uint64_t threadID_globaloffset_z;
     std::vector<int> barriers;
     bool is_all_true;
     int barrier_counter;
@@ -301,6 +307,8 @@ public:
   simif_t* get_sim() const{return sim;}
   reg_t get_csr(int which, insn_t insn, bool write, bool peek = 0);
   reg_t get_csr(int which) { return get_csr(which, insn_t(0), false, true); }
+  std::vector<reg_t> get_gpuvec_csr(int which, insn_t insn, bool write);
+  void put_gpuvec_csr(int which, const std::vector<reg_t>& val);
   mmu_t* get_mmu() { return mmu; }
   state_t* get_state() { return &state; }
   unsigned get_xlen() const { return xlen; }
@@ -575,11 +583,18 @@ public:
       csr_t_p pds;
       csr_t_p lds;
       csr_t_p knl;
-      csr_t_p gidx;
-      csr_t_p gidy;
-      csr_t_p gidz;
+      csr_t_p wg_id_x;
+      csr_t_p wg_id_y;
+      csr_t_p wg_id_z;
       csr_t_p clprintf;
 
+      gpuvec_csr_t_p global_id_x;
+      gpuvec_csr_t_p global_id_y;
+      gpuvec_csr_t_p global_id_z;
+      gpuvec_csr_t_p global_linear_id;
+      gpuvec_csr_t_p local_id_x;
+      gpuvec_csr_t_p local_id_y;
+      gpuvec_csr_t_p local_id_z;
       // int warp_id;
 
     public:
@@ -594,9 +609,9 @@ public:
         pds(0),
         lds(0),
         knl(0),
-        gidx(0),
-        gidy(0),
-        gidz(0),
+        wg_id_x(0),
+        wg_id_y(0),
+        wg_id_z(0),
         clprintf(0),
         simt_stack() {}
 
@@ -604,7 +619,16 @@ public:
       void set_warp(warp_schedule_t* w);
       
 
-      void init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid, uint64_t _wgid, uint64_t _wid,uint64_t _pds, uint64_t _lds,uint64_t _knl,uint64_t _gidx,uint64_t _gidy,uint64_t _gidz, uint64_t _clprintf);
+      void init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid,
+        uint64_t _wgid, uint64_t _wid, uint64_t _pds, uint64_t _lds,uint64_t _knl,
+        uint64_t _gidx,uint64_t _gidy,uint64_t _gidz, uint64_t _clprintf,
+        const std::vector<reg_t>& vec_global_id_x,
+        const std::vector<reg_t>& vec_global_id_y,
+        const std::vector<reg_t>& vec_global_id_z,
+        const std::vector<reg_t>& vec_global_linear_id,
+        const std::vector<reg_t>& vec_local_id_x,
+        const std::vector<reg_t>& vec_local_id_y,
+        const std::vector<reg_t>& vec_local_id_z);
 
       struct simt_stack_entry_t
       {

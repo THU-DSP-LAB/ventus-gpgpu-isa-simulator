@@ -925,6 +925,34 @@ reg_t processor_t::get_csr(int which, insn_t insn, bool write, bool peek)
   throw trap_illegal_instruction(insn.bits());
 }
 
+std::vector<reg_t> processor_t::get_gpuvec_csr(int which, insn_t insn, bool write)
+{
+  auto search = state.csrmap.find(which);
+  if (search != state.csrmap.end()) {
+    if (!write) {
+      search->second->verify_permissions(insn, write);
+    }
+
+    auto gpuvec_csr = std::dynamic_pointer_cast<gpuvec_csr_t>(search->second);
+    if (gpuvec_csr) {
+      return gpuvec_csr->read_vector();
+    }
+  }
+  throw trap_illegal_instruction(insn.bits());
+}
+
+void processor_t::put_gpuvec_csr(int which, const std::vector<reg_t>& val)
+{
+  auto search = state.csrmap.find(which);
+  if (search != state.csrmap.end()) {
+    auto vector_csr = std::dynamic_pointer_cast<gpuvec_csr_t>(search->second);
+    if (vector_csr) {
+      vector_csr->write_vector(val);
+    }
+  }
+  return;
+}
+
 reg_t illegal_instruction(processor_t* p, insn_t insn, reg_t pc)
 {
   throw trap_illegal_instruction(insn.bits());
@@ -1103,11 +1131,19 @@ void processor_t::gpgpu_unit_t::reset(processor_t *const proc)
   csrmap[CSR_WID] = wid = std::make_shared<basic_csr_t>(proc, CSR_WID, 0);
   csrmap[CSR_PDS] = pds = std::make_shared<basic_csr_t>(proc, CSR_PDS, 0);
   csrmap[CSR_LDS] = lds = std::make_shared<basic_csr_t>(proc, CSR_LDS, 0);
-  csrmap[CSR_GIDX] = gidx = std::make_shared<basic_csr_t>(proc, CSR_GIDX, 0);
-  csrmap[CSR_GIDY] = gidy = std::make_shared<basic_csr_t>(proc, CSR_GIDY, 0);
-  csrmap[CSR_GIDZ] = gidz = std::make_shared<basic_csr_t>(proc, CSR_GIDZ, 0);    
+  csrmap[CSR_GIDX] = wg_id_x = std::make_shared<basic_csr_t>(proc, CSR_GIDX, 0);
+  csrmap[CSR_GIDY] = wg_id_y = std::make_shared<basic_csr_t>(proc, CSR_GIDY, 0);
+  csrmap[CSR_GIDZ] = wg_id_z = std::make_shared<basic_csr_t>(proc, CSR_GIDZ, 0);    
   csrmap[CSR_PRINT] = clprintf = std::make_shared<basic_csr_t>(proc, CSR_PRINT, 0);    
   csrmap[CSR_RPC] = rpc = std::make_shared<basic_csr_t>(proc, CSR_RPC, 0);
+  auto num_thread_per_warp = proc->VU.VLEN / proc->VU.ELEN;
+  csrmap[CSR_GL_ID_X] = global_id_x = std::make_shared<gpuvec_csr_t>(proc, CSR_GL_ID_X, num_thread_per_warp, 0);
+  csrmap[CSR_GL_ID_Y] = global_id_y = std::make_shared<gpuvec_csr_t>(proc, CSR_GL_ID_Y, num_thread_per_warp, 0);
+  csrmap[CSR_GL_ID_Z] = global_id_z = std::make_shared<gpuvec_csr_t>(proc, CSR_GL_ID_Z, num_thread_per_warp, 0);
+  csrmap[CSR_GLL_ID] = global_linear_id = std::make_shared<gpuvec_csr_t>(proc, CSR_GLL_ID, num_thread_per_warp, 0);
+  csrmap[CSR_LC_ID_X] = local_id_x = std::make_shared<gpuvec_csr_t>(proc, CSR_LC_ID_X, num_thread_per_warp, 0);
+  csrmap[CSR_LC_ID_Y] = local_id_y = std::make_shared<gpuvec_csr_t>(proc, CSR_LC_ID_Y, num_thread_per_warp, 0);
+  csrmap[CSR_LC_ID_Z] = local_id_z = std::make_shared<gpuvec_csr_t>(proc, CSR_LC_ID_Z, num_thread_per_warp, 0);
 
   
   // initialize csrs to enable vecter extension
@@ -1249,7 +1285,18 @@ bool warp_schedule_t::get_barrier()
   return is_all_true;
 }
 
-void processor_t::gpgpu_unit_t::init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid,uint64_t _wgid, uint64_t _wid, uint64_t _pds, uint64_t _lds,uint64_t _knl,uint64_t _gidx,uint64_t _gidy,uint64_t _gidz, uint64_t _clprintf) {
+void processor_t::gpgpu_unit_t::init_warp(
+  uint64_t _numw, uint64_t _numt, uint64_t _tid,
+  uint64_t _wgid, uint64_t _wid, uint64_t _pds, uint64_t _lds,uint64_t _knl,
+  uint64_t _gidx,uint64_t _gidy,uint64_t _gidz, uint64_t _clprintf,
+  const std::vector<reg_t>& vec_global_id_x,
+  const std::vector<reg_t>& vec_global_id_y,
+  const std::vector<reg_t>& vec_global_id_z,
+  const std::vector<reg_t>& vec_global_linear_id,
+  const std::vector<reg_t>& vec_local_id_x,
+  const std::vector<reg_t>& vec_local_id_y,
+  const std::vector<reg_t>& vec_local_id_z
+){
   numw->write(_numw);
   numt->write(_numt);
   tid->write(_tid);
@@ -1258,10 +1305,18 @@ void processor_t::gpgpu_unit_t::init_warp(uint64_t _numw, uint64_t _numt, uint64
   pds->write(_pds);
   lds->write(_lds);
   knl->write(_knl);
-  gidx->write(_gidx);
-  gidy->write(_gidy);
-  gidz->write(_gidz);
+  wg_id_x->write(_gidx);
+  wg_id_y->write(_gidy);
+  wg_id_z->write(_gidz);
   clprintf->write(_clprintf);
+
+  global_id_x->write_vector(vec_global_id_x);
+  global_id_y->write_vector(vec_global_id_y);
+  global_id_z->write_vector(vec_global_id_z);
+  global_linear_id->write_vector(vec_global_linear_id);
+  local_id_x->write_vector(vec_local_id_x);
+  local_id_y->write_vector(vec_local_id_y);
+  local_id_z->write_vector(vec_local_id_z);
 
   // init simt-stack
   simt_stack.init_mask(_numt);
@@ -1286,9 +1341,11 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
   uint64_t ldsbase=0x70000000;
   uint64_t pdssize=0;
   uint64_t pdsbase=0x78000000;
-  uint64_t knlbase=0x80000000;
+  uint64_t knlbase=0x80000000;  // 这种初始化都不 make sense，应该只能等 host 传过来
   uint64_t currwgid=0;
   size_t kernel_size[3]={0,1,1};
+  size_t wg_size[3];
+  uint64_t tID_globaloffset[3];
 
   while (pos < len) {
     std::string attr = get_string_token(str, ':', pos);
@@ -1307,6 +1364,18 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
       kernel_size[1] = get_int_token(str, ',', pos);
     else if (attr == "kernelz")
       kernel_size[2] = get_int_token(str, ',', pos);
+    else if (attr == "wgsizex")
+      wg_size[0] = get_int_token(str, ',', pos);
+    else if (attr == "wgsizey")
+      wg_size[1] = get_int_token(str, ',', pos);
+    else if (attr == "wgsizez")
+      wg_size[2] = get_int_token(str, ',', pos);
+    else if (attr == "gloffx")
+      tID_globaloffset[0] = get_int_token(str, ',', pos);
+    else if (attr == "gloffy")
+      tID_globaloffset[1] = get_int_token(str, ',', pos);
+    else if (attr == "gloffz")
+      tID_globaloffset[2] = get_int_token(str, ',', pos);
     else if (attr == "ldssize")
       ldssize = get_long_token(str,',',pos);
     else if (attr == "ldsbase")
@@ -1340,12 +1409,21 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
   curr_wgid = currwgid;
 
   kernel_size[0] =  kernel_size[0]==0 ? (numwg/(kernel_size[1]*kernel_size[2])) : kernel_size[0];
-  workgroup_size_x=kernel_size[0];
-  workgroup_size_y=kernel_size[1];
-  workgroup_size_z=kernel_size[2];
+  num_wg_x=kernel_size[0];
+  num_wg_y=kernel_size[1];
+  num_wg_z=kernel_size[2];
+  numt_per_wg_x = wg_size[0];
+  numt_per_wg_y = wg_size[1];
+  numt_per_wg_z = wg_size[2];
+  threadID_globaloffset_x = tID_globaloffset[0];
+  threadID_globaloffset_y = tID_globaloffset[1];
+  threadID_globaloffset_z = tID_globaloffset[2];
 
   if(!(kernel_size[0]*kernel_size[1]*kernel_size[2]==numwg)){
     bad_gpgpuarch_string(s, "kernel size doesn't match total wg size");
+  }
+  if(!(wg_size[0]*wg_size[1]*wg_size[2]==numt*numw)){
+    bad_gpgpuarch_string(s, "workgroup 3D size doesn't match total thread size in workgroup");
   }
 
   /*

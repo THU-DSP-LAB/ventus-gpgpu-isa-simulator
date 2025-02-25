@@ -96,7 +96,7 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
   uint64_t lds_base=w.lds_base;
   uint64_t knl_base=w.knl_base;
   //uint64_t wgid=0;
-  uint64_t gidx=0;
+  uint64_t gidx=0;  // means wg_id_x in NDRange
   uint64_t gidy=0;
   uint64_t gidz=0;
   uint64_t clprintf=0x8fffe000;
@@ -110,11 +110,28 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
 
   uint64_t spike_curr_wgid = w.curr_wgid;
 
-  assert(spike_curr_wgid < w.workgroup_size_x * w.workgroup_size_y * w.workgroup_size_z);
-  gidz = spike_curr_wgid / (w.workgroup_size_x * w.workgroup_size_y);
-  gidy = (spike_curr_wgid % (w.workgroup_size_x * w.workgroup_size_y)) / w.workgroup_size_x;
-  gidx = (spike_curr_wgid % (w.workgroup_size_x * w.workgroup_size_y)) % w.workgroup_size_x;
+  // num_wg_x/y/z represents the number of workgroups (kernel size), not the number of threads.
+  // todo: need to be moved into the i loop below. wg_id = spike_curr_wgid + i
+  assert(spike_curr_wgid < w.num_wg_x * w.num_wg_y * w.num_wg_z);
+  gidz = spike_curr_wgid / (w.num_wg_x * w.num_wg_y);
+  gidy = (spike_curr_wgid % (w.num_wg_x * w.num_wg_y)) / w.num_wg_x;
+  gidx = (spike_curr_wgid % (w.num_wg_x * w.num_wg_y)) % w.num_wg_x;
   //printf("simt() current_wgid is %ld, gidx %ld, gidy %ld, gidz %ld\n", spike_curr_wgid, gidx, gidy, gidz);
+
+  std::vector<reg_t> thread_local_id_x;
+  std::vector<reg_t> thread_local_id_y;
+  std::vector<reg_t> thread_local_id_z;
+  std::vector<reg_t> thread_global_id_x;
+  std::vector<reg_t> thread_global_id_y;
+  std::vector<reg_t> thread_global_id_z;
+  std::vector<reg_t> thread_global_linear_id;
+  thread_local_id_x.resize(w.thread_number);  // thread number per warp
+  thread_local_id_y.resize(w.thread_number);
+  thread_local_id_z.resize(w.thread_number);
+  thread_global_id_x.resize(w.thread_number);
+  thread_global_id_y.resize(w.thread_number);
+  thread_global_id_z.resize(w.thread_number);
+  thread_global_linear_id.resize(w.thread_number);
 
   workgroups = new warp_schedule_t[w.workgroup_number];
   for (size_t i=0;i<w.workgroup_number;i++) {
@@ -129,22 +146,46 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
 
       procs[i*w.warp_number+j]->gpgpu_unit.set_warp(&workgroups[i]);//workgroups[i]);
       //现在一个warp就是一个core
+
+      auto start_thread_local = j * w.thread_number;
+      auto end_thread_local = start_thread_local + w.thread_number;
+      for (auto t = start_thread_local; t < end_thread_local; ++t) {
+        // Calculate local_id_x/y/z based on t (thread id in the warp)
+        uint64_t local_id_x       = t % w.numt_per_wg_x;
+        uint64_t local_id_y       = (t / w.numt_per_wg_x) % w.numt_per_wg_y;
+        uint64_t local_id_z       = t / (w.numt_per_wg_x * w.numt_per_wg_y);
+        uint64_t global_id_x      = gidx * w.numt_per_wg_x + local_id_x + w.threadID_globaloffset_x;
+        uint64_t global_id_y      = gidy * w.numt_per_wg_y + local_id_y + w.threadID_globaloffset_y;
+        uint64_t global_id_z      = gidz * w.numt_per_wg_z + local_id_z + w.threadID_globaloffset_z;
+        uint64_t global_linear_id = (spike_curr_wgid + i) * w.thread_number * w.warp_number + t;
+
+        thread_local_id_x[t - start_thread_local]       = local_id_x;
+        thread_local_id_y[t - start_thread_local]       = local_id_y;
+        thread_local_id_z[t - start_thread_local]       = local_id_z;
+        thread_global_id_x[t - start_thread_local]      = global_id_x;
+        thread_global_id_y[t - start_thread_local]      = global_id_y;
+        thread_global_id_z[t - start_thread_local]      = global_id_z;
+        thread_global_linear_id[t - start_thread_local] = global_linear_id;
+      }
+
       procs[i*w.warp_number+j]->gpgpu_unit.init_warp(w.warp_number, w.thread_number,
-              j * w.thread_number, spike_curr_wgid, j, pds, lds, knl_base, gidx, gidy, gidz, clprintf);
+              j * w.thread_number, spike_curr_wgid, j, pds, lds, knl_base, gidx, gidy, gidz, clprintf,
+              thread_global_id_x, thread_global_id_y, thread_global_id_z, thread_global_linear_id,
+              thread_local_id_x, thread_local_id_y, thread_local_id_z);
       assert(w.thread_number == (procs[i]->VU.get_vlen() / procs[i]->VU.get_elen()));
     }
     
 #if 0
     gidx = gidx+1;
-    if(gidx == w.workgroup_size_x) {
+    if(gidx == w.num_wg_x) {
         gidx = 0;
         gidy = gidy + 1;
 
-        if(gidy == w.workgroup_size_y) {
+        if(gidy == w.num_wg_y) {
             gidy = 0;
             gidz = gidz+1;
 
-            if(gidz == w.workgroup_size_z) {
+            if(gidz == w.num_wg_z) {
                 gidz = 0;
             }
         }

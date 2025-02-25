@@ -3220,11 +3220,18 @@
 #define CSR_WID 0x805
 #define CSR_LDS 0x806
 #define CSR_PDS 0x807
-#define CSR_GIDX 0x808
-#define CSR_GIDY 0x809
-#define CSR_GIDZ 0x80a
+#define CSR_GIDX 0x808      // group_id_x
+#define CSR_GIDY 0x809      // group_id_y
+#define CSR_GIDZ 0x80a      // group_id_z
 #define CSR_PRINT 0x80b
 #define CSR_RPC 0x80c
+#define CSR_GL_ID_X 0x80d   // global_id_x, with an offset of globaloffset_x
+#define CSR_GL_ID_Y 0x80e   // global_id_y, with an offset of globaloffset_y
+#define CSR_GL_ID_Z 0x80f   // global_id_z, with an offset of globaloffset_z
+#define CSR_GLL_ID  0x810   // global_linear_id, independent of globaloffsets; as per the original convention (definition)
+#define CSR_LC_ID_X 0x811   // local_id_x
+#define CSR_LC_ID_Y 0x812   // local_id_y
+#define CSR_LC_ID_Z 0x813   // local_id_z
 #define CAUSE_MISALIGNED_FETCH 0x0
 #define CAUSE_FETCH_ACCESS 0x1
 #define CAUSE_ILLEGAL_INSTRUCTION 0x2

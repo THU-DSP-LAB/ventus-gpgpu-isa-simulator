@@ -9,6 +9,7 @@
 // For access_type:
 #include "memtracer.h"
 #include <cassert>
+#include <vector>
 
 class processor_t;
 struct state_t;
@@ -75,6 +76,43 @@ class basic_csr_t: public csr_t {
  private:
   reg_t val;
 };
+
+// New gpuvec CSR class
+class gpuvec_csr_t: public csr_t {
+ public:
+  // Constructor, accepts vector length and initial value
+  gpuvec_csr_t(processor_t* const proc, const reg_t addr, size_t vector_length, const reg_t init_val)
+      : csr_t(proc, addr), vec(vector_length, init_val) {}
+
+  std::vector<reg_t> read_vector() const noexcept {
+    return vec;  // Return the entire vector
+  }
+
+  void write_vector(const std::vector<reg_t>& vals) noexcept {
+    assert(vals.size() == vec.size() && "Size mismatch between input vector and CSR vector");
+    vec = vals;  // Update the entire vector
+    printf("Warning: check whether log_write for gpuvec_csr_t behaves as expected\n");
+    log_write();  // Log the write
+  }
+
+ protected:
+  // Override the read() and unlogged_write() functions but make them unreachable
+  // as these methods shouldn't be called for gpuvec_csr_t.
+  virtual reg_t read() const noexcept override {
+    assert(false && "read() should not be called for gpuvec_csr_t");
+    return 0;
+  }
+
+  virtual bool unlogged_write(const reg_t val) noexcept override {
+    assert(false && "unlogged_write() should not be called for gpuvec_csr_t");
+    return false;
+  }
+
+ private:
+  std::vector<reg_t> vec;  // Vector holding the fixed-length values
+};
+
+typedef std::shared_ptr<gpuvec_csr_t> gpuvec_csr_t_p;
 
 class pmpaddr_csr_t: public csr_t {
  public:

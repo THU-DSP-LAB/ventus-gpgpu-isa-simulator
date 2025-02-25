@@ -34,6 +34,8 @@ struct meta_data{  // 这个metadata是供驱动使用的，而不是给硬件�
     uint64_t sgprUsage;///> 每个workgroup使用的标量寄存器数目
     uint64_t vgprUsage;///> 每个thread使用的向量寄存器数目
     uint64_t pdsBaseAddr;///> private memory的基址，要转成每个workgroup的基地址， wf_size*wg_size*pdsSize
+    uint64_t numt_per_wg[3];///> 每个workgroup的thread三维数目
+    uint64_t tID_globaloffset[3];///> thread在全局空间的偏移
     meta_data(uint64_t arg0,uint64_t arg1[],uint64_t arg2,uint64_t arg3,uint64_t arg4,uint64_t arg5,\
       uint64_t arg6,uint64_t arg7,uint64_t arg8,uint64_t arg9) \
       :kernel_id(arg0),wf_size(arg2),wg_size(arg3),metaDataBaseAddr(arg4),ldsSize(arg5),pdsSize(arg6),\
