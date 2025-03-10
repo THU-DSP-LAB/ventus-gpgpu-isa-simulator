@@ -635,7 +635,7 @@ static void NOINLINE add_vector_load12_insn(disassembler_t* d, const char*name, 
 
 static void NOINLINE add_vector_load_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
 {
-  d->add_insn(new disasm_insn_t(name, match, mask, {&vd, &xrs1,&v_simm11}));
+  d->add_insn(new disasm_insn_t(name, match, mask, {&vd, &vs1, &v_simm11}));
 }
 
 static void NOINLINE add_vector_store12_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
@@ -645,7 +645,7 @@ static void NOINLINE add_vector_store12_insn(disassembler_t* d, const char*name,
 
 static void NOINLINE add_vector_store_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
 {
-  d->add_insn(new disasm_insn_t(name, match, mask, {&vs2, &xrs1, &v_s_simm11}));
+  d->add_insn(new disasm_insn_t(name, match, mask, {&vs2, &vs1, &v_s_simm11}));
 }
 
 static void NOINLINE add_barrier_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
