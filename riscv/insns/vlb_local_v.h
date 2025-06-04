@@ -1,0 +1,1 @@
+VI_GPU_LD_LOCAL_INDEX(true,int8);

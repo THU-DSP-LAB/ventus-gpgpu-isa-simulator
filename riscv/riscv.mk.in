@@ -902,11 +902,21 @@ riscv_insn_ext_v_gpgpu = \
 	vsw12_v \
 	vsh12_v \
 	vsb12_v \
-	vlw_v \
-	vlh_v \
-	vlb_v \
-	vlhu_v \
-	vlbu_v \
+	vlw_global \
+	vlh_global \
+	vlhu_global \
+	vlb_global \
+	vlbu_global \
+	vlw_local_v \
+	vlh_local_v \
+	vlhu_local_v \
+	vlb_local_v \
+	vlbu_local_v \
+	vlw_private_v \
+	vlh_private_v \
+	vlhu_private_v \
+	vlb_private_v \
+	vlbu_private_v \
 	vsw_v \
 	vsh_v \
 	vsb_v \

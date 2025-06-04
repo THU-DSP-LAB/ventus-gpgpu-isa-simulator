@@ -1,0 +1,1 @@
+VI_GPU_LD_GLOBAL_INDEX(true,int16);
