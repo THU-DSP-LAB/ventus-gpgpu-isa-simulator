@@ -198,7 +198,11 @@ spike_device::spike_device():sim(NULL),buffer(),buffer_data(){
 };
 
 spike_device::~spike_device(){
-  delete sim;delete[] srcfilename,logfilename;
+  if (sim != nullptr) {
+    delete sim;
+    sim = nullptr;
+}
+  delete[] srcfilename,logfilename;
   for (auto& mem : buffer_data)
     if(mem.second!=nullptr) {delete mem.second;mem.second=nullptr;}
   const_buffer.clear();
@@ -669,6 +673,7 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   //    log_path = log_name;
 
       delete sim;
+      sim = nullptr; //Prevent repeated deletes when destructuring
   }
 
   for (auto& plugin_device : plugin_devices)
