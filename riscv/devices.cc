@@ -1,6 +1,7 @@
 #include "devices.h"
 #include "mmu.h"
 #include <stdexcept>
+#include <cstring>
 
 void bus_t::add_device(reg_t addr, abstract_device_t* dev)
 {
@@ -136,4 +137,18 @@ char* mem_t::contents(reg_t addr) {
     return res + pgoff;
   }
   return search->second + pgoff;
+}
+
+mem_t::mem_t(const mem_t &that) : sz(that.sz) {
+  try {
+    for (const auto &[addr, page] : that.sparse_memory_map) {
+      char *clone = new char[PGSIZE];         // 重新分配一整页
+      std::memcpy(clone, page, PGSIZE);       // 逐字节复制
+      sparse_memory_map.emplace(addr, clone); // 塞进本地 map
+    }
+  } catch (...) { // 失败时回滚，防泄漏
+    for (auto &kv : sparse_memory_map)
+      delete[] kv.second;
+    throw;
+  }
 }

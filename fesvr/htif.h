@@ -15,6 +15,9 @@
 class htif_t : public chunked_memif_t
 {
  public:
+  void gvmref_init();
+  int gvmref_step();
+
   htif_t();
   htif_t(int argc, char** argv);
   htif_t(const std::vector<std::string>& args);
@@ -109,6 +112,11 @@ class htif_t : public chunked_memif_t
 
   friend class memif_t;
   friend class syscall_t;
+
+  // gvmref
+  std::queue<reg_t> fromhost_queue_for_gvmref;
+  std::function<void(reg_t)> fromhost_callback_for_gvmref;
+  uint64_t tohost;
 };
 
 /* Alignment guide for emulator.cc options:

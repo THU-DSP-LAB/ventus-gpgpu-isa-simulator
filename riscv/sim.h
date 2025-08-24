@@ -50,6 +50,9 @@ public:
 
   // run the simulation to completion
   int run();
+  void gvmref_init();
+  int sim_t_step_warp_id;
+  int gvmref_step();
   void set_debug(bool value);
   void set_histogram(bool value);
 
@@ -167,6 +170,8 @@ private:
   // htif
   friend void sim_thread_main(void*);
   void main();
+  friend void gvmref_sim_thread_main(void*);
+  void gvmref_main();
 
   context_t* host;
   context_t target;
