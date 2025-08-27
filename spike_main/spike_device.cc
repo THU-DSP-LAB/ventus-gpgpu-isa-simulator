@@ -198,7 +198,7 @@ spike_device::spike_device():sim(NULL),buffer(),buffer_data(){
 };
 
 spike_device::~spike_device(){
-  delete sim;delete[] srcfilename,logfilename;
+  delete[] srcfilename,logfilename;
   for (auto& mem : buffer_data)
     if(mem.second!=nullptr) {delete mem.second;mem.second=nullptr;}
   const_buffer.clear();
