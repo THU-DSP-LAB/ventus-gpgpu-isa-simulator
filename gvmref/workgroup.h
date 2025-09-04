@@ -12,7 +12,7 @@ class workgroup_t {
 public:
   workgroup_t();
   ~workgroup_t();
-  workgroup_t(const workgroup_t& that); // 深拷贝构造函数
+  workgroup_t(const workgroup_t& that, bool copy_buffer_data); // 深拷贝构造函数
 
   // 以下是来自 spike_device 类的函数
   int alloc_const_mem(uint64_t size, uint64_t* dev_maddr);
@@ -32,6 +32,7 @@ public:
   void init_sim(gvmref_meta_data* knl_data, uint64_t knl_start_pc, uint64_t currwgid);
     // spike_device::run 的初始化部分
     // 拷贝出 num_workgroup 个 workgroup_t 后调用
+  void clear_buffer_data();
 
   // kernel 尺寸
   uint32_t num_workgroup; // 工作组数目

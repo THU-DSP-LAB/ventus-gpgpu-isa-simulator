@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <vector>
 #include <array>
+#include <map>
 
 extern "C" {
 
@@ -15,8 +16,8 @@ struct gvmref_warp_xreg_t {
 }; // 用于 gvmref_set_warp_xreg API
 
 struct gvmref_xreg_t {
-  // 最外层 vector 为 workgroup
-  std::vector<std::vector<std::array<uint64_t, 256>>> xpr; // const int NXPR = 256;
+  // 最外层 map 为 workgroup
+  std::map<uint32_t, std::vector<std::array<uint64_t, 256>>> xpr; // const int NXPR = 256;
 };
 
 enum gvmref_insn_type {

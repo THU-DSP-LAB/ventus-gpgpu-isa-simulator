@@ -136,7 +136,7 @@ int workgroup_t::copy_to_dev(uint64_t vaddr, uint64_t size,const void *data){
       buffer_data[i].second->store(vaddr-buffer_data[i].first,size,(const uint8_t*)data);
       break;  
     } 
-  if(i==buffer.size()) fprintf(stderr,"vaddr do not fit buffer allocated.");  
+  if(i==buffer.size()) fprintf(stderr,"vaddr do not fit buffer allocated.\n");  
   return 0;
 }
 
@@ -304,12 +304,15 @@ workgroup_t::workgroup_t()
 workgroup_t::~workgroup_t(){
   delete sim;
   delete[] srcfilename,logfilename;
-  for (auto& mem : buffer_data)
-    if(mem.second!=nullptr) {delete mem.second;mem.second=nullptr;}
-  const_buffer.clear();
   for (auto& mem : const_buffer_data)
     if(mem.second!=nullptr) {delete mem.second;mem.second=nullptr;}
   const_buffer_data.clear();
+}
+
+void workgroup_t::clear_buffer_data() {
+  for (auto& mem : buffer_data)
+    if(mem.second!=nullptr) {delete mem.second;mem.second=nullptr;}
+  buffer_data.clear();
 }
 
 void workgroup_t::init_sim(gvmref_meta_data* knl_data, uint64_t knl_start_pc, uint64_t currwgid)
@@ -381,7 +384,7 @@ void workgroup_t::init_sim(gvmref_meta_data* knl_data, uint64_t knl_start_pc, ui
   cfg_arg_t<size_t> nprocs(1);
 
   auto const device_parser = [&plugin_devices](const char *s) {
-    printf("[ Spike Debug ] device_parser: parsing device string '%s'\n", s);
+    // printf("[ Spike Debug ] device_parser: parsing device string '%s'\n", s);
     const std::string str(s);
     std::istringstream stream(str);
 
@@ -546,9 +549,9 @@ void workgroup_t::init_sim(gvmref_meta_data* knl_data, uint64_t knl_start_pc, ui
   }
   fprintf(stderr, "\n");
 
-  for(int i=0;i<argc;i++){
-    printf("[ Spike Debug ] argv[%d] = %s\n", i, argv[i]);
-  }
+  // for(int i=0;i<argc;i++){
+  //   printf("[ Spike Debug ] argv[%d] = %s\n", i, argv[i]);
+  // }
 
   auto argv1=parser.parse(argv); 
 
@@ -674,7 +677,7 @@ int workgroup_t::step(uint32_t warp_id)
 }
 
 // --------------- workgroup_t 的深拷贝构造函数 --------------------
-workgroup_t::workgroup_t(const workgroup_t& that)
+workgroup_t::workgroup_t(const workgroup_t& that, bool copy_buffer_data)
 // 注意：本拷贝构造函数只会拷贝 init_sim 函数运行前的内容
   :cfg(/*default_initrd_bounds=*/std::make_pair((reg_t)0, (reg_t)0),
           /*default_bootargs=*/nullptr,
@@ -693,10 +696,18 @@ workgroup_t::workgroup_t(const workgroup_t& that)
     mem_t* new_mem = new mem_t(*pair.second);
     const_buffer_data.push_back(std::make_pair(pair.first, new_mem));
   }
-  // 深拷贝 buffer_data
-  for (const auto& pair : that.buffer_data) {
-    mem_t* new_mem = new mem_t(*pair.second);
-    buffer_data.push_back(std::make_pair(pair.first, new_mem));
+  if(copy_buffer_data){
+    // 深拷贝 buffer_data
+    for (const auto& pair : that.buffer_data) {
+      mem_t* new_mem = new mem_t(*pair.second);
+      buffer_data.push_back(std::make_pair(pair.first, new_mem));
+    }
+  }
+  else {
+    // 浅拷贝 buffer_data
+    for (const auto& pair : that.buffer_data) {
+      buffer_data.push_back(pair);
+    }
   }
 
   srcfilename = new char[128];
