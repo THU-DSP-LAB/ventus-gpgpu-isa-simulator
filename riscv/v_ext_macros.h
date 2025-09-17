@@ -1357,7 +1357,7 @@ reg_t index[P.VU.vlmax]; \
         MMU.store_uint32(baseAddr + index[i] + fn * 4, \
           P.VU.elt<uint32_t>(3,vs3 + fn * flmul, vreg_inx)); \
         break; \
-      default:  \
+      default: \
         MMU.store_uint64(baseAddr + index[i] + fn * 8, \
           P.VU.elt<uint64_t>(3,vs3 + fn * flmul, vreg_inx)); \
         break; \
@@ -1368,6 +1368,7 @@ reg_t index[P.VU.vlmax]; \
 
 // gpgpu load and store
 
+// global
 #define VI_GPU_LD_GLOBAL_INDEX(is_seg, BODY) \
   const reg_t nf = 1; \
   const reg_t vl = P.VU.vl->read(); \
@@ -1386,6 +1387,7 @@ reg_t index[P.VU.vlmax]; \
   } \
   P.VU.vstart->write(0);
 
+// local
 #define VI_GPU_LD_LOCAL_INDEX(is_seg, BODY) \
   const reg_t nf = 1; \
   const reg_t vl = P.VU.vl->read(); \
@@ -1404,6 +1406,7 @@ reg_t index[P.VU.vlmax]; \
   } \
   P.VU.vstart->write(0);
 
+// private
 #define VI_GPU_LD_PRIVATE_INDEX(is_seg, BODY) \
   const reg_t nf = 1; \
   const reg_t vl = P.VU.vl->read(); \
@@ -1418,15 +1421,13 @@ reg_t index[P.VU.vlmax]; \
     P.VU.vstart->write(i); \
     for (reg_t fn = 0; fn < nf; ++fn) { \
       reg_t baseAddr = index[i] + insn.v_simm12(); \
-      reg_t baseBias = (baseAddr & ~3) * P.get_csr(CSR_NUMT); \
-      reg_t thread_idx_in_warp = baseTid % P.get_csr(CSR_NUMT); \
-      reg_t real_inx = thread_idx_in_warp + vreg_inx; \
-      reg_t realAddr = P.get_csr(CSR_PDS) + baseBias + (real_inx << 2); \
-      P.VU.elt<uint32_t>(0,vd, vreg_inx, true) = MMU.load_##BODY(realAddr);\
+      reg_t baseBias = P.get_csr(CSR_PDS) + (baseAddr & ~3) * P.get_csr(CSR_NUMW) * P.get_csr(CSR_NUMT) + (baseAddr & 3); \
+      P.VU.elt<uint32_t>(0,vd, vreg_inx, true) = MMU.load_##BODY(baseBias+((baseTid + vreg_inx)<<2)); \
     } \
   } \
   P.VU.vstart->write(0);
 
+// generic
 #define VI_GPU_LD_FLAT_INDEX(is_seg, BODY) \
   const reg_t nf = 1; \
   const reg_t vl = P.VU.vl->read(); \
@@ -1438,26 +1439,24 @@ reg_t index[P.VU.vlmax]; \
     VI_STRIP(i); \
     VI12_ELEMENT_SKIP(i); \
     P.VU.vstart->write(i); \
-    for (reg_t fn = 0; fn < nf; ++fn) { \
-      if (index[i] >= 0x90000000 && index[i] <= 0xffffffff) { \
-        reg_t baseAddr = index[i] + insn.i_imm(); \
-        P.VU.elt<uint32_t>(0, vd, vreg_inx, true) = MMU.load_##BODY(baseAddr + fn * 8); \
+    for (reg_t fn = 0; fn < nf; ++fn) { \       
+      if ((index[i] & 0xff000000) == 0) { \
+        reg_t baseTid = P.get_csr(CSR_TID); \
+        reg_t baseAddr = index[i] + insn.v_simm12(); \
+        reg_t baseBias = P.get_csr(CSR_PDS) + (baseAddr & ~3) * P.get_csr(CSR_NUMW) * P.get_csr(CSR_NUMT) + (baseAddr & 3); \
+        P.VU.elt<uint32_t>(0,vd, vreg_inx, true) = MMU.load_##BODY(baseBias+((baseTid + vreg_inx)<<2));\
       } else if (index[i] >= 0x70000000 && index[i] <= 0x80000000) { \
         reg_t baseAddr = index[i] + insn.i_imm(); \
         P.VU.elt<uint32_t>(0, vd, vreg_inx, true) = MMU.load_##BODY(baseAddr + fn * 8); \
-      } else if ((index[i] & 0xff000000) == 0) { \
-        reg_t baseTid = P.get_csr(CSR_TID); \
-        reg_t baseAddr = index[i] + insn.v_simm12(); \
-        reg_t baseBias = (baseAddr & ~3) * P.get_csr(CSR_NUMT); \
-        reg_t thread_idx_in_warp = baseTid % P.get_csr(CSR_NUMT); \
-        reg_t real_inx = thread_idx_in_warp + vreg_inx; \
-        reg_t realAddr = P.get_csr(CSR_PDS) + baseBias + (real_inx << 2); \
-        P.VU.elt<uint32_t>(0,vd, vreg_inx, true) = MMU.load_##BODY(realAddr);\
+      } else if (index[i] >= 0x90000000 && index[i] <= 0xffffffff) { \
+        reg_t baseAddr = index[i] + insn.i_imm(); \
+        P.VU.elt<uint32_t>(0, vd, vreg_inx, true) = MMU.load_##BODY(baseAddr + fn * 8); \
       } \
     } \
   } \
   P.VU.vstart->write(0);
 
+// global
 #define VI_GPU_ST_GLOBAL_INDEX(is_seg, BODY) \
   const reg_t nf = 1; \
   const reg_t vl = P.VU.vl->read(); \
@@ -1470,12 +1469,13 @@ reg_t index[P.VU.vlmax]; \
     VI12_ELEMENT_SKIP(i); \
     P.VU.vstart->write(i); \
     for (reg_t fn = 0; fn < nf; ++fn) { \
-      reg_t baseAddr = index[i] + insn.s_imm(); \
+      reg_t baseAddr = index[i] + insn.s_imm() + fn * 4; \
       MMU.store_##BODY(baseAddr, P.VU.elt<uint32_t>(2, vs2, vreg_inx));\
     } \
   } \
   P.VU.vstart->write(0);
 
+// local
 #define VI_GPU_ST_LOCAL_INDEX(is_seg, BODY) \
   const reg_t nf = 1; \
   const reg_t vl = P.VU.vl->read(); \
@@ -1488,16 +1488,16 @@ reg_t index[P.VU.vlmax]; \
     VI12_ELEMENT_SKIP(i); \
     P.VU.vstart->write(i); \
     for (reg_t fn = 0; fn < nf; ++fn) { \
-      reg_t baseAddr = index[i] + insn.s_imm(); \
+      reg_t baseAddr = index[i] + insn.s_imm() + fn * 4; \
       MMU.store_##BODY(baseAddr, P.VU.elt<uint32_t>(2, vs2, vreg_inx));\
     } \
   } \
   P.VU.vstart->write(0);
 
+// private
 #define VI_GPU_ST_PRIVATE_INDEX(is_seg, BODY) \
   const reg_t nf = 1; \
   const reg_t vl = P.VU.vl->read(); \
-  const reg_t baseTid = P.get_csr(CSR_TID); \
   const reg_t vs2 = insn.rs2(); \
   if (!is_seg) \
     require(nf == 1); \
@@ -1507,16 +1507,15 @@ reg_t index[P.VU.vlmax]; \
     VI12_ELEMENT_SKIP(i); \
     P.VU.vstart->write(i); \
     for (reg_t fn = 0; fn < nf; ++fn) { \
+      reg_t baseTid = P.get_csr(CSR_TID); \
       reg_t baseAddr = index[i] + insn.v_s_simm12(); \
-      reg_t baseBias = (baseAddr & ~3) * P.get_csr(CSR_NUMT); \
-      reg_t thread_idx_in_warp = baseTid % P.get_csr(CSR_NUMT); \
-      reg_t real_inx = thread_idx_in_warp + vreg_inx; \
-      reg_t realAddr = P.get_csr(CSR_PDS) + baseBias + (real_inx << 2); \
-      MMU.store_##BODY(realAddr, P.VU.elt<uint32_t>(2, vs2, vreg_inx)); \
+      reg_t baseBias = P.get_csr(CSR_PDS) + (baseAddr & ~3) * P.get_csr(CSR_NUMW) * P.get_csr(CSR_NUMT) + (baseAddr & 3); \
+      MMU.store_##BODY(baseBias+((baseTid + vreg_inx)<<2),P.VU.elt<uint32_t>(2,vs2, vreg_inx)); \
     } \
   } \
   P.VU.vstart->write(0);
 
+// generic 
 #define VI_GPU_ST_FLAT_INDEX(is_seg, BODY) \
   const reg_t nf = 1; \
   const reg_t vl = P.VU.vl->read(); \
@@ -1525,24 +1524,21 @@ reg_t index[P.VU.vlmax]; \
     require(nf == 1); \
   VI_DUPLICATE_VREG(1, insn.rs1(), e32); \
   for (reg_t i = 0; i < vl; ++i) { \
-    VI_STRIP(i) \
+    VI_STRIP(i); \
     VI12_ELEMENT_SKIP(i); \
     P.VU.vstart->write(i); \
-    for (reg_t fn = 0; fn < nf; ++fn) { \
-      if (index[i] >= 0x90000000 && index[i] <= 0xffffffff) { \
-        reg_t baseAddr = index[i] + insn.s_imm(); \
-        MMU.store_##BODY(baseAddr, P.VU.elt<uint32_t>(2, vs2, vreg_inx)); \
-      } else if (index[i] >= 0x70000000 && index[i] <= 0x80000000) { \
-        reg_t baseAddr = index[i] + insn.s_imm(); \
-        MMU.store_##BODY(baseAddr, P.VU.elt<uint32_t>(2, vs2, vreg_inx)); \
-      } else if ((index[i] & 0xff000000) == 0) { \
+    for (reg_t fn = 0; fn < nf; ++fn) { \       
+      if ((index[i] & 0xff000000) == 0) { \
         reg_t baseTid = P.get_csr(CSR_TID); \
         reg_t baseAddr = index[i] + insn.v_s_simm12(); \
-        reg_t baseBias = (baseAddr & ~3) * P.get_csr(CSR_NUMT); \
-        reg_t thread_idx_in_warp = baseTid % P.get_csr(CSR_NUMT); \
-        reg_t real_inx = thread_idx_in_warp + vreg_inx; \
-        reg_t realAddr = P.get_csr(CSR_PDS) + baseBias + (real_inx << 2); \
-        MMU.store_##BODY(realAddr, P.VU.elt<uint32_t>(2, vs2, vreg_inx)); \
+        reg_t baseBias = P.get_csr(CSR_PDS) + (baseAddr & ~3) * P.get_csr(CSR_NUMW) * P.get_csr(CSR_NUMT) + (baseAddr & 3); \
+        MMU.store_##BODY(baseBias+((baseTid + vreg_inx)<<2),P.VU.elt<uint32_t>(2,vs2, vreg_inx)); \
+      } else if (index[i] >= 0x70000000 && index[i] <= 0x80000000) { \
+        reg_t baseAddr = index[i] + insn.s_imm() + fn * 4; \
+        MMU.store_##BODY(baseAddr, P.VU.elt<uint32_t>(2, vs2, vreg_inx));\
+      } else if (index[i] >= 0x90000000 && index[i] <= 0xffffffff) { \
+        reg_t baseAddr = index[i] + insn.s_imm() + fn * 4; \
+        MMU.store_##BODY(baseAddr, P.VU.elt<uint32_t>(2, vs2, vreg_inx));\
       } \
     } \
   } \

@@ -135,9 +135,9 @@ struct : public arg_t {
 
 struct : public arg_t {
   std::string to_string(insn_t insn) const {
-    return std::to_string((int)insn.v_simm11());
+    return std::to_string((int)insn.v_simm12());
   }
-} v_simm11;
+} v_simm12;
 
 struct : public arg_t {
   std::string to_string(insn_t insn) const {
@@ -647,7 +647,7 @@ static void NOINLINE add_vector_load12_insn(disassembler_t* d, const char*name, 
 
 static void NOINLINE add_vector_load_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
 {
-  d->add_insn(new disasm_insn_t(name, match, mask, {&vd, &xrs1,&v_simm11}));
+  d->add_insn(new disasm_insn_t(name, match, mask, {&vd, &xrs1,&v_simm12}));
 }
 
 static void NOINLINE add_vector_store12_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
@@ -657,7 +657,7 @@ static void NOINLINE add_vector_store12_insn(disassembler_t* d, const char*name,
 
 static void NOINLINE add_vector_store_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
 {
-  d->add_insn(new disasm_insn_t(name, match, mask, {&vs2, &xrs1, &v_s_simm11}));
+  d->add_insn(new disasm_insn_t(name, match, mask, {&vs2, &xrs1, &v_s_simm12}));
 }
 
 static void NOINLINE add_barrier_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
@@ -894,14 +894,14 @@ void disassembler_t::add_instructions(const isa_parser_t* isa)
   DEFINE_VS12_TYPE(vsw_local_v);
   DEFINE_VS12_TYPE(vsh_local_v);
   DEFINE_VS12_TYPE(vsb_local_v);
-  DEFINE_VL12_TYPE(vlw_private_v);
-  DEFINE_VL12_TYPE(vlh_private_v);
-  DEFINE_VL12_TYPE(vlb_private_v);
-  DEFINE_VL12_TYPE(vlhu_private_v);
-  DEFINE_VL12_TYPE(vlbu_private_v);
-  DEFINE_VS12_TYPE(vsw_private_v);
-  DEFINE_VS12_TYPE(vsh_private_v);
-  DEFINE_VS12_TYPE(vsb_private_v);
+  DEFINE_VL_TYPE(vlw_private_v);
+  DEFINE_VL_TYPE(vlh_private_v);
+  DEFINE_VL_TYPE(vlb_private_v);
+  DEFINE_VL_TYPE(vlhu_private_v);
+  DEFINE_VL_TYPE(vlbu_private_v);
+  DEFINE_VS_TYPE(vsw_private_v);
+  DEFINE_VS_TYPE(vsh_private_v);
+  DEFINE_VS_TYPE(vsb_private_v);
   DEFINE_REGEXT_TYPE(regext);
   DEFINE_REGEXTI_TYPE(regexti);
 

@@ -5,8 +5,8 @@
 #include <queue>
 #include <cstring>
 #include <string>
-#include <functional>
 #include <cstdint>
+#include <functional>
 
 class memif_t;
 

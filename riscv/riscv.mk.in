@@ -1325,6 +1325,7 @@ riscv_insn_ext_cmo = \
 
 riscv_insn_list = \
 	$(riscv_insn_ext_a) \
+	$(riscv_insn_ext_c) \
 	$(riscv_insn_ext_i) \
 	$(riscv_insn_ext_m) \
 	$(riscv_insn_ext_f) \
@@ -1339,7 +1340,6 @@ riscv_insn_list = \
 	$(riscv_insn_priv) \
 	$(riscv_insn_svinval) \
 	$(riscv_insn_ext_cmo) \
-	$(riscv_insn_ext_c) \
 
 riscv_gen_srcs = \
 	$(addsuffix .cc,$(riscv_insn_list))
