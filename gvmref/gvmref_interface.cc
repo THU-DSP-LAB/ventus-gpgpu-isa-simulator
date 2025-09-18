@@ -91,22 +91,18 @@ void gvmref_step(uint32_t software_wg_id, uint32_t software_warp_id, gvmref_step
   ret_info = ref->wg[software_wg_id]->proc[software_warp_id]->gvmref_step_ret;
   ret_info.wg_done = ref->wg[software_wg_id]->done();
   *ret = ret_info;
+  return;
 }
 
-void gvmref_get_xreg(gvmref_xreg_t* ret) {
+void gvmref_get_xreg(gvmref_xreg_t* ret, uint32_t wg_id, uint32_t warp_id) {
   gvmref_xreg_t result;
-  for (uint32_t wg_id = ref->wg_id_base; wg_id < ref->wg_id_base + ref->num_workgroup; wg_id++) {
-    std::vector<std::array<uint64_t, 256>> wg_xpr; // const int NXPR = 256;
-    for (uint32_t warp_id = 0; warp_id < ref->num_warp; warp_id++) {
-      std::array<uint64_t, 256> warp_xpr;
-      for (int i = 0; i < 256; i++) {
-        warp_xpr[i] = ref->wg[wg_id]->state[warp_id]->XPR[i];
-      }
-      wg_xpr.push_back(warp_xpr);
-    }
-    result.xpr.insert({wg_id, wg_xpr});
+  std::array<uint64_t, 256> warp_xpr;
+  for (int i = 0; i < 256; i++) {
+    warp_xpr[i] = ref->wg[wg_id]->state[warp_id]->XPR[i];
   }
+  result.xpr = warp_xpr;
   *ret = result;
+  return;
 }
 
 } // extern "C"

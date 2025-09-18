@@ -16,8 +16,7 @@ struct gvmref_warp_xreg_t {
 }; // 用于 gvmref_set_warp_xreg API
 
 struct gvmref_xreg_t {
-  // 最外层 map 为 workgroup
-  std::map<uint32_t, std::vector<std::array<uint64_t, 256>>> xpr; // const int NXPR = 256;
+  std::array<uint64_t, 256> xpr; // const int NXPR = 256;
 };
 
 enum gvmref_insn_type {
@@ -78,7 +77,7 @@ void gvmref_step(uint32_t software_wg_id, uint32_t software_warp_id, gvmref_step
 // 将指定 warp 步进一条指令
 // 并且，如果该指令是 1.会写回标量寄存器的指令 或者 2.会写回向量寄存器的指令
 // 则将该指令的执行结果返回
-void gvmref_get_xreg(gvmref_xreg_t* ret);
+void gvmref_get_xreg(gvmref_xreg_t* ret, uint32_t wg_id, uint32_t warp_id);
 // 获取 spike 的所有 warp 的标量寄存器堆
 
 }

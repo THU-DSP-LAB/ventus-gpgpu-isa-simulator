@@ -26,7 +26,7 @@ public:
   void set_warp_xreg(uint32_t warp_id, uint32_t xreg_usage, gvmref_warp_xreg_t xreg);
   uint32_t get_next_pc(uint32_t warp_id);
   int step(uint32_t warp_id);
-  friend void gvmref_get_xreg(gvmref_xreg_t* ret);
+  friend void gvmref_get_xreg(gvmref_xreg_t* ret, uint32_t wg_id, uint32_t warp_id); // 获取本 workgroup 的所有寄存器状态
   friend void gvmref_step(uint32_t software_wg_id, uint32_t software_warp_id, gvmref_step_return_info_t* ret);
   int done() { return sim->done(); } // 本 workgroup 已运行到结尾
   void init_sim(gvmref_meta_data* knl_data, uint64_t knl_start_pc, uint64_t currwgid);
