@@ -4,6 +4,7 @@
 #include <vector>
 #include <queue>
 #include <cstring>
+#include <cstdint>
 #include <string>
 #include <functional>
 

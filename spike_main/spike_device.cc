@@ -198,7 +198,11 @@ spike_device::spike_device():sim(NULL),buffer(),buffer_data(){
 };
 
 spike_device::~spike_device(){
-  delete sim;delete[] srcfilename,logfilename;
+  if(sim != nullptr) {
+    delete sim;
+    sim = nullptr;
+  }
+  delete[] srcfilename,logfilename;
   for (auto& mem : buffer_data)
     if(mem.second!=nullptr) {delete mem.second;mem.second=nullptr;}
   const_buffer.clear();
@@ -667,7 +671,7 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
           num_warp,num_thread,num_workgroup,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase,knlbase,currwgid);
   //    sprintf(log_name, "object_%ld.riscv.log", currwgid);
   //    log_path = log_name;
-
+      sim = nullptr;
       delete sim;
   }
 
