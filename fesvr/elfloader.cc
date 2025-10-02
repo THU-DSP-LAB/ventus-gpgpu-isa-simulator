@@ -19,6 +19,10 @@
 std::map<std::string, uint64_t> load_elf(const char* fn, memif_t* memif, reg_t* entry)
 {
   int fd = open(fn, O_RDONLY);
+  if (fd == -1) {
+    fprintf(stderr, "open(\"%s\") failed: %s (errno=%d)\n",
+            fn ? fn : "(null)", strerror(errno), errno);
+  }
   struct stat s;
   assert(fd != -1);
   if (fstat(fd, &s) < 0)

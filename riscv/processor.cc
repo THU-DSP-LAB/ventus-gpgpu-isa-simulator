@@ -1157,6 +1157,22 @@ void processor_t::gpgpu_unit_t::simt_stack_t::push_branch
     (reg_t r_pc,reg_t if_pc, uint64_t if_mask, 
                      uint64_t r_mask, reg_t else_pc, uint64_t else_mask)
 {
+  // Debug print for branch divergence handling
+  // Print branch instruction PC (rpc), if/else PCs and masks (masked by width_mask for readability)
+  {
+    uint64_t if_m = if_mask & width_mask;
+    uint64_t else_m = else_mask & width_mask;
+    uint64_t r_m = r_mask & width_mask;
+    std::cout << "[SIMT push_branch] "
+              << "rpc: 0x" << std::hex << std::setw(8) << std::setfill('0') << static_cast<uint32_t>(r_pc)
+              << " if_pc: 0x" << std::hex << std::setw(8) << std::setfill('0') << static_cast<uint32_t>(if_pc)
+              << " else_pc: 0x" << std::hex << std::setw(8) << std::setfill('0') << static_cast<uint32_t>(else_pc)
+              << " r_mask: 0x" << std::hex << std::setw(8) << std::setfill('0') << r_m
+              << " if_mask: 0x" << std::hex << std::setw(8) << std::setfill('0') << if_m
+              << " else_mask: 0x" << std::hex << std::setw(8) << std::setfill('0') << else_m
+              << std::dec << std::endl;
+  }
+
   if(all_zero(else_mask)){
     npc = if_pc;
     mask = if_mask & width_mask;
