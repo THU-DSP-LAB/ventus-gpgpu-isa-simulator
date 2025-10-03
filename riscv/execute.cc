@@ -92,6 +92,10 @@ static void commit_log_print_insn(processor_t *p, reg_t pc, insn_t insn)
   int xlen = p->get_state()->last_inst_xlen;
   int flen = p->get_state()->last_inst_flen;
 
+  p->gvmref_step_ret.pc = pc;
+  p->gvmref_step_ret.insn = static_cast<uint32_t>(insn.bits());
+  p->gvmref_step_ret.insn_result.insn_type = DONT_CARE;
+
   // print core id on all lines so it is easy to grep
   fprintf(log_file, "core%4" PRId32 ": ", p->get_id());
 
@@ -115,6 +119,7 @@ static void commit_log_print_insn(processor_t *p, reg_t pc, insn_t insn)
     case 0:
       size = xlen;
       prefix = 'x';
+      p->gvmref_step_ret.insn_result.insn_type = XREG;
       break;
     case 1:
       size = flen;
@@ -123,6 +128,7 @@ static void commit_log_print_insn(processor_t *p, reg_t pc, insn_t insn)
     case 2:
       size = p->VU.VLEN;
       prefix = 'v';
+      p->gvmref_step_ret.insn_result.insn_type = VREG;
       is_vreg = true;
       break;
     case 3:
@@ -148,11 +154,21 @@ static void commit_log_print_insn(processor_t *p, reg_t pc, insn_t insn)
     if (!is_vec) {
       if (prefix == 'c')
         fprintf(log_file, " c%d_%s ", rd, csr_name(rd));
-      else
+      else {
         fprintf(log_file, " %c%-2d ", prefix, rd);
+        p->gvmref_step_ret.insn_result.xreg_result.reg_idx = rd;
+        p->gvmref_step_ret.insn_result.vreg_result.reg_idx = rd;
+      }
       if (is_vreg) {
         fprintf(log_file, "%08x ", p->gpgpu_unit.simt_stack.get_mask());
+        p->gvmref_step_ret.insn_result.vreg_result.mask = static_cast<uint32_t>(p->gpgpu_unit.simt_stack.get_mask());
         commit_log_print_value(log_file, size, &p->VU.elt<uint8_t>(0,rd, 0));
+        const uint32_t *gvmref_vreg_arr = (const uint32_t*)&p->VU.elt<uint8_t>(0,rd, 0);
+        int ii=0;
+        for (int idx = 0; idx <= size/32-1; ++idx) {
+          p->gvmref_step_ret.insn_result.vreg_result.rd[ii] = gvmref_vreg_arr[idx];
+          ii++;
+        }
       }
       else
         commit_log_print_value(log_file, size, item.second.v);
