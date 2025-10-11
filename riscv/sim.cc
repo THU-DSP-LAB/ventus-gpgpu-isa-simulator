@@ -514,3 +514,56 @@ void sim_t::proc_reset(unsigned id)
 {
   debug_module.proc_reset(id);
 }
+
+// ---------------------------- gvmref ----------------------------------------
+
+void gvmref_sim_thread_main(void* arg)
+{
+  ((sim_t*)arg)->gvmref_main();
+}
+
+void sim_t::gvmref_main()
+{
+  // 绑定到 target 的函数，每次 step 时会调用
+  if (!debug && log)
+    set_procs_debug(true);
+
+  while (!done())
+  {
+    if (debug || ctrlc_pressed)
+      interactive();
+    else {
+      procs[sim_t_step_warp_id]->step(1);
+      procs[sim_t_step_warp_id]->get_mmu()->yield_load_reservation();
+      if (clint) {
+        clint->increment(1.0 / INSNS_PER_RTC_TICK / procs.size());
+        // 原版 ventus-gpgpu-isa-simulator 中是所有 warp 步进完后才 clint->increment()
+        // 因此这里除以了 num_warp
+      }
+      host->switch_to(); // 切换回 host
+    }
+    if (remote_bitbang) {
+      remote_bitbang->tick();
+    }
+  }
+}
+
+void sim_t::gvmref_init() {
+  // 内容来自 sim_t::run()，为调用 idle() 步进做准备，以供 difftest REF 步进
+  host = context_t::current();
+  target.init(gvmref_sim_thread_main, this);
+  htif_t::gvmref_init();
+}
+
+int sim_t::gvmref_step() {
+  if (!done()) {
+    if (htif_t::gvmref_step()) // 如果 gvmref 在本次 step 中运行结束
+    {
+      stop();
+      return exit_code();
+    }
+  } else {
+    return exit_code();
+  }
+  return 0;
+}

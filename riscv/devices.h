@@ -36,7 +36,7 @@ class rom_device_t : public abstract_device_t {
 class mem_t : public abstract_device_t {
  public:
   mem_t(reg_t size);
-  mem_t(const mem_t& that) = delete;
+  mem_t(const mem_t& that); // 深拷贝构造函数
   ~mem_t();
 
   bool load(reg_t addr, size_t len, uint8_t* bytes) { return load_store(addr, len, bytes, false); }
@@ -47,7 +47,7 @@ class mem_t : public abstract_device_t {
  private:
   bool load_store(reg_t addr, size_t len, uint8_t* bytes, bool store);
 
-  std::map<reg_t, char*> sparse_memory_map;
+  std::map<reg_t, char*> sparse_memory_map; // 每页 4 KiB
   reg_t sz;
 };
 

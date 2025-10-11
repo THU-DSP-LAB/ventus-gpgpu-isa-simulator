@@ -1,0 +1,20 @@
+gvmref_subproject_deps = \
+  fesvr \
+  riscv \
+  disasm \
+  customext \
+  fdt \
+  softfloat \
+  spike_dasm \
+
+gvmref_hdrs = \
+  gvmref_interface.h \
+  gvmref.h \
+  workgroup.h \
+
+gvmref_srcs = \
+  gvmref_interface.cc \
+	gvmref.cc \
+  workgroup.cc \
+
+gvmref_install_shared_lib = yes

@@ -4,8 +4,10 @@
 #include <vector>
 #include <queue>
 #include <cstring>
+#include <cstdint>
 #include <string>
 #include <functional>
+#include <cstdint>
 
 class memif_t;
 

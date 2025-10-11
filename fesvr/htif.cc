@@ -413,3 +413,55 @@ EMUALTOR VERILOG PLUSARGS\n\
 ", stdout);
   fputs("\n" HTIF_USAGE_OPTIONS, stdout);
 }
+
+// ---------------------- gvmref ---------------------------------------------
+
+void htif_t::gvmref_init() {
+  start();
+
+  auto enq_func = [](std::queue<reg_t>* q, uint64_t x) { q->push(x); };
+  std::queue<reg_t> fromhost_queue_for_gvmref;
+  std::function<void(reg_t)> fromhost_callback_for_gvmref = std::bind(enq_func, &fromhost_queue_for_gvmref, std::placeholders::_1);
+
+  assert(tohost_addr != 0);
+  stopped = false;
+}
+
+int htif_t::gvmref_step() {
+  if (!signal_exit && exitcode == 0) {
+
+    try {
+      if ((tohost = from_target(mem.read_uint64(tohost_addr))) != 0)
+        mem.write_uint64(tohost_addr, target_endian<uint64_t>::zero);
+    } catch (mem_trap_t& t) {
+      bad_address("accessing tohost", t.get_tval());
+    }
+
+    try {
+      if (tohost != 0) {
+        command_t cmd(mem, tohost, fromhost_callback_for_gvmref);
+        device_list.handle_command(cmd);
+      } else {
+        idle();
+      }
+
+      device_list.tick();
+    } catch (mem_trap_t& t) {
+      std::stringstream tohost_hex;
+      tohost_hex << std::hex << tohost;
+      bad_address("host was accessing memory on behalf of target (tohost = 0x" + tohost_hex.str() + ")", t.get_tval());
+    }
+
+    try {
+      if (!fromhost_queue_for_gvmref.empty() && !mem.read_uint64(fromhost_addr)) {
+        mem.write_uint64(fromhost_addr, to_target(fromhost_queue_for_gvmref.front()));
+        fromhost_queue_for_gvmref.pop();
+      }
+    } catch (mem_trap_t& t) {
+      bad_address("accessing fromhost", t.get_tval());
+    }
+    return 0;
+  } else {
+    return 1;
+  }
+}

@@ -18,6 +18,7 @@
 #include "triggers.h"
 #include <iostream>
 #include <iomanip>
+#include "../gvmref/gvmref_interface.h"
 
 //怕重复定义了，先写在这
 #include <stack>
@@ -285,6 +286,8 @@ public:
               simif_t* sim, uint32_t id, bool halt_on_reset,
               FILE *log_file, std::ostream& sout_); // because of command line option --log and -s we need both
   ~processor_t();
+
+  gvmref_step_return_info_t gvmref_step_ret;
 
   const isa_parser_t &get_isa() { return *isa; }
 
