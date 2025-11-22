@@ -1,6 +1,7 @@
 // See LICENSE for license details.
 
 #include "sim.h"
+#include "log_file.h"
 #include "mmu.h"
 #include "dts.h"
 #include "remote_bitbang.h"
@@ -44,7 +45,7 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
              std::vector<std::pair<reg_t, abstract_device_t*>> plugin_devices,
              const std::vector<std::string>& args,
              const debug_module_config_t &dm_config,
-             const char *log_path,
+             const log_file_t& log_file,
              bool dtb_enabled, const char *dtb_file,
 #ifdef HAVE_BOOST_ASIO
              boost::asio::io_service *io_service_ptr, boost::asio::ip::tcp::acceptor *acceptor_ptr, // option -s
@@ -60,7 +61,7 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
     workgroups(NULL),
     dtb_file(dtb_file ? dtb_file : ""),
     dtb_enabled(dtb_enabled),
-    log_file(log_path),
+    log_file(log_file),
     cmd_file(cmd_file),
 #ifdef HAVE_BOOST_ASIO
     io_service_ptr(io_service_ptr), // socket interface

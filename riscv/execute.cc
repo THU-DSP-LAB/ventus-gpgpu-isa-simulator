@@ -75,10 +75,7 @@ void commit_log_print_simt_stack(processor_t *p, insn_t insn)
   p->gpgpu_unit.simt_stack.dump();
   std::cout.rdbuf(oldCoutBuf);
 
-  char *simt_mask = new char[ss.str().length() + 1];
-  strcpy(simt_mask, ss.str().c_str());
-
-  fprintf(log_file, "%s", simt_mask);
+  fprintf(log_file, "%s", ss.str().c_str());
   return;
 }
 static void commit_log_print_insn(processor_t *p, reg_t pc, insn_t insn)

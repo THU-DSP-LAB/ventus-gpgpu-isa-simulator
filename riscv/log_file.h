@@ -2,6 +2,7 @@
 #ifndef _RISCV_LOGFILE_H
 #define _RISCV_LOGFILE_H
 
+#include <cstring>
 #include <stdio.h>
 #include <memory>
 #include <sstream>
@@ -23,12 +24,12 @@ public:
     if (! wrapped_file) {
       std::ostringstream oss;
       oss << "Failed to open log file at `" << path << "': "
-          << strerror (errno);
+          << std::strerror (errno);
       throw std::runtime_error(oss.str());
     }
   }
 
-  FILE *get() { return wrapped_file ? wrapped_file.get() : stderr; }
+  FILE *get() const { return wrapped_file ? wrapped_file.get() : stderr; }
 
 private:
   std::unique_ptr<FILE, decltype(&fclose)> wrapped_file;

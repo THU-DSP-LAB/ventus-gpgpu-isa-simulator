@@ -11,7 +11,8 @@ context_t::context_t()
     mutex(PTHREAD_MUTEX_INITIALIZER),
     cond(PTHREAD_COND_INITIALIZER), flag(0)
 #else
-    context(new ucontext_t)
+    context(new ucontext_t),
+    context_ucstack_allocated(false)
 #endif
 {
 }
@@ -51,6 +52,7 @@ void context_t::init(void (*f)(void*), void* a)
   context->uc_link = creator->context.get();
   context->uc_stack.ss_size = 64*1024;
   context->uc_stack.ss_sp = new void*[context->uc_stack.ss_size/sizeof(void*)];
+  context_ucstack_allocated = true;
 #ifndef GLIBC_64BIT_PTR_BUG
   makecontext(context.get(), (void(*)(void))&context_t::wrapper, 1, this);
 #else
@@ -76,6 +78,13 @@ void context_t::init(void (*f)(void*), void* a)
 context_t::~context_t()
 {
   assert(this != cur);
+#ifdef USE_UCONTEXT
+  if (context && context_ucstack_allocated) {
+    // Cast back to the type used for allocation to avoid warnings, 
+    // though void* is usually fine for delete[] in modern compilers depending on strictness
+    delete[] (void**)context->uc_stack.ss_sp; 
+  }
+#endif
 }
 
 void context_t::switch_to()

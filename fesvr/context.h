@@ -37,6 +37,7 @@ class context_t
   void* arg;
 #ifdef USE_UCONTEXT
   std::unique_ptr<ucontext_t> context;
+  bool context_ucstack_allocated = false;
 #ifndef GLIBC_64BIT_PTR_BUG
   static void wrapper(context_t*);
 #else

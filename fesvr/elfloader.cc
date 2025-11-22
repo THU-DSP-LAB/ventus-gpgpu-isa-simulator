@@ -20,6 +20,9 @@ std::map<std::string, uint64_t> load_elf(const char* fn, memif_t* memif, reg_t* 
 {
   int fd = open(fn, O_RDONLY);
   struct stat s;
+  if (fd == -1) {
+    perror("spike open ELF file failed");
+  }
   assert(fd != -1);
   if (fstat(fd, &s) < 0)
     abort();

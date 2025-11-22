@@ -1,6 +1,7 @@
 // See LICENSE for license details.
 
 #include "cfg.h"
+#include "log_file.h"
 #include "sim.h"
 #include "mmu.h"
 #include "remote_bitbang.h"
@@ -627,10 +628,11 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
 
   auto return_code = 0;
 //  char log_name[256] = {0};
+  log_file_t log_file(log_path);
   for (uint64_t i = 0; i < num_workgroup / SPIKE_RUN_WG_NUM; i++)
   {
       sim=new sim_t(&cfg, halted,
-              all_buffer_data, plugin_devices, htif_args, dm_config, log_path, dtb_enabled, dtb_file,
+              all_buffer_data, plugin_devices, htif_args, dm_config, log_file, dtb_enabled, dtb_file,
 #ifdef HAVE_BOOST_ASIO
               nullptr, nullptr,
 #endif
@@ -671,8 +673,8 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
           num_warp,num_thread,num_workgroup,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase,knlbase,currwgid);
   //    sprintf(log_name, "object_%ld.riscv.log", currwgid);
   //    log_path = log_name;
-      sim = nullptr;
       delete sim;
+      sim = nullptr;
   }
 
   for (auto& plugin_device : plugin_devices)
