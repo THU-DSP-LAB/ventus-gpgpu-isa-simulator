@@ -18,6 +18,21 @@
 #include "../VERSION"
 #include "spike_main.h"
 
+inline std::optional<bool> parse_bool(std::string str) {
+    // transform to lowercase safely (unsigned char cast to avoid UB)
+    std::transform(str.begin(), str.end(), str.begin(), [](char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    if (str == "true" || str == "1" || str == "yes" || str == "on") return true;
+    if (str == "false" || str == "0" || str == "no" || str == "off") return false;
+    return std::nullopt;
+}
+inline std::optional<bool> parse_bool(const char *str) {
+    if (str == nullptr) return std::nullopt;
+    return parse_bool(std::string(str));
+}
+
+
 struct kernel_info{
     std::unordered_map<int, bool> blk_list;
     int kernel_id;
@@ -539,6 +554,8 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
       exit(-1);
     }
   });
+  // dummy option, do nothing
+  parser.option(0, "dummy-option", 0, [](const char* s){});
   //const char* argv[] = " -d -l --log-commits -p1 --isa rv64gv_zfh --varch vlen:256,elen:32 --gpgpuarch numw:1,numt:8,numwg:1 build/my.riscv > log/my.log 2>&1";
   int argc=14;
   //mem的和sim的config可以直接赋值，但htif的只能通过命令行传
@@ -559,6 +576,15 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   sprintf(arg_mem_scope,"-m0x70000000:0x%lx",buffer.back().base+buffer.back().size);
   fprintf(stderr, "vaddr mem scope is %s\n",arg_mem_scope);
   sprintf(arg_start_pc,"--pc=0x%lx",start_pc);
+  char arg_log[16];
+  char arg_commitlog[16];
+  if (parse_bool(std::getenv("VENTUS_SPIKE_LOG")).value_or(true)) {
+      snprintf(arg_log, sizeof(arg_log), "-l");
+      snprintf(arg_commitlog, sizeof(arg_commitlog), "--log-commits");
+  } else {
+      snprintf(arg_log, sizeof(arg_log), "--dummy-option");
+      snprintf(arg_commitlog, sizeof(arg_commitlog), "--dummy-option");
+  }
   //strcat(arg_mem_scope,temp);
   //--------------------------------------------------num_core-------------------pc------mem_scope   //mem_scope is unused now.
   //-------------vlen_elen-----------gpgpu-------------------log_file_output
@@ -570,6 +596,8 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
     argv[i]=strings[i];
   }
   argv[11]=arg_gpgpu;
+  argv[1] = arg_log;;
+  argv[2] = arg_commitlog;
   argv[3]=arg_num_core;
   argv[12]=arg_logfilename;
   fprintf(stderr, "src file is %s, run log is written to %s\n",srcfilename,logfilename);

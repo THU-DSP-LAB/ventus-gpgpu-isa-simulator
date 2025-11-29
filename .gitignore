@@ -8,3 +8,4 @@ autom4te.cache/
 .gdb_history
 .vscode/
 gpgpu-testcase/build
+compile_commands.json
