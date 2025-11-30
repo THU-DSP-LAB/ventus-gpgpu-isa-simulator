@@ -24,6 +24,7 @@ public:
 
   // 以下是 GVM API 所需的函数
   void set_warp_xreg(uint32_t warp_id, uint32_t xreg_usage, gvmref_warp_xreg_t xreg);
+  void set_warp_vreg(uint32_t warp_id, uint32_t vreg_usage, const gvmref_warp_vreg_t& vreg);
   uint32_t get_next_pc(uint32_t warp_id);
   int step(uint32_t warp_id);
   friend void gvmref_get_xreg(gvmref_xreg_t* ret, uint32_t wg_id, uint32_t warp_id); // 获取本 workgroup 的所有寄存器状态
@@ -52,4 +53,6 @@ private:
   char* logfilename;
 
   cfg_t cfg;
+
+  std::unique_ptr<log_file_t> log_file;
 };

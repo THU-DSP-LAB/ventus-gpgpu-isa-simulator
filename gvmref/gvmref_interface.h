@@ -15,6 +15,12 @@ struct gvmref_warp_xreg_t {
   std::vector<uint64_t> xreg;
 }; // 用于 gvmref_set_warp_xreg API
 
+struct gvmref_warp_vreg_t {
+  // 外层 vector 表示寄存器编号
+  // 内层 vector 表示该寄存器的所有元素
+  std::vector<std::vector<uint32_t>> vreg;
+}; // 用于 gvmref_set_warp_vreg API
+
 struct gvmref_xreg_t {
   std::array<uint64_t, 256> xpr; // const int NXPR = 256;
 };
@@ -71,6 +77,8 @@ int gvmref_set_warp_xreg(uint32_t software_wg_id, uint32_t software_warp_id, uin
 // 但 RTL DUT 的 CTA 调度器在向 SM 分派新 warp 时，只会在寄存器堆中分配一块空间，但不会零初始化，寄存器中仍是之前残留的旧数据
 // 导致大量寄存器不匹配。
 // 因此这里在 DUT 的 CTA 调度器向 SM 分派新 warp 时，将 DUT 的该 warp 的寄存器数据同步到 REF 的对应 warp
+int gvmref_set_warp_vreg(uint32_t software_wg_id, uint32_t software_warp_id, uint32_t vreg_usage, const gvmref_warp_vreg_t& vreg_data);
+// 同上，设置指定 warp 的向量寄存器堆
 uint32_t gvmref_get_next_pc(uint32_t software_wg_id, uint32_t software_warp_id);
 // 返回指定 warp 的即将执行的指令 PC
 void gvmref_step(uint32_t software_wg_id, uint32_t software_warp_id, gvmref_step_return_info_t* ret);

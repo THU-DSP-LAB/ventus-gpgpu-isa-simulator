@@ -81,6 +81,11 @@ int gvmref_set_warp_xreg(uint32_t software_wg_id, uint32_t software_warp_id, uin
   return 0;
 }
 
+int gvmref_set_warp_vreg(uint32_t software_wg_id, uint32_t software_warp_id, uint32_t vreg_usage, const gvmref_warp_vreg_t& vreg_data) {
+  ref->wg[software_wg_id]->set_warp_vreg(software_warp_id, vreg_usage, vreg_data);
+  return 0;
+}
+
 uint32_t gvmref_get_next_pc(uint32_t software_wg_id, uint32_t software_warp_id) {
   return ref->wg[software_wg_id]->get_next_pc(software_warp_id);
 }
