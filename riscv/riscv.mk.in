@@ -1286,6 +1286,7 @@ riscv_insn_priv = \
 	csrrsi \
 	csrrw \
 	csrrwi \
+	csrrsv \
 	dret \
 	ebreak \
 	ecall \

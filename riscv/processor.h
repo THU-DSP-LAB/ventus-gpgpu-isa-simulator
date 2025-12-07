@@ -71,6 +71,10 @@ class warp_schedule_t
     bool is_all_true;
     int barrier_counter;
     uint64_t lds_base,lds_size,pds_base,pds_size,knl_base, curr_wgid;
+    uint64_t global_size_x,global_size_y,global_size_z;
+    uint64_t local_size_x,local_size_y,local_size_z;
+    uint64_t global_offset_x,global_offset_y,global_offset_z;
+    uint64_t work_dim_64;
 };
 
 struct insn_desc_t  //mask
@@ -582,6 +586,13 @@ public:
       csr_t_p gidy;
       csr_t_p gidz;
       csr_t_p clprintf;
+      std::shared_ptr<vec_csr_t> gl_id_x;
+      std::shared_ptr<vec_csr_t> gl_id_y;
+      std::shared_ptr<vec_csr_t> gl_id_z;
+      std::shared_ptr<vec_csr_t> lc_id_x;
+      std::shared_ptr<vec_csr_t> lc_id_y;
+      std::shared_ptr<vec_csr_t> lc_id_z;
+      std::shared_ptr<vec_csr_t> gll_id;
 
       // int warp_id;
 
@@ -607,7 +618,7 @@ public:
       void set_warp(warp_schedule_t* w);
       
 
-      void init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid, uint64_t _wgid, uint64_t _wid,uint64_t _pds, uint64_t _lds,uint64_t _knl,uint64_t _gidx,uint64_t _gidy,uint64_t _gidz, uint64_t _clprintf);
+      void init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid, uint64_t _wgid, uint64_t _wid,uint64_t _pds, uint64_t _lds,uint64_t _knl,uint64_t _gidx,uint64_t _gidy,uint64_t _gidz, uint64_t _clprintf, uint64_t _gsx, uint64_t _gsy, uint64_t _gsz, uint64_t _lsx, uint64_t _lsy, uint64_t _lsz, uint64_t _gox, uint64_t _goy, uint64_t _goz, uint64_t _dim);
 
       struct simt_stack_entry_t
       {

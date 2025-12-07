@@ -106,7 +106,16 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
 
   uint64_t pds = pds_base;
   uint64_t lds = lds_base;
-
+  uint64_t gsx = w.global_size_x;
+  uint64_t gsy = w.global_size_y;
+  uint64_t gsz = w.global_size_z;
+  uint64_t lsx = w.local_size_x;
+  uint64_t lsy = w.local_size_y;
+  uint64_t lsz = w.local_size_z;
+  uint64_t gox = w.global_offset_x;
+  uint64_t goy = w.global_offset_y;
+  uint64_t goz = w.global_offset_z;
+  uint64_t dim = w.work_dim_64;
   w.workgroup_number = 1;
 
   uint64_t spike_curr_wgid = w.curr_wgid;
@@ -131,7 +140,7 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
       procs[i*w.warp_number+j]->gpgpu_unit.set_warp(&workgroups[i]);//workgroups[i]);
       //现在一个warp就是一个core
       procs[i*w.warp_number+j]->gpgpu_unit.init_warp(w.warp_number, w.thread_number,
-              j * w.thread_number, spike_curr_wgid, j, pds, lds, knl_base, gidx, gidy, gidz, clprintf);
+              j * w.thread_number, spike_curr_wgid, j, pds, lds, knl_base, gidx, gidy, gidz, clprintf,gsx,gsy,gsz,lsx,lsy,lsz,gox,goy,goz,dim);
       assert(w.thread_number == (procs[i]->VU.get_vlen() / procs[i]->VU.get_elen()));
     }
     

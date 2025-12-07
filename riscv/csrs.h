@@ -681,6 +681,52 @@ class vector_csr_t: public basic_csr_t {
   reg_t mask;
 };
 
+class vec_csr_t: public csr_t {
+public:
+    explicit vec_csr_t(processor_t* const proc, const reg_t addr, size_t lanes)
+      : csr_t(proc, addr), lanes(lanes), value(lanes, 0)
+    {
+      if (lanes == 0) {
+        fprintf(stderr, "ERROR: vec_csr_t constructed with lanes=0 for csr 0x%lx\n", (unsigned long)addr);
+      }
+    }
+
+    reg_t read() const noexcept override {
+      if (lanes == 0) return 0;
+      return (reg_t)value[0];
+    }
+
+    bool unlogged_write(const reg_t val) noexcept override {
+      if (lanes == 0) return false;
+      value[0] = (uint32_t)val;
+      return true;
+    }
+
+    void set_lane(size_t idx, uint64_t v) {
+      if (idx >= lanes) {
+        fprintf(stderr, "BUG: vec_csr_t::set_lane out-of-range idx=%zu lanes=%u csr=0x%lx\n",
+                idx, (unsigned)lanes, (unsigned long)address);
+        abort();
+      }
+      value[idx] = (uint32_t)v;
+    }
+
+    uint64_t get_lane(size_t idx) const {
+      if (idx >= lanes) {
+        fprintf(stderr, "BUG: vec_csr_t::get_lane out-of-range idx=%zu lanes=%u csr=0x%lx\n",
+                idx, (unsigned)lanes, (unsigned long)address);
+        abort();
+      }
+      return value[idx];
+    }
+
+    size_t size() const { return lanes; }
+
+private:
+    size_t lanes;
+    std::vector<uint32_t> value;
+};
+
 typedef std::shared_ptr<vector_csr_t> vector_csr_t_p;
 
 // For CSRs shared between Vector and P extensions (vxsat)

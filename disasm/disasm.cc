@@ -948,6 +948,7 @@ void disassembler_t::add_instructions(const isa_parser_t* isa)
   add_insn(new disasm_insn_t("csrrwi", match_csrrwi, mask_csrrwi, {&xrd, &csr, &zimm5}));
   add_insn(new disasm_insn_t("csrrsi", match_csrrsi, mask_csrrsi, {&xrd, &csr, &zimm5}));
   add_insn(new disasm_insn_t("csrrci", match_csrrci, mask_csrrci, {&xrd, &csr, &zimm5}));
+  add_insn(new disasm_insn_t("csrr_v", match_csrrsv, mask_csrrsv, {&xrd, &csr}));
 
   if (isa->extension_enabled('S')) {
     DEFINE_NOARG(sret);
