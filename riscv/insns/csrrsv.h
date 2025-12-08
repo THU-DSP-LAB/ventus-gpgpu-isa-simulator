@@ -13,7 +13,6 @@ if (!vcsr) {
 }
 
 reg_t vl = P.VU.vl->read();
-// reg_t vl = P.gpgpu_unit.w->local_size_x * P.gpgpu_unit.w->local_size_y * P.gpgpu_unit.w->local_size_z;
 for(uint32_t i = 0; i < vl; i++) {
-  P.VU.elt<uint64_t>(0,vd , i, true) = vcsr->get_lane(i);
+  P.VU.elt<uint32_t>(0,vd,i,true) = vcsr->get_lane(i);
 }

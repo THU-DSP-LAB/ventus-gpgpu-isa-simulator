@@ -1276,14 +1276,11 @@ void processor_t::gpgpu_unit_t::init_warp(uint64_t _numw, uint64_t _numt, uint64
   gidz->write(_gidz);
   clprintf->write(_clprintf);
 
-  fprintf(stderr, "numw=%lu, numt=%lu, tid=%lu\n", _numw, _numt, _tid);
-  fprintf(stderr, "gidx=%lu, gidy=%lu, gidz=%lu\n", _gidx, _gidy, _gidz);
   // init simt-stack
   simt_stack.init_mask(_numt);
   
   // vector csr init、
   int lanes = _numt;
-  fprintf(stderr, "Initializing vector CSRs with lanes=%d\n", lanes);
   gl_id_x = std::make_shared<vec_csr_t>(p, CSR_GL_ID_X, lanes);
   gl_id_y = std::make_shared<vec_csr_t>(p, CSR_GL_ID_Y, lanes);
   gl_id_z = std::make_shared<vec_csr_t>(p, CSR_GL_ID_Z, lanes);
@@ -1306,30 +1303,18 @@ void processor_t::gpgpu_unit_t::init_warp(uint64_t _numw, uint64_t _numt, uint64
     uint64_t local_x = 0; 
     uint64_t local_y = 0; 
     uint64_t local_z = 0;
-    if(_dim == 1) {
-      local_x = _tid + lane;
-    } else if(_dim == 2) {
-      local_x = (_tid + lane) % _lsx;
-      local_y = (_tid + lane) / _lsx;
-    } else {
-      local_x = (_tid + lane) % _lsx;
-      local_y = ((_tid + lane) / _lsx) % _lsy;
-      local_z = (_tid + lane) / (_lsx * _lsy);
-    }
+    local_x = (_tid + lane) % _lsx;
+    local_y = (_tid + lane) % (_lsx * _lsy) / _lsx;
+    local_z = (_tid + lane) / (_lsx * _lsy);
 
     uint64_t global_x = _gox + _gidx * _lsx + local_x;
     uint64_t global_y = _goy + _gidy * _lsy + local_y;
     uint64_t global_z = _goz + _gidz * _lsz + local_z;
-    fprintf(stderr, "lane %d: local=(%lu,%lu,%lu), global=(%lu,%lu,%lu)\n", lane, local_x, local_y, local_z, global_x, global_y, global_z);
 
     uint64_t global_linear;
-    if(_dim == 1) {
-      global_linear = global_x - _gox;
-    } else if(_dim == 2) {
-      global_linear = (global_y - _goy) * _gsx + (global_x - _gox);
-    } else {
-      global_linear = (global_z - _goz) * (_gsx * _gsy) + (global_y - _goy) * _gsx + (global_x - _gox);
-    }
+    global_linear = (_gidx * _lsx + local_x)
+                    + (_gidy * _lsy + local_y) * _lsx
+                    + (_gidz * _lsz + local_z) * _lsx * _lsy;
 
     // write into vec CSRs
     lc_id_x -> set_lane(lane, local_x);
@@ -1458,7 +1443,6 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
   global_offset_y=goy;
   global_offset_z=goz;
   work_dim_64=dim;
-  fprintf(stderr, "global_size_x=%lu, global_size_y=%lu, global_size_z=%lu\n", global_size_x, global_size_y, global_size_z);
   if(!(kernel_size[0]*kernel_size[1]*kernel_size[2]==numwg)){
     bad_gpgpuarch_string(s, "kernel size doesn't match total wg size");
   }
