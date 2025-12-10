@@ -138,9 +138,13 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
                                log_file.get(), sout_);
 
       procs[i*w.warp_number+j]->gpgpu_unit.set_warp(&workgroups[i]);//workgroups[i]);
+      auto num_thread_this_warp = std::min(w.thread_number,
+          w.local_size_x * w.local_size_y * w.local_size_z - j * w.thread_number
+      ); // 当前warp中有效thread的数量
+      // TODO: 使用x*y*z计算block中有效thread数量可能不可靠
       //现在一个warp就是一个core
       procs[i*w.warp_number+j]->gpgpu_unit.init_warp(w.warp_number, w.thread_number,
-              j * w.thread_number, spike_curr_wgid, j, pds, lds, knl_base, gidx, gidy, gidz, clprintf,gsx,gsy,gsz,lsx,lsy,lsz,gox,goy,goz,dim);
+              j * w.thread_number, spike_curr_wgid, j, pds, lds, knl_base, gidx, gidy, gidz, clprintf,gsx,gsy,gsz,lsx,lsy,lsz,gox,goy,goz,dim, num_thread_this_warp);
       assert(w.thread_number == (procs[i]->VU.get_vlen() / procs[i]->VU.get_elen()));
     }
     

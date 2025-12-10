@@ -1262,7 +1262,7 @@ bool warp_schedule_t::get_barrier()
   return is_all_true;
 }
 
-void processor_t::gpgpu_unit_t::init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid,uint64_t _wgid, uint64_t _wid, uint64_t _pds, uint64_t _lds,uint64_t _knl,uint64_t _gidx,uint64_t _gidy,uint64_t _gidz, uint64_t _clprintf, uint64_t _gsx, uint64_t _gsy, uint64_t _gsz, uint64_t _lsx, uint64_t _lsy, uint64_t _lsz, uint64_t _gox, uint64_t _goy, uint64_t _goz, uint64_t _dim) {
+void processor_t::gpgpu_unit_t::init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid,uint64_t _wgid, uint64_t _wid, uint64_t _pds, uint64_t _lds,uint64_t _knl,uint64_t _gidx,uint64_t _gidy,uint64_t _gidz, uint64_t _clprintf, uint64_t _gsx, uint64_t _gsy, uint64_t _gsz, uint64_t _lsx, uint64_t _lsy, uint64_t _lsz, uint64_t _gox, uint64_t _goy, uint64_t _goz, uint64_t _dim, uint64_t _num_active_thread) {
   numw->write(_numw);
   numt->write(_numt);
   tid->write(_tid);
@@ -1277,7 +1277,7 @@ void processor_t::gpgpu_unit_t::init_warp(uint64_t _numw, uint64_t _numt, uint64
   clprintf->write(_clprintf);
 
   // init simt-stack
-  simt_stack.init_mask(_numt);
+  simt_stack.init_mask(_num_active_thread);
   
   // vector csr init、
   int lanes = _numt;
