@@ -533,13 +533,33 @@ void workgroup_t::init_sim(gvmref_meta_data* knl_data, uint64_t knl_start_pc, ui
   char arg_num_core[16];
   char arg_vlen_elen[64];
   char arg_mem_scope[64];
-  char arg_gpgpu[256];
+  char arg_gpgpu[1024];
   char arg_start_pc[32];
   char arg_logfilename[256];
   sprintf(arg_logfilename,"--log=%s",logfilename);
   sprintf(arg_num_core,"-p%ld",num_processor);
-  sprintf(arg_gpgpu,"numw:%ld,numt:%ld,numwg:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx,knlbase:0x%lx,currwgid:%lx",\
-        num_warp,num_thread,num_workgroup,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase,knlbase,currwgid);
+
+  uint64_t gsx = knl_data->num_thread_global[0];
+  uint64_t gsy = knl_data->num_thread_global[1];
+  uint64_t gsz = knl_data->num_thread_global[2];
+  uint64_t lsx = knl_data->num_thread_local[0];
+  uint64_t lsy = knl_data->num_thread_local[1];
+  uint64_t lsz = knl_data->num_thread_local[2];
+  uint64_t gox = knl_data->threadIdxOffset[0];
+  uint64_t goy = knl_data->threadIdxOffset[1];
+  uint64_t goz = knl_data->threadIdxOffset[2];
+  uint64_t work_dim_64 = 0;
+
+  if (lsz == 1 && lsy == 1) {
+    work_dim_64 = 1;
+  } else if (lsz == 1) {
+    work_dim_64 = 2;
+  } else {
+    work_dim_64 = 3;
+  }
+
+  sprintf(arg_gpgpu,"numw:%ld,numt:%ld,numwg:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx,knlbase:0x%lx,currwgid:%lx,gsx:%ld,gsy:%ld,gsz:%ld,lsx:%ld,lsy:%ld,lsz:%ld,gox:%ld,goy:%ld,goz:%ld,dim:%ld",\
+        num_warp,num_thread,num_workgroup,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase,knlbase,currwgid,gsx,gsy,gsz,lsx,lsy,lsz,gox,goy,goz,work_dim_64);
   fprintf(stderr, "arg gpgpu is %s\n",arg_gpgpu);
   sprintf(arg_vlen_elen,"vlen:%ld,elen:%d",num_thread*32,32);
   sprintf(arg_mem_scope,"-m0x70000000:0x%lx",buffer.back().base+buffer.back().size);
