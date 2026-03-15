@@ -155,6 +155,9 @@ static void commit_log_print_insn(processor_t *p, reg_t pc, insn_t insn)
         fprintf(log_file, " %c%-2d ", prefix, rd);
         p->gvmref_step_ret.insn_result.xreg_result.reg_idx = rd;
         p->gvmref_step_ret.insn_result.vreg_result.reg_idx = rd;
+        if (!is_vreg) {
+          p->gvmref_step_ret.insn_result.xreg_result.rd = static_cast<uint32_t>(item.second.v[0]);
+        }
       }
       if (is_vreg) {
         fprintf(log_file, "%08x ", p->gpgpu_unit.simt_stack.get_mask());
