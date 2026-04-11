@@ -79,6 +79,8 @@ int gvmref_set_warp_xreg(uint32_t software_wg_id, uint32_t software_warp_id, uin
 // 因此这里在 DUT 的 CTA 调度器向 SM 分派新 warp 时，将 DUT 的该 warp 的寄存器数据同步到 REF 的对应 warp
 int gvmref_set_warp_vreg(uint32_t software_wg_id, uint32_t software_warp_id, uint32_t vreg_usage, const gvmref_warp_vreg_t& vreg_data);
 // 同上，设置指定 warp 的向量寄存器堆
+int gvmref_bind_workgroup_slot(uint32_t software_wg_id, uint32_t slot_linear);
+// 将指定 software workgroup 的 private-memory 基址重绑到 RTL 实际分配的 resident WG slot
 uint32_t gvmref_get_next_pc(uint32_t software_wg_id, uint32_t software_warp_id);
 // 返回指定 warp 的即将执行的指令 PC
 void gvmref_step(uint32_t software_wg_id, uint32_t software_warp_id, gvmref_step_return_info_t* ret);

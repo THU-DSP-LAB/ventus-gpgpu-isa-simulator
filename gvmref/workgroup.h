@@ -34,6 +34,7 @@ public:
     // spike_device::run 的初始化部分
     // 拷贝出 num_workgroup 个 workgroup_t 后调用
   void clear_buffer_data();
+  void bind_pds_slot_linear(uint64_t slot_linear);
 
   // kernel 尺寸
   uint32_t num_workgroup; // 工作组数目
@@ -47,8 +48,12 @@ private:
 
   std::vector<mem_cfg_t> buffer; // 可以在分配时让buffer地址对齐4k
   std::vector<std::pair<reg_t, mem_t*>> buffer_data;
+  std::vector<mem_t*> owned_buffer_data; // 当前 workgroup 为隔离 private-memory alias 而克隆出的 backing
   std::vector<mem_cfg_t> const_buffer;                     // 在构造函数中分配
   std::vector<std::pair<reg_t, mem_t*>> const_buffer_data; // 在构造函数中分配
+  uint64_t pds_pool_base = 0;
+  uint64_t pds_bytes_per_wg = 0;
+  uint64_t pds_resident_wg = 0;
   char* srcfilename;
   char* logfilename;
 

@@ -86,6 +86,11 @@ int gvmref_set_warp_vreg(uint32_t software_wg_id, uint32_t software_warp_id, uin
   return 0;
 }
 
+int gvmref_bind_workgroup_slot(uint32_t software_wg_id, uint32_t slot_linear) {
+  ref->wg[software_wg_id]->bind_pds_slot_linear(slot_linear);
+  return 0;
+}
+
 uint32_t gvmref_get_next_pc(uint32_t software_wg_id, uint32_t software_warp_id) {
   return ref->wg[software_wg_id]->get_next_pc(software_warp_id);
 }

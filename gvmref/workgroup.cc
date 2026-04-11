@@ -321,6 +321,9 @@ workgroup_t::workgroup_t()
 workgroup_t::~workgroup_t(){
   delete sim;
   delete[] srcfilename,logfilename;
+  for (auto& mem : owned_buffer_data)
+    if(mem!=nullptr) {delete mem;mem=nullptr;}
+  owned_buffer_data.clear();
   for (auto& mem : const_buffer_data)
     if(mem.second!=nullptr) {delete mem.second;mem.second=nullptr;}
   const_buffer_data.clear();
@@ -330,6 +333,20 @@ void workgroup_t::clear_buffer_data() {
   for (auto& mem : buffer_data)
     if(mem.second!=nullptr) {delete mem.second;mem.second=nullptr;}
   buffer_data.clear();
+  owned_buffer_data.clear();
+}
+
+void workgroup_t::bind_pds_slot_linear(uint64_t slot_linear) {
+  if (pds_bytes_per_wg == 0 || proc.empty())
+    return;
+
+  if (pds_resident_wg != 0)
+    slot_linear %= pds_resident_wg;
+
+  const uint64_t pdsbase = pds_pool_base + slot_linear * pds_bytes_per_wg;
+  for (auto* p : proc) {
+    p->put_csr(CSR_PDS, pdsbase);
+  }
 }
 
 void workgroup_t::init_sim(gvmref_meta_data* knl_data, uint64_t knl_start_pc, uint64_t currwgid)
@@ -342,9 +359,23 @@ void workgroup_t::init_sim(gvmref_meta_data* knl_data, uint64_t knl_start_pc, ui
   num_workgroup=num_workgroup_x*num_workgroup_y*num_workgroup_z;
   uint64_t num_processor=num_warp*num_workgroup;
   uint64_t ldssize=knl_data->ldsSize;
-  //uint64_t pdssize=knl_data->pdsSize * num_thread;
-  uint64_t pdssize = 0x10000000;
-  uint64_t pdsbase=knl_data->pdsBaseAddr;
+  pds_pool_base = knl_data->pdsBaseAddr;
+  pds_bytes_per_wg = knl_data->pdsSize * knl_data->wf_size * knl_data->wg_size;
+  uint64_t pdssize = pds_bytes_per_wg;
+  uint64_t pds_pool_bytes = 0;
+  for (size_t i = 0; i < buffer.size(); ++i) {
+    if (buffer[i].base == pds_pool_base) {
+      pds_pool_bytes = buffer[i].size;
+      break;
+    }
+  }
+  if (pds_bytes_per_wg != 0 && pds_pool_bytes >= pds_bytes_per_wg) {
+    pds_resident_wg = pds_pool_bytes / pds_bytes_per_wg;
+  } else {
+    pds_resident_wg = 0;
+  }
+  const uint64_t init_slot_linear = (pds_resident_wg == 0) ? currwgid : (currwgid % pds_resident_wg);
+  uint64_t pdsbase = pds_pool_base + init_slot_linear * pds_bytes_per_wg;
   uint64_t start_pc=knl_start_pc;
   uint64_t knlbase=knl_data->metaDataBaseAddr;
   wg_id = currwgid;
@@ -353,6 +384,17 @@ void workgroup_t::init_sim(gvmref_meta_data* knl_data, uint64_t knl_start_pc, ui
         fprintf(stderr, "lds size is too large. please modify VBASEADDR");
         exit(-1);
      }
+
+  const uint64_t pdsend = pdsbase + pds_bytes_per_wg;
+  for (size_t i = 0; i < buffer.size() && i < buffer_data.size(); ++i) {
+    const uint64_t buffer_base = buffer[i].base;
+    const uint64_t buffer_end = buffer_base + buffer[i].size;
+    if (pdsbase >= buffer_end || pdsend <= buffer_base || buffer_data[i].second == nullptr)
+      continue;
+    mem_t* new_mem = new mem_t(*buffer_data[i].second);
+    owned_buffer_data.push_back(new_mem);
+    buffer_data[i].second = new_mem;
+  }
 
   cfg = cfg_t(/*default_initrd_bounds=*/std::make_pair((reg_t)0, (reg_t)0),
             /*default_bootargs=*/nullptr,
