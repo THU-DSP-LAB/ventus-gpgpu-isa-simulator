@@ -67,6 +67,7 @@ int gvmref_vt_buf_free(uint64_t size, uint64_t *vaddr, uint64_t taskID, uint64_t
 int gvmref_vt_one_buf_free(uint64_t size, uint64_t *vaddr, uint64_t taskID, uint64_t kernelID);
 int gvmref_vt_copy_to_dev(uint64_t dev_vaddr,const void *src_addr, uint64_t size, uint64_t taskID, uint64_t kernelID);
 int gvmref_vt_start(void* metaData, uint64_t taskID);
+int gvmref_vt_kernel_finish();
 int gvmref_vt_upload_kernel_file(const char* filename, int taskID);
 
 // 以下是 GVM 需要使用的 API

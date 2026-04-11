@@ -72,6 +72,12 @@ int gvmref_vt_start(void* metaData, uint64_t taskID) {
   for (int i = ref->wg_id_base; i < ref->wg_id_base + ref->num_workgroup; i++) {
     ref->wg[i]->init_sim(knl_data, 0x80000000, i - ref->wg_id_base);
   }
+  ref->on_kernel_started(ref->wg_id_base, ref->num_workgroup);
+  return 0;
+}
+
+int gvmref_vt_kernel_finish() {
+  ref->on_kernel_finished();
   return 0;
 }
   
