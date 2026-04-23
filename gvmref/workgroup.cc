@@ -42,6 +42,37 @@ inline std::optional<bool> parse_bool(const char *str) {
     return parse_bool(std::string(str));
 }
 
+namespace {
+constexpr uint64_t kPageSize = 1ull << 12;
+
+uint64_t align_up_to_page(uint64_t size) {
+  if (size == 0)
+    return 0;
+  const uint64_t remainder = size % kPageSize;
+  return remainder == 0 ? size : (size + (kPageSize - remainder));
+}
+
+uint64_t next_buffer_base(const std::vector<mem_cfg_t>& buffers, uint64_t default_base) {
+  uint64_t end = default_base;
+  for (const auto& region : buffers) {
+    end = std::max<uint64_t>(end, region.base + region.size);
+  }
+  return end;
+}
+
+bool region_overlaps(
+    const std::vector<mem_cfg_t>& buffers, uint64_t base, uint64_t size
+) {
+  const uint64_t end = base + size;
+  for (const auto& region : buffers) {
+    const uint64_t region_end = region.base + region.size;
+    if (base < region_end && end > region.base)
+      return true;
+  }
+  return false;
+}
+}
+
 // ---------- functions for init mem -----------------------------------------------
 
 int workgroup_t::alloc_const_mem(uint64_t size, uint64_t *vaddr) {
@@ -83,40 +114,44 @@ int workgroup_t::alloc_const_mem(uint64_t size, uint64_t *vaddr) {
 }
 
 int workgroup_t::alloc_local_mem(uint64_t size, uint64_t *vaddr){
-  uint64_t base;
-  #define PGSHIFT 12
-  const reg_t PGSIZE = 1 << PGSHIFT;
   if(size <= 0 || vaddr == nullptr )
         return -1;
-  if(buffer.empty()){
-    base=ARGBASEADDR;
-  }
-  else{
-    base=buffer.back().base+buffer.back().size;
-  }
-  
+  const uint64_t base = next_buffer_base(buffer, ARGBASEADDR);
+  const uint64_t aligned_size = align_up_to_page(size);
 
-  auto base0 = base, size0 = size;
-  size += base0 % PGSIZE;
-  base -= base0 % PGSIZE;
-  if (size % PGSIZE != 0)
-    size += PGSIZE - size % PGSIZE;
-
-  if (base + size < base)
+  if (base + aligned_size < base)
     help();
 
-  if (size != size0) {
+  if (aligned_size != size) {
     fprintf(stderr, "Warning: the memory at  [0x%lX, 0x%lX] has been realigned\n"
                     "to the %ld KiB page size: [0x%lX, 0x%lX]\n",
-            base0, base0 + size0 - 1, long(PGSIZE / 1024), base, base + size - 1);
+            base, base + size - 1, long(kPageSize / 1024), base, base + aligned_size - 1);
   }
 
-  fprintf(stderr, "to allocate at 0x%lx with %ld bytes \n",base,size);
+  fprintf(stderr, "to allocate at 0x%lx with %ld bytes \n",base,aligned_size);
 
-  buffer.push_back(mem_cfg_t(reg_t(base),reg_t(size)));  
-  buffer_data.push_back(std::pair(base,new mem_t(size)));
+  buffer.push_back(mem_cfg_t(reg_t(base),reg_t(aligned_size)));  
+  buffer_data.push_back(std::pair(base,new mem_t(aligned_size)));
 
   *vaddr = base;
+  return 0;
+}
+
+int workgroup_t::alloc_local_mem_fixed(uint64_t size, uint64_t fixed_vaddr) {
+  if (size == 0)
+    return -1;
+  if (fixed_vaddr % kPageSize != 0)
+    return -1;
+
+  const uint64_t aligned_size = align_up_to_page(size);
+  if (fixed_vaddr + aligned_size < fixed_vaddr)
+    return -1;
+  if (region_overlaps(buffer, fixed_vaddr, aligned_size))
+    return -1;
+
+  fprintf(stderr, "to allocate at fixed 0x%lx with %ld bytes \n", fixed_vaddr, aligned_size);
+  buffer.push_back(mem_cfg_t(reg_t(fixed_vaddr), reg_t(aligned_size)));
+  buffer_data.push_back(std::pair(fixed_vaddr, new mem_t(aligned_size)));
   return 0;
 }
 
@@ -129,9 +164,11 @@ int workgroup_t::free_local_mem(){
 }
 
 int workgroup_t::free_local_mem(uint64_t paddr) {
+  bool removed = false;
   for (std::vector<mem_cfg_t>::iterator it = buffer.begin(); it != buffer.end(); it++ )
     if(it->base == paddr) {
       it = buffer.erase(it);
+      removed = true;
       break;
     }
   for (std::vector<std::pair<reg_t, mem_t*>>::iterator it = buffer_data.begin(); it != buffer_data.end(); it++ )
@@ -140,7 +177,7 @@ int workgroup_t::free_local_mem(uint64_t paddr) {
       it = buffer_data.erase(it);
       break;
     }
-  return 0;
+  return removed ? 0 : -1;
 }
 
 int workgroup_t::copy_to_dev(uint64_t vaddr, uint64_t size,const void *data){
@@ -604,7 +641,8 @@ void workgroup_t::init_sim(gvmref_meta_data* knl_data, uint64_t knl_start_pc, ui
         num_warp,num_thread,num_workgroup,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase,knlbase,currwgid,gsx,gsy,gsz,lsx,lsy,lsz,gox,goy,goz,work_dim_64);
   fprintf(stderr, "arg gpgpu is %s\n",arg_gpgpu);
   sprintf(arg_vlen_elen,"vlen:%ld,elen:%d",num_thread*32,32);
-  sprintf(arg_mem_scope,"-m0x70000000:0x%lx",buffer.back().base+buffer.back().size);
+  const uint64_t buffer_end = next_buffer_base(buffer, ARGBASEADDR);
+  sprintf(arg_mem_scope,"-m0x70000000:0x%lx",buffer_end);
   fprintf(stderr, "vaddr mem scope is %s\n",arg_mem_scope);
   sprintf(arg_start_pc,"--pc=0x%lx",start_pc);
   char arg_log[16];

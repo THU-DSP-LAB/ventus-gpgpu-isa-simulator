@@ -17,6 +17,7 @@ public:
   // 以下是来自 spike_device 类的函数
   int alloc_const_mem(uint64_t size, uint64_t* dev_maddr);
   int alloc_local_mem(uint64_t size, uint64_t* dev_maddr);
+  int alloc_local_mem_fixed(uint64_t size, uint64_t fixed_vaddr);
   int free_local_mem();
   int free_local_mem(uint64_t paddr);
   int copy_to_dev(uint64_t dev_maddr, uint64_t size, const void* data);

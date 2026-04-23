@@ -34,6 +34,12 @@ int gvmref_vt_buf_alloc(uint64_t size, uint64_t *vaddr, int BUF_TYPE, uint64_t t
   ret = ref->wg[ref->wg_id_base]->alloc_local_mem(size, vaddr);
   return ret;
 }
+int gvmref_vt_buf_alloc_fixed(uint64_t size, uint64_t fixed_vaddr, int BUF_TYPE, uint64_t taskID, uint64_t kernelID) {
+  if(size <= 0) return -1;
+  int ret = 0;
+  ret = ref->wg[ref->wg_id_base]->alloc_local_mem_fixed(size, fixed_vaddr);
+  return ret;
+}
 int gvmref_vt_buf_free(uint64_t size, uint64_t *vaddr, uint64_t taskID, uint64_t kernelID) {
   if(size <= 0) return -1;
   int ret = 0;
