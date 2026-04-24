@@ -7,8 +7,28 @@
 #include "processor.h"
 #include "workgroup.h"
 #include "gvmref.h"
+#include <cstdio>
+#include <cstdlib>
 
 static gvmref_t* ref = nullptr;
+
+namespace {
+
+workgroup_t& get_workgroup_or_die(uint32_t software_wg_id) {
+  if (ref == nullptr) {
+    std::fprintf(stderr, "GVMREF INTERNAL error: reference model is not initialized.\n");
+    std::abort();
+  }
+
+  auto wg_it = ref->wg.find(software_wg_id);
+  if (wg_it == ref->wg.end() || wg_it->second == nullptr) {
+    std::fprintf(stderr, "GVMREF INTERNAL error: invalid software_wg_id %u.\n", software_wg_id);
+    std::abort();
+  }
+  return *wg_it->second;
+}
+
+} // namespace
 
 extern "C" {
 
@@ -89,29 +109,35 @@ int gvmref_vt_kernel_finish() {
   
 // 以下是 GVM 需要使用的 API
 int gvmref_set_warp_xreg(uint32_t software_wg_id, uint32_t software_warp_id, uint32_t xreg_usage, gvmref_warp_xreg_t xreg_data) {
-  ref->wg[software_wg_id]->set_warp_xreg(software_warp_id, xreg_usage, xreg_data);
+  get_workgroup_or_die(software_wg_id).set_warp_xreg(software_warp_id, xreg_usage, xreg_data);
   return 0;
 }
 
 int gvmref_set_warp_vreg(uint32_t software_wg_id, uint32_t software_warp_id, uint32_t vreg_usage, const gvmref_warp_vreg_t& vreg_data) {
-  ref->wg[software_wg_id]->set_warp_vreg(software_warp_id, vreg_usage, vreg_data);
+  get_workgroup_or_die(software_wg_id).set_warp_vreg(software_warp_id, vreg_usage, vreg_data);
   return 0;
 }
 
 int gvmref_bind_workgroup_slot(uint32_t software_wg_id, uint32_t slot_linear) {
-  ref->wg[software_wg_id]->bind_pds_slot_linear(slot_linear);
+  get_workgroup_or_die(software_wg_id).bind_pds_slot_linear(slot_linear);
+  return 0;
+}
+
+int gvmref_bind_workgroup_lds_base(uint32_t software_wg_id, uint64_t lds_base) {
+  get_workgroup_or_die(software_wg_id).bind_lds_base(lds_base);
   return 0;
 }
 
 uint32_t gvmref_get_next_pc(uint32_t software_wg_id, uint32_t software_warp_id) {
-  return ref->wg[software_wg_id]->get_next_pc(software_warp_id);
+  return get_workgroup_or_die(software_wg_id).get_next_pc(software_warp_id);
 }
 
 void gvmref_step(uint32_t software_wg_id, uint32_t software_warp_id, gvmref_step_return_info_t* ret) {
-  ref->wg[software_wg_id]->step(software_warp_id);
+  auto& workgroup = get_workgroup_or_die(software_wg_id);
+  workgroup.step(software_warp_id);
   gvmref_step_return_info_t ret_info;
-  ret_info = ref->wg[software_wg_id]->proc[software_warp_id]->gvmref_step_ret;
-  ret_info.wg_done = ref->wg[software_wg_id]->done();
+  ret_info = workgroup.proc[software_warp_id]->gvmref_step_ret;
+  ret_info.wg_done = workgroup.done();
   *ret = ret_info;
   return;
 }
@@ -119,8 +145,9 @@ void gvmref_step(uint32_t software_wg_id, uint32_t software_warp_id, gvmref_step
 void gvmref_get_xreg(gvmref_xreg_t* ret, uint32_t wg_id, uint32_t warp_id) {
   gvmref_xreg_t result;
   std::array<uint64_t, 256> warp_xpr;
+  auto& workgroup = get_workgroup_or_die(wg_id);
   for (int i = 0; i < 256; i++) {
-    warp_xpr[i] = ref->wg[wg_id]->state[warp_id]->XPR[i];
+    warp_xpr[i] = workgroup.state[warp_id]->XPR[i];
   }
   result.xpr = warp_xpr;
   *ret = result;

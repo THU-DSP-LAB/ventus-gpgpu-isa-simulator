@@ -36,6 +36,7 @@ public:
     // 拷贝出 num_workgroup 个 workgroup_t 后调用
   void clear_buffer_data();
   void bind_pds_slot_linear(uint64_t slot_linear);
+  void bind_lds_base(uint64_t lds_base);
 
   // kernel 尺寸
   uint32_t num_workgroup; // 工作组数目

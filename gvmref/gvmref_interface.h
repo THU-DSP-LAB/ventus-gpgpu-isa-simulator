@@ -83,6 +83,8 @@ int gvmref_set_warp_vreg(uint32_t software_wg_id, uint32_t software_warp_id, uin
 // 同上，设置指定 warp 的向量寄存器堆
 int gvmref_bind_workgroup_slot(uint32_t software_wg_id, uint32_t slot_linear);
 // 将指定 software workgroup 的 private-memory 基址重绑到 RTL 实际分配的 resident WG slot
+int gvmref_bind_workgroup_lds_base(uint32_t software_wg_id, uint64_t lds_base);
+// 将指定 software workgroup 的 CSR_LDS 重绑到 RTL 实际写入的完整值
 uint32_t gvmref_get_next_pc(uint32_t software_wg_id, uint32_t software_warp_id);
 // 返回指定 warp 的即将执行的指令 PC
 void gvmref_step(uint32_t software_wg_id, uint32_t software_warp_id, gvmref_step_return_info_t* ret);
@@ -109,10 +111,11 @@ struct gvmref_meta_data{  // 这个metadata是供驱动使用的，而不是给�
   uint64_t num_thread_local[3];
   uint64_t threadIdxOffset[3];
   const char* kernel_name;
+  uint64_t pdsResidentWgCount; ///> 全设备 resident PDS slot 总数（跨所有 SM 的线性 slot 数）
   gvmref_meta_data(uint64_t arg0,uint64_t arg1[],uint64_t arg2,uint64_t arg3,uint64_t arg4,uint64_t arg5,\
     uint64_t arg6,uint64_t arg7,uint64_t arg8,uint64_t arg9) \
     :kernel_id(arg0),wf_size(arg2),wg_size(arg3),metaDataBaseAddr(arg4),ldsSize(arg5),pdsSize(arg6),\
-    sgprUsage(arg7),vgprUsage(arg8),pdsBaseAddr(arg9)
+    sgprUsage(arg7),vgprUsage(arg8),pdsBaseAddr(arg9),pdsResidentWgCount(0)
     {
       kernel_size[0]=arg1[0];kernel_size[1]=arg1[1];kernel_size[2]=arg1[2];
     }

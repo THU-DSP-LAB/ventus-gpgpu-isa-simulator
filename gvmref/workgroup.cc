@@ -71,6 +71,15 @@ bool region_overlaps(
   }
   return false;
 }
+
+[[noreturn]] void workgroup_internal_error(const char* message, uint64_t wg_id, uint64_t value = 0) {
+  if (value == 0) {
+    std::fprintf(stderr, "GVMREF INTERNAL error: %s (wg_id=%lu)\n", message, wg_id);
+  } else {
+    std::fprintf(stderr, "GVMREF INTERNAL error: %s (wg_id=%lu, value=%lu)\n", message, wg_id, value);
+  }
+  std::abort();
+}
 }
 
 // ---------- functions for init mem -----------------------------------------------
@@ -374,15 +383,27 @@ void workgroup_t::clear_buffer_data() {
 }
 
 void workgroup_t::bind_pds_slot_linear(uint64_t slot_linear) {
-  if (pds_bytes_per_wg == 0 || proc.empty())
+  if (proc.empty())
+    workgroup_internal_error("bind_pds_slot_linear called before init_sim", wg_id);
+
+  if (pds_bytes_per_wg == 0)
     return;
 
-  if (pds_resident_wg != 0)
-    slot_linear %= pds_resident_wg;
+  if (slot_linear >= pds_resident_wg)
+    workgroup_internal_error("PDS slot_linear exceeds resident slot count", wg_id, slot_linear);
 
   const uint64_t pdsbase = pds_pool_base + slot_linear * pds_bytes_per_wg;
   for (auto* p : proc) {
     p->put_csr(CSR_PDS, pdsbase);
+  }
+}
+
+void workgroup_t::bind_lds_base(uint64_t lds_base) {
+  if (proc.empty())
+    workgroup_internal_error("bind_lds_base called before init_sim", wg_id);
+
+  for (auto* p : proc) {
+    p->put_csr(CSR_LDS, lds_base);
   }
 }
 
@@ -396,26 +417,18 @@ void workgroup_t::init_sim(gvmref_meta_data* knl_data, uint64_t knl_start_pc, ui
   num_workgroup=num_workgroup_x*num_workgroup_y*num_workgroup_z;
   uint64_t num_processor=num_warp*num_workgroup;
   uint64_t ldssize=knl_data->ldsSize;
+  wg_id = currwgid;
   pds_pool_base = knl_data->pdsBaseAddr;
   pds_bytes_per_wg = knl_data->pdsSize * knl_data->wf_size * knl_data->wg_size;
   uint64_t pdssize = pds_bytes_per_wg;
-  uint64_t pds_pool_bytes = 0;
-  for (size_t i = 0; i < buffer.size(); ++i) {
-    if (buffer[i].base == pds_pool_base) {
-      pds_pool_bytes = buffer[i].size;
-      break;
-    }
+  pds_resident_wg = knl_data->pdsResidentWgCount;
+  if (pds_bytes_per_wg != 0 && pds_resident_wg == 0) {
+    workgroup_internal_error("PDS resident slot count missing in metadata", wg_id);
   }
-  if (pds_bytes_per_wg != 0 && pds_pool_bytes >= pds_bytes_per_wg) {
-    pds_resident_wg = pds_pool_bytes / pds_bytes_per_wg;
-  } else {
-    pds_resident_wg = 0;
-  }
-  const uint64_t init_slot_linear = (pds_resident_wg == 0) ? currwgid : (currwgid % pds_resident_wg);
+  const uint64_t init_slot_linear = (pds_bytes_per_wg == 0) ? 0 : (currwgid % pds_resident_wg);
   uint64_t pdsbase = pds_pool_base + init_slot_linear * pds_bytes_per_wg;
   uint64_t start_pc=knl_start_pc;
   uint64_t knlbase=knl_data->metaDataBaseAddr;
-  wg_id = currwgid;
 
   if ((ldssize)>0x10000000) {
         fprintf(stderr, "lds size is too large. please modify VBASEADDR");
