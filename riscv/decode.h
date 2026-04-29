@@ -198,7 +198,12 @@ inline uint32_t f32_into_x(float64_t f) { return static_cast<uint32_t>(f.v);}
 //# define WRITE_REG(reg, value) ({ CHECK_REG(reg); STATE.XPR.write(reg, value); })
 # define WRITE_REG(reg, value) ({ CHECK_REG(reg); STATE.XPR.write(reg, value);uint32_t wdata = value;if(STATE.sstatus->enabled(SSTATUS_FS)) {DO_WRITE_FREG(reg, freg(f32(wdata)));}  })
 //# define WRITE_FREG(reg, value) DO_WRITE_FREG(reg, freg(value))
-# define WRITE_FREG(reg, value) ({DO_WRITE_FREG(reg, freg(value));CHECK_REG(reg); STATE.XPR.write(reg, f32_into_x(value));})
+# define WRITE_FREG(reg, value) ({ \
+    auto raw_wdata = (value); \
+    DO_WRITE_FREG(reg, freg(raw_wdata)); \
+    CHECK_REG(reg); \
+    STATE.XPR.write(reg, f32_into_x(raw_wdata)); \
+  })
 # define WRITE_VSTATUS {}
 #else
    /* 0 : int
@@ -216,10 +221,11 @@ inline uint32_t f32_into_x(float64_t f) { return static_cast<uint32_t>(f.v);}
     if(STATE.sstatus->enabled(SSTATUS_FS)) {DO_WRITE_FREG(reg, freg(f32(w2data)));} \
   })
 # define WRITE_FREG(reg, value) ({ \
-    freg_t wdata = freg(value); /* value may have side effects */ \
+    auto raw_wdata = (value); /* value may have side effects */ \
+    freg_t wdata = freg(raw_wdata); \
     STATE.log_reg_write[((reg) << 4) | 1] = wdata; \
     DO_WRITE_FREG(reg, wdata); \
-    STATE.XPR.write(reg, f32_into_x(value)); \
+    STATE.XPR.write(reg, f32_into_x(raw_wdata)); \
   })
 # define WRITE_VSTATUS STATE.log_reg_write[3] = {0, 0};
 #endif
