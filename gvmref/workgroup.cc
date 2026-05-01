@@ -832,7 +832,6 @@ void workgroup_t::set_warp_vreg(uint32_t warp_id, uint32_t vreg_usage, const gvm
     
     // Calculate how much data to copy
     size_t copy_size = std::min(src_vec.size() * sizeof(uint32_t), (size_t)VU.vlenb);
-    printf("[GVMRef] Copying to vreg[%d] (vlenb=%u)\n", i, VU.vlenb);
     
     if (copy_size > 0) {
       memcpy(reg_ptr, src_vec.data(), copy_size);
