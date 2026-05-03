@@ -844,6 +844,28 @@ void workgroup_t::set_warp_vreg(uint32_t warp_id, uint32_t vreg_usage, const gvm
   }
 }
 
+void workgroup_t::set_warp_single_vreg(uint32_t warp_id, const gvmref_warp_single_vreg_t& vreg)
+{
+  processor_t* p = proc[warp_id];
+  auto& VU = p->VU;
+  assert(VU.reg_file != nullptr);
+
+  uint32_t reg_idx = vreg.reg_idx;
+  if (reg_idx >= NVPR) {
+    fprintf(stderr, "[GVMRef] Error: vreg index %d exceeds NVPR %d, ignoring.\n", reg_idx, NVPR);
+    assert(0);
+  }
+
+  uint8_t* reg_ptr = (uint8_t*)VU.reg_file + reg_idx * VU.vlenb;
+  size_t copy_size = std::min(vreg.data.size() * sizeof(uint32_t), (size_t)VU.vlenb);
+  if (copy_size > 0) {
+    memcpy(reg_ptr, vreg.data.data(), copy_size);
+  }
+  if (copy_size < VU.vlenb) {
+    memset(reg_ptr + copy_size, 0, VU.vlenb - copy_size);
+  }
+}
+
 uint32_t workgroup_t::get_next_pc(uint32_t warp_id)
 {
   return static_cast<uint32_t>(state[warp_id]->pc); // 截取了低 32 位

@@ -21,6 +21,11 @@ struct gvmref_warp_vreg_t {
   std::vector<std::vector<uint32_t>> vreg;
 }; // 用于 gvmref_set_warp_vreg API
 
+struct gvmref_warp_single_vreg_t {
+  uint32_t reg_idx;
+  std::vector<uint32_t> data;  // [thread_idx]
+}; // 用于 gvmref_set_warp_single_vreg API，只写一个向量寄存器
+
 struct gvmref_xreg_t {
   std::array<uint64_t, 256> xpr; // const int NXPR = 256;
 };
@@ -81,6 +86,8 @@ int gvmref_set_warp_xreg(uint32_t software_wg_id, uint32_t software_warp_id, uin
 // 因此这里在 DUT 的 CTA 调度器向 SM 分派新 warp 时，将 DUT 的该 warp 的寄存器数据同步到 REF 的对应 warp
 int gvmref_set_warp_vreg(uint32_t software_wg_id, uint32_t software_warp_id, uint32_t vreg_usage, const gvmref_warp_vreg_t& vreg_data);
 // 同上，设置指定 warp 的向量寄存器堆
+int gvmref_set_warp_single_vreg(uint32_t software_wg_id, uint32_t software_warp_id, const gvmref_warp_single_vreg_t& vreg_data);
+// 设置指定 warp 的一个向量寄存器（用于 GVM 浮点指令结果修正）
 int gvmref_bind_workgroup_slot(uint32_t software_wg_id, uint32_t slot_linear);
 // 将指定 software workgroup 的 private-memory 基址重绑到 RTL 实际分配的 resident WG slot
 int gvmref_bind_workgroup_lds_base(uint32_t software_wg_id, uint64_t lds_base);

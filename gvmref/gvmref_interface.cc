@@ -118,6 +118,11 @@ int gvmref_set_warp_vreg(uint32_t software_wg_id, uint32_t software_warp_id, uin
   return 0;
 }
 
+int gvmref_set_warp_single_vreg(uint32_t software_wg_id, uint32_t software_warp_id, const gvmref_warp_single_vreg_t& vreg_data) {
+  get_workgroup_or_die(software_wg_id).set_warp_single_vreg(software_warp_id, vreg_data);
+  return 0;
+}
+
 int gvmref_bind_workgroup_slot(uint32_t software_wg_id, uint32_t slot_linear) {
   get_workgroup_or_die(software_wg_id).bind_pds_slot_linear(slot_linear);
   return 0;
