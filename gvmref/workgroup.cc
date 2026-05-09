@@ -213,6 +213,10 @@ int workgroup_t::set_filename(const char* filename,const char* logname){
   return 0;  
 }
 
+const char* workgroup_t::get_logfilename() const {
+  return logfilename;
+}
+
 // ---------- functions for init sim --------------------------------------
 
 bool sort_mem_region(const mem_cfg_t& a, const mem_cfg_t& b) {
@@ -366,7 +370,8 @@ workgroup_t::workgroup_t()
 
 workgroup_t::~workgroup_t(){
   delete sim;
-  delete[] srcfilename,logfilename;
+  delete[] srcfilename;
+  delete[] logfilename;
   for (auto& mem : owned_buffer_data)
     if(mem!=nullptr) {delete mem;mem=nullptr;}
   owned_buffer_data.clear();
@@ -407,7 +412,11 @@ void workgroup_t::bind_lds_base(uint64_t lds_base) {
   }
 }
 
-void workgroup_t::init_sim(gvmref_meta_data* knl_data, uint64_t knl_start_pc, uint64_t currwgid)
+void workgroup_t::init_sim(
+  gvmref_meta_data* knl_data,
+  uint64_t knl_start_pc,
+  uint64_t currwgid,
+  std::shared_ptr<log_file_t> shared_log_file)
 {
   num_warp=knl_data->wg_size;
   uint64_t num_thread=knl_data->wf_size;
@@ -740,7 +749,7 @@ void workgroup_t::init_sim(gvmref_meta_data* knl_data, uint64_t knl_start_pc, ui
     }
 
 //  char log_name[256] = {0};
-    log_file = std::make_unique<log_file_t>(log_path);
+    log_file = std::move(shared_log_file);
     sim=new sim_t(&cfg, halted,
             all_buffer_data, plugin_devices, htif_args, dm_config, *log_file, dtb_enabled, dtb_file,
 #ifdef HAVE_BOOST_ASIO

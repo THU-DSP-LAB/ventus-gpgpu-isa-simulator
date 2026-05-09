@@ -9,6 +9,7 @@
 #include "gvmref.h"
 #include <cstdio>
 #include <cstdlib>
+#include <memory>
 
 static gvmref_t* ref = nullptr;
 
@@ -91,12 +92,13 @@ int gvmref_vt_start(void* metaData, uint64_t taskID) {
   auto knl_data = (gvmref_meta_data *) metaData;
   ref->num_workgroup = (knl_data->kernel_size[0]) * (knl_data->kernel_size[1]) * (knl_data->kernel_size[2]);
   ref->num_warp = knl_data->wg_size;
+  auto log_file = std::make_shared<log_file_t>(ref->wg[ref->wg_id_base]->get_logfilename());
   // 调用拷贝构造函数
   for (int i = ref->wg_id_base + 1; i < ref->wg_id_base + ref->num_workgroup; i++) {
     ref->wg.insert({i, std::make_unique<workgroup_t>(*ref->wg[ref->wg_id_base], false)});
   }
   for (int i = ref->wg_id_base; i < ref->wg_id_base + ref->num_workgroup; i++) {
-    ref->wg[i]->init_sim(knl_data, 0x80000000, i - ref->wg_id_base);
+    ref->wg[i]->init_sim(knl_data, 0x80000000, i - ref->wg_id_base, log_file);
   }
   ref->on_kernel_started(ref->wg_id_base, ref->num_workgroup);
   return 0;

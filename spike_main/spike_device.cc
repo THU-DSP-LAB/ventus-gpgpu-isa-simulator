@@ -218,7 +218,8 @@ spike_device::~spike_device(){
     delete sim;
     sim = nullptr;
   }
-  delete[] srcfilename,logfilename;
+  delete[] srcfilename;
+  delete[] logfilename;
   for (auto& mem : buffer_data)
     if(mem.second!=nullptr) {delete mem.second;mem.second=nullptr;}
   const_buffer.clear();
@@ -729,4 +730,3 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
 //  delete sim;
   return return_code;    
 }
-

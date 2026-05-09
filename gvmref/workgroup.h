@@ -22,6 +22,7 @@ public:
   int free_local_mem(uint64_t paddr);
   int copy_to_dev(uint64_t dev_maddr, uint64_t size, const void* data);
   int set_filename(const char* filename, const char* logname = nullptr);
+  const char* get_logfilename() const;
 
   // 以下是 GVM API 所需的函数
   void set_warp_xreg(uint32_t warp_id, uint32_t xreg_usage, gvmref_warp_xreg_t xreg);
@@ -32,7 +33,11 @@ public:
   friend void gvmref_get_xreg(gvmref_xreg_t* ret, uint32_t wg_id, uint32_t warp_id); // 获取本 workgroup 的所有寄存器状态
   friend void gvmref_step(uint32_t software_wg_id, uint32_t software_warp_id, gvmref_step_return_info_t* ret);
   int done() { return sim->done(); } // 本 workgroup 已运行到结尾
-  void init_sim(gvmref_meta_data* knl_data, uint64_t knl_start_pc, uint64_t currwgid);
+  void init_sim(
+    gvmref_meta_data* knl_data,
+    uint64_t knl_start_pc,
+    uint64_t currwgid,
+    std::shared_ptr<log_file_t> shared_log_file);
     // spike_device::run 的初始化部分
     // 拷贝出 num_workgroup 个 workgroup_t 后调用
   void clear_buffer_data();
@@ -62,5 +67,5 @@ private:
 
   cfg_t cfg;
 
-  std::unique_ptr<log_file_t> log_file;
+  std::shared_ptr<log_file_t> log_file;
 };
