@@ -29,6 +29,15 @@ constexpr int MAX_K = 16;
 constexpr int VREGS = 256;
 constexpr uint32_t TF32_MANTISSA_MASK = 0xffffe000u;
 constexpr uint64_t FULL_WARP_MASK = (uint64_t(1) << LANES) - 1u;
+constexpr uint32_t MMA_SHAPE_SHIFT = 25;
+constexpr uint32_t MMA_AB_TYPE_SHIFT = 28;
+constexpr uint32_t MMA_CD_TYPE_SHIFT = 12;
+constexpr uint32_t MMA_A_LAYOUT_SHIFT = 14;
+constexpr uint32_t MMA_B_LAYOUT_SHIFT = 13;
+constexpr uint32_t MMA_SHAPE_MASK = 0x7u;
+constexpr uint32_t MMA_AB_TYPE_MASK = 0xfu;
+constexpr uint32_t MMA_CD_TYPE_MASK = 0x1u;
+constexpr uint32_t MMA_LAYOUT_MASK = 0x1u;
 
 using LaneValues = std::array<uint32_t, LANES>;
 using RegisterFile = std::array<LaneValues, VREGS>;
@@ -58,6 +67,44 @@ struct ExecutionState {
   uint64_t active_mask;
   uint32_t e32_lanes_per_vreg;
 };
+
+inline VentusMMAOutputType decode_mma_output_type(uint32_t cd_bits)
+{
+  switch (cd_bits) {
+  case 0:
+    return VentusMMAOutputType::FP16;
+  case 1:
+    return VentusMMAOutputType::FP32;
+  }
+  throw std::invalid_argument("unsupported Ventus MMA encoded output type");
+}
+
+inline VentusMMAInputType decode_mma_input_type(uint32_t ab_bits,
+                                                uint32_t cd_bits)
+{
+  switch (ab_bits) {
+  case 0:
+    return cd_bits == 0 ? VentusMMAInputType::FP16 : VentusMMAInputType::TF32;
+  case 1:
+    return VentusMMAInputType::FP16;
+  case 2:
+    return VentusMMAInputType::BF16;
+  }
+  throw std::invalid_argument("unsupported Ventus MMA encoded input type");
+}
+
+inline Options decode_mma_options(uint32_t bits)
+{
+  const uint32_t cd_bits = (bits >> MMA_CD_TYPE_SHIFT) & MMA_CD_TYPE_MASK;
+  return {
+      VentusMMAShape((bits >> MMA_SHAPE_SHIFT) & MMA_SHAPE_MASK),
+      decode_mma_input_type((bits >> MMA_AB_TYPE_SHIFT) & MMA_AB_TYPE_MASK,
+                            cd_bits),
+      decode_mma_output_type(cd_bits),
+      static_cast<bool>((bits >> MMA_A_LAYOUT_SHIFT) & MMA_LAYOUT_MASK),
+      static_cast<bool>((bits >> MMA_B_LAYOUT_SHIFT) & MMA_LAYOUT_MASK),
+  };
+}
 
 inline ShapeInfo get_shape_info(VentusMMAShape shape)
 {

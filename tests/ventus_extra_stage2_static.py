@@ -90,6 +90,8 @@ def main() -> int:
         "VentusMMAShape",
         "VentusMMAInputType",
         "VentusMMAOutputType",
+        "decode_mma_options",
+        "decode_mma_input_type",
         "VentusMMARegisterFile",
         "ExecutionState",
         "check_full_warp_state",
@@ -103,6 +105,10 @@ def main() -> int:
 
     require("for (reg_t lane = 0; lane < VENTUS_CUSTOM_LANES; ++lane)" in custom,
             "MMA executor does not visibly write a fixed 32-lane result", failures)
+    require("VentusMMAInputType::FP16 : VentusMMAInputType::TF32" in custom,
+            "encoded MMA abtype=0/cdtype=0 must decode to executable FP16/FP16", failures)
+    require("ventus_mma::decode_mma_options(insn.bits())" in custom,
+            "ventus_exec_mma must use explicit MMA encoding decode", failures)
 
     if failures:
         for failure in failures:

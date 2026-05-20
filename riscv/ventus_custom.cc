@@ -122,16 +122,12 @@ void ventus_exec_mma(processor_t *p, insn_t insn)
 {
   require_ventus_mma_state(p, insn);
 
-  const auto shape = VentusMMAShape((insn.bits() >> 25) & 0x7u);
-  const auto ab_type = VentusMMAInputType((insn.bits() >> 28) & 0xfu);
-  const auto cd_type = VentusMMAOutputType((insn.bits() >> 12) & 0x1u);
-  const ventus_mma::Options options{
-      shape,
-      ab_type,
-      cd_type,
-      static_cast<bool>((insn.bits() >> 14) & 0x1u),
-      static_cast<bool>((insn.bits() >> 13) & 0x1u),
-  };
+  ventus_mma::Options options{};
+  try {
+    options = ventus_mma::decode_mma_options(insn.bits());
+  } catch (const std::exception&) {
+    throw trap_illegal_instruction(insn.bits());
+  }
 
   const uint32_t rd_base = uint32_t(insn.rd() | p->ext_rd());
   const uint32_t rs1_base = uint32_t(insn.rs1() | p->ext_rs1());

@@ -45,6 +45,18 @@ static void fill_fp16_ab(RegisterFile &regs, uint32_t a_base, uint32_t b_base,
       write_fp16(regs, b_base, n * shape.k + k, float_to_fp16(float(k + 1)));
 }
 
+static void fill_fp16_one_ab(RegisterFile &regs, uint32_t a_base,
+                             uint32_t b_base, const ShapeInfo &shape)
+{
+  for (int m = 0; m < shape.m; ++m)
+    for (int k = 0; k < shape.k; ++k)
+      write_fp16(regs, a_base, m * shape.k + k, float_to_fp16(1.0f));
+
+  for (int n = 0; n < shape.n; ++n)
+    for (int k = 0; k < shape.k; ++k)
+      write_fp16(regs, b_base, n * shape.k + k, float_to_fp16(1.0f));
+}
+
 static void fill_fp16_ab_column_layout(RegisterFile &regs, uint32_t a_base,
                                        uint32_t b_base, const ShapeInfo &shape)
 {
@@ -73,6 +85,42 @@ static void check_fp16_to_fp32_m8n8k16()
   assert(std::fabs(read_f32(regs, 0, 0) - 136.0f) < 0.001f);
   assert(std::fabs(read_f32(regs, 0, 8) - 272.0f) < 0.001f);
   assert(std::fabs(read_f32(regs, 0, 63) - 1095.0f) < 0.001f);
+}
+
+static void check_base_encoding_defaults_execute()
+{
+  constexpr uint32_t RD_BASE = 0;
+  constexpr uint32_t A_BASE = 16;
+  constexpr uint32_t B_BASE = 32;
+  constexpr std::array<uint32_t, 8> base_encodings = {
+      0x0000000a, 0x0200000a, 0x0400000a, 0x0600000a,
+      0x0800000a, 0x0a00000a, 0x0c00000a, 0x0e00000a,
+  };
+  constexpr std::array<VentusMMAShape, 8> shapes = {
+      VentusMMAShape::M8N8K16,
+      VentusMMAShape::M16N8K16,
+      VentusMMAShape::M8N16K16,
+      VentusMMAShape::M16N16K16,
+      VentusMMAShape::M8N8K8,
+      VentusMMAShape::M16N8K8,
+      VentusMMAShape::M8N16K8,
+      VentusMMAShape::M16N16K8,
+  };
+
+  for (size_t i = 0; i < base_encodings.size(); ++i) {
+    const Options options = decode_mma_options(base_encodings[i]);
+    assert(options.shape == shapes[i]);
+    assert(options.ab_type == VentusMMAInputType::FP16);
+    assert(options.cd_type == VentusMMAOutputType::FP16);
+    assert(!options.a_column_layout);
+    assert(!options.b_row_layout);
+
+    VentusMMARegisterFile regs{};
+    const ShapeInfo shape = get_shape_info(options.shape);
+    fill_fp16_one_ab(regs, A_BASE, B_BASE, shape);
+    execute_mma_register_file(regs, RD_BASE, A_BASE, B_BASE, options);
+    assert(read_fp16(regs, RD_BASE, 0) == float_to_fp16(float(shape.k)));
+  }
 }
 
 static void check_fp16_column_layouts()
@@ -160,6 +208,12 @@ static void check_invalid_type_combo()
 {
   VentusMMARegisterFile regs{};
   try {
+    (void)decode_mma_options(0x3000000a);
+    assert(false);
+  } catch (const std::invalid_argument&) {
+  }
+
+  try {
     execute_mma_register_file(regs, 0, 8, 16,
                               {VentusMMAShape::M8N8K16, VentusMMAInputType::TF32,
                                VentusMMAOutputType::FP32, false, true});
@@ -244,6 +298,7 @@ static void check_full_warp_policy()
 int main()
 {
   check_full_warp_policy();
+  check_base_encoding_defaults_execute();
   check_fp16_to_fp32_m8n8k16();
   check_fp16_column_layouts();
   check_fp16_to_fp32_m16n16k16();
