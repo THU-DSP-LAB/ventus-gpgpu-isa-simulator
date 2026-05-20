@@ -6,11 +6,8 @@
 
 using namespace ventus_custom_arith;
 
-static void check_fp16_rne_is_independent_of_softfloat_rounding_mode()
+static void check_fp16_rne_is_deterministic()
 {
-  const uint_fast8_t saved_rounding_mode = softfloat_roundingMode;
-  softfloat_roundingMode = softfloat_round_minMag;
-
   const float halfway_input = 1.0f + fp16_to_float(0x1100);
   const uint16_t direct_result = float_to_fp16(halfway_input);
   const uint32_t vcvt_result = do_vcvt(bit_cast_u32(halfway_input),
@@ -36,8 +33,6 @@ static void check_fp16_rne_is_independent_of_softfloat_rounding_mode()
                                                        VentusSFUOp::Sqrt,
                                                        VentusSFUMode::F16X2);
 
-  softfloat_roundingMode = saved_rounding_mode;
-
   assert(direct_result == 0x3c01);
   assert(vcvt_result == 0x3c01);
   assert(packed_result == pack_halves(0x3c01, 0x4000));
@@ -50,7 +45,7 @@ static void check_fp16_rne_is_independent_of_softfloat_rounding_mode()
 
 int main()
 {
-  check_fp16_rne_is_independent_of_softfloat_rounding_mode();
+  check_fp16_rne_is_deterministic();
 
   const uint32_t f16_lhs = pack_halves(0x3c00, 0x4000);
   const uint32_t f16_rhs = pack_halves(0x4000, 0x4200);

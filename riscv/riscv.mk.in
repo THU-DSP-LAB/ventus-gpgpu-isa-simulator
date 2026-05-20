@@ -24,6 +24,7 @@ riscv_hdrs = \
 	trap.h \
 	encoding.h \
 	ventus_custom_arith.h \
+	ventus_mma.h \
 	ventus_custom.h \
 	ventus_shuffle.h \
 	cachesim.h \
@@ -931,6 +932,14 @@ riscv_insn_ext_v_gpgpu = \
 	shuffle_up \
 	shuffle_down \
 	shuffle_bfly \
+	mma_m8n8k16 \
+	mma_m16n8k16 \
+	mma_m8n16k16 \
+	mma_m16n16k16 \
+	mma_m8n8k8 \
+	mma_m16n8k8 \
+	mma_m8n16k8 \
+	mma_m16n16k8 \
 	vadd_f16x2 \
 	vmul_f16x2 \
 	vfma_f16x2 \

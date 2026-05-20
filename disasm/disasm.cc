@@ -618,6 +618,11 @@ static void NOINLINE add_vector_vv_insn(disassembler_t* d, const char* name, uin
   d->add_insn(new disasm_insn_t(name, match, mask, {&vd, &vs2, &vs1, opt, &vm}));
 }
 
+static void NOINLINE add_ventus_mma_insn(disassembler_t* d, const char* name, uint32_t match, uint32_t mask)
+{
+  d->add_insn(new disasm_insn_t(name, match, mask, {&vd, &vs2, &vs1}));
+}
+
 static void NOINLINE add_vector_branch_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
 {
   d->add_insn(new disasm_insn_t(name, match, mask, {&vs2, &vs1, &branch_target}));
@@ -881,6 +886,14 @@ void disassembler_t::add_instructions(const isa_parser_t* isa)
   DEFINE_VSHUFFLE_TYPE("shuffle.up", shuffle_up);
   DEFINE_VSHUFFLE_TYPE("shuffle.down", shuffle_down);
   DEFINE_VSHUFFLE_TYPE("shuffle.bfly", shuffle_bfly);
+  add_ventus_mma_insn(this, "mma.m8n8k16", match_mma_m8n8k16, mask_mma_m8n8k16);
+  add_ventus_mma_insn(this, "mma.m16n8k16", match_mma_m16n8k16, mask_mma_m16n8k16);
+  add_ventus_mma_insn(this, "mma.m8n16k16", match_mma_m8n16k16, mask_mma_m8n16k16);
+  add_ventus_mma_insn(this, "mma.m16n16k16", match_mma_m16n16k16, mask_mma_m16n16k16);
+  add_ventus_mma_insn(this, "mma.m8n8k8", match_mma_m8n8k8, mask_mma_m8n8k8);
+  add_ventus_mma_insn(this, "mma.m16n8k8", match_mma_m16n8k8, mask_mma_m16n8k8);
+  add_ventus_mma_insn(this, "mma.m8n16k8", match_mma_m8n16k8, mask_mma_m8n16k8);
+  add_ventus_mma_insn(this, "mma.m16n16k8", match_mma_m16n16k8, mask_mma_m16n16k8);
   add_vector_vv_insn(this, "vadd.f16x2", match_vadd_f16x2, mask_vadd_f16x2);
   add_vector_vv_insn(this, "vmul.f16x2", match_vmul_f16x2, mask_vmul_f16x2);
   add_vector_vv_insn(this, "vfma.f16x2", match_vfma_f16x2, mask_vfma_f16x2);

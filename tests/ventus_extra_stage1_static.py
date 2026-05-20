@@ -148,6 +148,8 @@ def main() -> int:
             "ventus_exec_sfu",
             "VentusPackedOp",
             "VentusSFUOp",
+            "get_state()->sstatus->enabled(SSTATUS_VS)",
+            "p->VU.vill",
         ]
         for symbol in required_symbols:
             require(symbol in custom, f"local arithmetic symbol missing: {symbol}", failures)

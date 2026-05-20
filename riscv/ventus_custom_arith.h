@@ -1,7 +1,6 @@
 #ifndef RISCV_VENTUS_CUSTOM_ARITH_H
 #define RISCV_VENTUS_CUSTOM_ARITH_H
 
-#include "softfloat.h"
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -45,7 +44,28 @@ inline float bit_cast_f32(uint32_t bits)
 
 inline float fp16_to_float(uint16_t bits)
 {
-  return bit_cast_f32(f16_to_f32(float16_t{bits}).v);
+  const uint32_t sign = uint32_t(bits & 0x8000u) << 16;
+  const uint32_t exp = (bits >> 10) & 0x1fu;
+  uint32_t mant = bits & 0x03ffu;
+
+  if (exp == 0x1fu)
+    return bit_cast_f32(sign | 0x7f800000u | (mant << 13));
+
+  if (exp == 0) {
+    if (mant == 0)
+      return bit_cast_f32(sign);
+
+    int32_t adjusted_exp = -14;
+    while ((mant & 0x0400u) == 0) {
+      mant <<= 1;
+      --adjusted_exp;
+    }
+    mant &= 0x03ffu;
+    return bit_cast_f32(sign | (uint32_t(adjusted_exp + 127) << 23) |
+                        (mant << 13));
+  }
+
+  return bit_cast_f32(sign | (uint32_t(exp + 112) << 23) | (mant << 13));
 }
 
 inline uint16_t float_to_fp16(float value)
