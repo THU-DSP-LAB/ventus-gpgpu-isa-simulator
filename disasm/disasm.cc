@@ -881,6 +881,40 @@ void disassembler_t::add_instructions(const isa_parser_t* isa)
   DEFINE_VSHUFFLE_TYPE("shuffle.up", shuffle_up);
   DEFINE_VSHUFFLE_TYPE("shuffle.down", shuffle_down);
   DEFINE_VSHUFFLE_TYPE("shuffle.bfly", shuffle_bfly);
+  add_vector_vv_insn(this, "vadd.f16x2", match_vadd_f16x2, mask_vadd_f16x2);
+  add_vector_vv_insn(this, "vmul.f16x2", match_vmul_f16x2, mask_vmul_f16x2);
+  add_vector_vv_insn(this, "vfma.f16x2", match_vfma_f16x2, mask_vfma_f16x2);
+  add_vector_vv_insn(this, "vadd.bf16x2", match_vadd_bf16x2, mask_vadd_bf16x2);
+  add_vector_vv_insn(this, "vmul.bf16x2", match_vmul_bf16x2, mask_vmul_bf16x2);
+  add_vector_vv_insn(this, "vfma.bf16x2", match_vfma_bf16x2, mask_vfma_bf16x2);
+  add_vector_v_insn(this, "vcvt.fp32.fp16", match_vcvt_fp32_fp16, mask_vcvt_fp32_fp16);
+  add_vector_v_insn(this, "vcvt.fp16.fp32", match_vcvt_fp16_fp32, mask_vcvt_fp16_fp32);
+  add_vector_v_insn(this, "vcvt.fp32.bf16", match_vcvt_fp32_bf16, mask_vcvt_fp32_bf16);
+  add_vector_v_insn(this, "vcvt.bf16.fp32", match_vcvt_bf16_fp32, mask_vcvt_bf16_fp32);
+  add_vector_v_insn(this, "vex2.approx.f32", match_vex2_approx_f32, mask_vex2_approx_f32);
+  add_vector_v_insn(this, "vlg2.approx.f32", match_vlg2_approx_f32, mask_vlg2_approx_f32);
+  add_vector_v_insn(this, "vrcp.approx.f32", match_vrcp_approx_f32, mask_vrcp_approx_f32);
+  add_vector_v_insn(this, "vsqrt.approx.f32", match_vsqrt_approx_f32, mask_vsqrt_approx_f32);
+  add_vector_v_insn(this, "vrsqrt.approx.f32", match_vrsqrt_approx_f32, mask_vrsqrt_approx_f32);
+  add_vector_v_insn(this, "vsin.approx.f32", match_vsin_approx_f32, mask_vsin_approx_f32);
+  add_vector_v_insn(this, "vcos.approx.f32", match_vcos_approx_f32, mask_vcos_approx_f32);
+  add_vector_v_insn(this, "vtanh.approx.f32", match_vtanh_approx_f32, mask_vtanh_approx_f32);
+  add_vector_v_insn(this, "vgelu.approx.f32", match_vgelu_approx_f32, mask_vgelu_approx_f32);
+  add_vector_v_insn(this, "vsilu.approx.f32", match_vsilu_approx_f32, mask_vsilu_approx_f32);
+  add_vector_v_insn(this, "vex2.approx.f16x2", match_vex2_approx_f16x2, mask_vex2_approx_f16x2);
+  add_vector_v_insn(this, "vrcp.approx.f16x2", match_vrcp_approx_f16x2, mask_vrcp_approx_f16x2);
+  add_vector_v_insn(this, "vsqrt.approx.f16x2", match_vsqrt_approx_f16x2, mask_vsqrt_approx_f16x2);
+  add_vector_v_insn(this, "vrsqrt.approx.f16x2", match_vrsqrt_approx_f16x2, mask_vrsqrt_approx_f16x2);
+  add_vector_v_insn(this, "vtanh.approx.f16x2", match_vtanh_approx_f16x2, mask_vtanh_approx_f16x2);
+  add_vector_v_insn(this, "vgelu.approx.f16x2", match_vgelu_approx_f16x2, mask_vgelu_approx_f16x2);
+  add_vector_v_insn(this, "vsilu.approx.f16x2", match_vsilu_approx_f16x2, mask_vsilu_approx_f16x2);
+  add_vector_v_insn(this, "vex2.approx.bf16x2", match_vex2_approx_bf16x2, mask_vex2_approx_bf16x2);
+  add_vector_v_insn(this, "vrcp.approx.bf16x2", match_vrcp_approx_bf16x2, mask_vrcp_approx_bf16x2);
+  add_vector_v_insn(this, "vsqrt.approx.bf16x2", match_vsqrt_approx_bf16x2, mask_vsqrt_approx_bf16x2);
+  add_vector_v_insn(this, "vrsqrt.approx.bf16x2", match_vrsqrt_approx_bf16x2, mask_vrsqrt_approx_bf16x2);
+  add_vector_v_insn(this, "vtanh.approx.bf16x2", match_vtanh_approx_bf16x2, mask_vtanh_approx_bf16x2);
+  add_vector_v_insn(this, "vgelu.approx.bf16x2", match_vgelu_approx_bf16x2, mask_vgelu_approx_bf16x2);
+  add_vector_v_insn(this, "vsilu.approx.bf16x2", match_vsilu_approx_bf16x2, mask_vsilu_approx_bf16x2);
 
 
 

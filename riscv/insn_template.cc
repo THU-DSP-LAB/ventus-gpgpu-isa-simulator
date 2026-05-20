@@ -2,6 +2,7 @@
 
 #include "insn_template.h"
 #include "insn_macros.h"
+#include "ventus_custom.h"
 #include "ventus_shuffle.h"
 
 reg_t rv32i_NAME(processor_t* p, insn_t insn, reg_t pc)

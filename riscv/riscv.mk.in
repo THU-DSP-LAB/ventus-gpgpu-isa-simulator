@@ -23,6 +23,8 @@ riscv_hdrs = \
 	simif.h \
 	trap.h \
 	encoding.h \
+	ventus_custom_arith.h \
+	ventus_custom.h \
 	ventus_shuffle.h \
 	cachesim.h \
 	memtracer.h \
@@ -63,6 +65,7 @@ riscv_srcs = \
 	jtag_dtm.cc \
 	csrs.cc \
 	triggers.cc \
+	ventus_custom.cc \
 	$(riscv_gen_srcs) \
 
 riscv_test_srcs =
@@ -928,6 +931,40 @@ riscv_insn_ext_v_gpgpu = \
 	shuffle_up \
 	shuffle_down \
 	shuffle_bfly \
+	vadd_f16x2 \
+	vmul_f16x2 \
+	vfma_f16x2 \
+	vadd_bf16x2 \
+	vmul_bf16x2 \
+	vfma_bf16x2 \
+	vcvt_fp32_fp16 \
+	vcvt_fp16_fp32 \
+	vcvt_fp32_bf16 \
+	vcvt_bf16_fp32 \
+	vex2_approx_f32 \
+	vlg2_approx_f32 \
+	vrcp_approx_f32 \
+	vsqrt_approx_f32 \
+	vrsqrt_approx_f32 \
+	vsin_approx_f32 \
+	vcos_approx_f32 \
+	vtanh_approx_f32 \
+	vgelu_approx_f32 \
+	vsilu_approx_f32 \
+	vex2_approx_f16x2 \
+	vrcp_approx_f16x2 \
+	vsqrt_approx_f16x2 \
+	vrsqrt_approx_f16x2 \
+	vtanh_approx_f16x2 \
+	vgelu_approx_f16x2 \
+	vsilu_approx_f16x2 \
+	vex2_approx_bf16x2 \
+	vrcp_approx_bf16x2 \
+	vsqrt_approx_bf16x2 \
+	vrsqrt_approx_bf16x2 \
+	vtanh_approx_bf16x2 \
+	vgelu_approx_bf16x2 \
+	vsilu_approx_bf16x2 \
 
 riscv_insn_ext_v = \
 	$(riscv_insn_ext_v_alu_fp) \
