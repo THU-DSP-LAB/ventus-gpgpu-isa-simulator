@@ -779,6 +779,7 @@ void disassembler_t::add_instructions(const isa_parser_t* isa)
   #define DEFINE_BARRIER_TYPE(code) add_barrier_insn(this, #code, match_##code, mask_##code);
   #define DEFINE_REGEXT_TYPE(code) add_regext_insn(this, #code, match_##code, mask_##code);
   #define DEFINE_REGEXTI_TYPE(code) add_regexti_insn(this, #code, match_##code, mask_##code);
+  #define DEFINE_VSHUFFLE_TYPE(name, code) add_vector_viu_insn(this, name, match_##code, mask_##code);
 
   add_insn(new disasm_insn_t("unimp", match_csrrw|(CSR_CYCLE<<20), 0xffffffff, {}));
   add_insn(new disasm_insn_t("c.unimp", 0, 0xffff, {}));
@@ -876,6 +877,10 @@ void disassembler_t::add_instructions(const isa_parser_t* isa)
   DEFINE_VS_TYPE(vsb_v);
   DEFINE_REGEXT_TYPE(regext);
   DEFINE_REGEXTI_TYPE(regexti);
+  DEFINE_VSHUFFLE_TYPE("shuffle.idx", shuffle_idx);
+  DEFINE_VSHUFFLE_TYPE("shuffle.up", shuffle_up);
+  DEFINE_VSHUFFLE_TYPE("shuffle.down", shuffle_down);
+  DEFINE_VSHUFFLE_TYPE("shuffle.bfly", shuffle_bfly);
 
 
 

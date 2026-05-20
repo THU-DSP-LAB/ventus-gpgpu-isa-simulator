@@ -23,6 +23,7 @@ riscv_hdrs = \
 	simif.h \
 	trap.h \
 	encoding.h \
+	ventus_shuffle.h \
 	cachesim.h \
 	memtracer.h \
 	mmio_plugin.h \
@@ -923,6 +924,10 @@ riscv_insn_ext_v_gpgpu = \
 	barriersub \
 	vftta_vv \
 	vfexp_v \
+	shuffle_idx \
+	shuffle_up \
+	shuffle_down \
+	shuffle_bfly \
 
 riscv_insn_ext_v = \
 	$(riscv_insn_ext_v_alu_fp) \
