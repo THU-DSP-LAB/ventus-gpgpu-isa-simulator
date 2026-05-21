@@ -16,6 +16,15 @@
   const int midx = i / 64; \
   const int mpos = i % 64;
 
+#define VI_GPGPU_ELEMENT_SKIP() \
+  if (GPGPU_ENABLE) { \
+    uint64_t mask = P.gpgpu_unit.simt_stack.get_mask(); \
+    bool skip = ((mask >> i) & 0x1) == 0; \
+    if (skip) { \
+      continue; \
+    } \
+  }
+
 #define VI_LOOP_ELEMENT_SKIP(BODY) \
   VI_MASK_VARS \
   if (insn.v_vm() == 0) { \
@@ -25,22 +34,10 @@
         continue; \
     } \
   } \
-  if (GPGPU_ENABLE) { \
-    uint64_t mask = P.gpgpu_unit.simt_stack.get_mask(); \
-    bool skip = ((mask >> i) & 0x1) == 0; \
-    if(skip) { \
-      continue; \
-    } \
-  }
+  VI_GPGPU_ELEMENT_SKIP();
 
 #define VI12_LOOP_ELEMENT_SKIP(BODY) \
-  if (GPGPU_ENABLE) { \
-    uint64_t mask = P.gpgpu_unit.simt_stack.get_mask(); \
-    bool skip = ((mask >> i) & 0x1) == 0; \
-    if(skip) { \
-      continue; \
-    } \
-  }
+  VI_GPGPU_ELEMENT_SKIP();
 
 #define VI_ELEMENT_SKIP(inx) \
   if (inx >= vl) { \
@@ -584,6 +581,7 @@ static inline bool is_aligned(const unsigned val, const unsigned pos)
 #define VI_MERGE_LOOP_BASE \
   require_vector(true); \
   VI_GENERAL_LOOP_BASE \
+  VI_GPGPU_ELEMENT_SKIP(); \
   VI_MERGE_VARS
 
 #define VI_VV_MERGE_LOOP(BODY) \
@@ -644,6 +642,7 @@ static inline bool is_aligned(const unsigned val, const unsigned pos)
   VI_CHECK_SSS(false); \
   VI_VFP_COMMON \
   for (reg_t i = P.VU.vstart->read(); i < vl; ++i) { \
+  VI_GPGPU_ELEMENT_SKIP(); \
   VI_MERGE_VARS \
   if (P.VU.vsew == e16) { \
     VFP_VF_PARAMS(16); \
