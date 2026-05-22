@@ -28,6 +28,9 @@ processor_t::processor_t(const isa_parser_t *isa, const char* varch,
                          FILE* log_file, std::ostream& sout_)
   : debug(false), halt_request(HR_NONE), isa(isa), sim(sim), id(id), xlen(0),
   histogram_enabled(false), log_commits_enabled(false),
+#ifdef RISCV_ENABLE_COMMITLOG
+  gvmref_step_ret_enabled(false),
+#endif
   log_file(log_file), sout_(sout_.rdbuf()), halt_on_reset(halt_on_reset),
   impl_table(256, false), last_pc(1), executions(1), TM(4)
 {
@@ -548,6 +551,11 @@ void processor_t::set_histogram(bool value)
 void processor_t::enable_log_commits()
 {
   log_commits_enabled = true;
+}
+
+void processor_t::enable_gvmref_step_ret()
+{
+  gvmref_step_ret_enabled = true;
 }
 #endif
 

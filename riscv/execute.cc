@@ -6,6 +6,15 @@
 #include <cassert>
 
 #ifdef RISCV_ENABLE_COMMITLOG
+static constexpr int COMMIT_LOG_REG_KIND_MASK = 0xf;
+static constexpr int COMMIT_LOG_REG_INDEX_SHIFT = 4;
+static constexpr int COMMIT_LOG_XREG = 0;
+static constexpr int COMMIT_LOG_FREG = 1;
+static constexpr int COMMIT_LOG_VREG = 2;
+static constexpr int COMMIT_LOG_VECTOR_HINT = 3;
+static constexpr int COMMIT_LOG_CSR = 4;
+static constexpr int BITS_PER_VREG_WORD = 32;
+
 static void commit_log_reset(processor_t* p)
 {
   p->get_state()->log_reg_write.clear();
@@ -78,20 +87,88 @@ void commit_log_print_simt_stack(processor_t *p, insn_t insn)
   fprintf(log_file, "%s", ss.str().c_str());
   return;
 }
+
+static void update_gvmref_vreg_result(processor_t *p, int rd, int size)
+{
+  p->gvmref_step_ret.insn_result.vreg_result.mask =
+      static_cast<uint32_t>(p->gpgpu_unit.simt_stack.get_mask());
+  const uint32_t *gvmref_vreg_arr =
+      (const uint32_t*)&p->VU.elt<uint8_t>(0, rd, 0);
+  int ii = 0;
+  for (int idx = 0; idx <= size / BITS_PER_VREG_WORD - 1; ++idx) {
+    p->gvmref_step_ret.insn_result.vreg_result.rd[ii] = gvmref_vreg_arr[idx];
+    ii++;
+  }
+}
+
+static void update_gvmref_reg_result(processor_t *p, const std::pair<const reg_t, freg_t>& item)
+{
+  const int kind = item.first & COMMIT_LOG_REG_KIND_MASK;
+  const int rd = item.first >> COMMIT_LOG_REG_INDEX_SHIFT;
+  int size = 0;
+  bool is_vec = false;
+  bool is_vreg = false;
+  bool is_csr = false;
+
+  switch (kind) {
+  case COMMIT_LOG_XREG:
+    size = p->get_state()->last_inst_xlen;
+    p->gvmref_step_ret.insn_result.insn_type = XREG;
+    break;
+  case COMMIT_LOG_FREG:
+    size = p->get_state()->last_inst_flen;
+    break;
+  case COMMIT_LOG_VREG:
+    size = p->VU.VLEN;
+    p->gvmref_step_ret.insn_result.insn_type = VREG;
+    is_vreg = true;
+    break;
+  case COMMIT_LOG_VECTOR_HINT:
+    is_vec = true;
+    break;
+  case COMMIT_LOG_CSR:
+    is_csr = true;
+    break;
+  default:
+    assert("can't been here" && 0);
+    break;
+  }
+
+  if (is_vec || is_csr)
+    return;
+
+  p->gvmref_step_ret.insn_result.xreg_result.reg_idx = rd;
+  p->gvmref_step_ret.insn_result.vreg_result.reg_idx = rd;
+  if (is_vreg) {
+    update_gvmref_vreg_result(p, rd, size);
+    return;
+  }
+  p->gvmref_step_ret.insn_result.xreg_result.rd =
+      static_cast<uint32_t>(item.second.v[0]);
+}
+
+static void update_gvmref_step_ret(processor_t *p, reg_t pc, insn_t insn)
+{
+  p->gvmref_step_ret.pc = pc;
+  p->gvmref_step_ret.insn = static_cast<uint32_t>(insn.bits());
+  p->gvmref_step_ret.insn_result.insn_type = DONT_CARE;
+
+  for (const auto& item : p->get_state()->log_reg_write) {
+    if (item.first == 0)
+      continue;
+    update_gvmref_reg_result(p, item);
+  }
+}
+
 static void commit_log_print_insn(processor_t *p, reg_t pc, insn_t insn)
 {
   FILE *log_file = p->get_log_file();
-
   auto& reg = p->get_state()->log_reg_write;
   auto& load = p->get_state()->log_mem_read;
   auto& store = p->get_state()->log_mem_write;
   int priv = p->get_state()->last_inst_priv;
   int xlen = p->get_state()->last_inst_xlen;
   int flen = p->get_state()->last_inst_flen;
-
-  p->gvmref_step_ret.pc = pc;
-  p->gvmref_step_ret.insn = static_cast<uint32_t>(insn.bits());
-  p->gvmref_step_ret.insn_result.insn_type = DONT_CARE;
 
   // print core id on all lines so it is easy to grep
   fprintf(log_file, "core%4" PRId32 ": ", p->get_id());
@@ -107,31 +184,29 @@ static void commit_log_print_insn(processor_t *p, reg_t pc, insn_t insn)
     if (item.first == 0)
       continue;
 
-    char prefix;
-    int size;
-    int rd = item.first >> 4;
+    char prefix = '\0';
+    int size = 0;
+    int rd = item.first >> COMMIT_LOG_REG_INDEX_SHIFT;
     bool is_vec = false;
     bool is_vreg = false;
-    switch (item.first & 0xf) {
-    case 0:
+    switch (item.first & COMMIT_LOG_REG_KIND_MASK) {
+    case COMMIT_LOG_XREG:
       size = xlen;
       prefix = 'x';
-      p->gvmref_step_ret.insn_result.insn_type = XREG;
       break;
-    case 1:
+    case COMMIT_LOG_FREG:
       size = flen;
       prefix = 'f';
       break;
-    case 2:
+    case COMMIT_LOG_VREG:
       size = p->VU.VLEN;
       prefix = 'v';
-      p->gvmref_step_ret.insn_result.insn_type = VREG;
       is_vreg = true;
       break;
-    case 3:
+    case COMMIT_LOG_VECTOR_HINT:
       is_vec = true;
       break;
-    case 4:
+    case COMMIT_LOG_CSR:
       size = xlen;
       prefix = 'c';
       break;
@@ -153,22 +228,11 @@ static void commit_log_print_insn(processor_t *p, reg_t pc, insn_t insn)
         fprintf(log_file, " c%d_%s ", rd, csr_name(rd));
       else {
         fprintf(log_file, " %c%-2d ", prefix, rd);
-        p->gvmref_step_ret.insn_result.xreg_result.reg_idx = rd;
-        p->gvmref_step_ret.insn_result.vreg_result.reg_idx = rd;
-        if (!is_vreg) {
-          p->gvmref_step_ret.insn_result.xreg_result.rd = static_cast<uint32_t>(item.second.v[0]);
-        }
       }
       if (is_vreg) {
-        fprintf(log_file, "%08x ", p->gpgpu_unit.simt_stack.get_mask());
-        p->gvmref_step_ret.insn_result.vreg_result.mask = static_cast<uint32_t>(p->gpgpu_unit.simt_stack.get_mask());
+        fprintf(log_file, "%08x ",
+                static_cast<uint32_t>(p->gpgpu_unit.simt_stack.get_mask()));
         commit_log_print_value(log_file, size, &p->VU.elt<uint8_t>(0,rd, 0));
-        const uint32_t *gvmref_vreg_arr = (const uint32_t*)&p->VU.elt<uint8_t>(0,rd, 0);
-        int ii=0;
-        for (int idx = 0; idx <= size/32-1; ++idx) {
-          p->gvmref_step_ret.insn_result.vreg_result.rd[ii] = gvmref_vreg_arr[idx];
-          ii++;
-        }
       }
       else
         commit_log_print_value(log_file, size, item.second.v);
@@ -191,10 +255,31 @@ static void commit_log_print_insn(processor_t *p, reg_t pc, insn_t insn)
   }
   fprintf(log_file, "\n");
 }
+
+static bool should_record_insn_result(processor_t *p)
+{
+  return p->get_log_commits_enabled() || p->get_gvmref_step_ret_enabled();
+}
+
+static bool has_vector_hint_write(processor_t *p)
+{
+  for (const auto& item : p->get_state()->log_reg_write) {
+    if ((item.first & COMMIT_LOG_REG_KIND_MASK) == COMMIT_LOG_VECTOR_HINT)
+      return true;
+  }
+  return false;
+}
+
+static void record_insn_result(processor_t *p, reg_t pc, insn_t insn)
+{
+  if (p->get_gvmref_step_ret_enabled())
+    update_gvmref_step_ret(p, pc, insn);
+  if (p->get_log_commits_enabled())
+    commit_log_print_insn(p, pc, insn);
+}
 #else
 static void commit_log_reset(processor_t* p) {}
 static void commit_log_stash_privilege(processor_t* p) {}
-static void commit_log_print_insn(processor_t* p, reg_t pc, insn_t insn) {}
 #endif
 
 inline void processor_t::update_histogram(reg_t pc)
@@ -218,27 +303,22 @@ static inline reg_t execute_insn(processor_t* p, reg_t pc, insn_fetch_t fetch)
     if (npc != PC_SERIALIZE_BEFORE) {
 
 #ifdef RISCV_ENABLE_COMMITLOG
-      if (p->get_log_commits_enabled()) {
-        commit_log_print_insn(p, pc, fetch.insn);
+      if (should_record_insn_result(p)) {
+        record_insn_result(p, pc, fetch.insn);
       }
 #endif
 
      }
 #ifdef RISCV_ENABLE_COMMITLOG
   } catch (wait_for_interrupt_t &t) {
-      if (p->get_log_commits_enabled()) {
-        commit_log_print_insn(p, pc, fetch.insn);
+      if (should_record_insn_result(p)) {
+        record_insn_result(p, pc, fetch.insn);
       }
       throw;
   } catch(mem_trap_t& t) {
       //handle segfault in midlle of vector load/store
-      if (p->get_log_commits_enabled()) {
-        for (auto item : p->get_state()->log_reg_write) {
-          if ((item.first & 3) == 3) {
-            commit_log_print_insn(p, pc, fetch.insn);
-            break;
-          }
-        }
+      if (should_record_insn_result(p) && has_vector_hint_write(p)) {
+        record_insn_result(p, pc, fetch.insn);
       }
       throw;
 #endif

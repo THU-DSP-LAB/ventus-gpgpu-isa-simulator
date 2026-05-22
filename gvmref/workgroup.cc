@@ -669,9 +669,6 @@ void workgroup_t::init_sim(
   sprintf(arg_start_pc,"--pc=0x%lx",start_pc);
   char arg_log[16];
   char arg_commitlog[16];
-  // GVM consumes gvmref_step_ret for instruction type/result comparison, and
-  // that structure is populated through Spike's commit-log path.
-  setenv("VENTUS_SPIKE_LOG", "1", 1);
   if (parse_bool(std::getenv("VENTUS_SPIKE_LOG")).value_or(true)) {
       snprintf(arg_log, sizeof(arg_log), "-l");
       snprintf(arg_commitlog, sizeof(arg_commitlog), "--log-commits");
@@ -787,6 +784,7 @@ void workgroup_t::init_sim(
 
     sim->set_debug(debug);
     sim->configure_log(log, log_commits);
+    sim->enable_gvmref_step_ret();
     sim->set_histogram(histogram);
 
     for (uint32_t i = 0; i < num_warp; i++) {

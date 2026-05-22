@@ -352,6 +352,21 @@ void sim_t::configure_log(bool enable_log, bool enable_commitlog)
 #endif
 }
 
+void sim_t::enable_gvmref_step_ret()
+{
+#ifndef RISCV_ENABLE_COMMITLOG
+  fputs("GVM reference stepping requires commit logging support; "
+        "please re-build the riscv-isa-sim project using "
+        "\"configure --enable-commitlog\".\n",
+        stderr);
+  abort();
+#else
+  for (processor_t *proc : procs) {
+    proc->enable_gvmref_step_ret();
+  }
+#endif
+}
+
 void sim_t::set_procs_debug(bool value)
 {
   for (size_t i=0; i< procs.size(); i++)

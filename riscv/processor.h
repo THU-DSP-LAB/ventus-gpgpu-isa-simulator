@@ -300,6 +300,8 @@ public:
 #ifdef RISCV_ENABLE_COMMITLOG
   void enable_log_commits();
   bool get_log_commits_enabled() const { return log_commits_enabled; }
+  void enable_gvmref_step_ret();
+  bool get_gvmref_step_ret_enabled() const { return gvmref_step_ret_enabled; }
 #endif
   void reset();
   void step(size_t n); // run for n cycles
@@ -432,6 +434,9 @@ private:
   unsigned xlen;
   bool histogram_enabled;
   bool log_commits_enabled;
+#ifdef RISCV_ENABLE_COMMITLOG
+  bool gvmref_step_ret_enabled;
+#endif
   FILE *log_file;
   std::ostream sout_; // needed for socket command interface -s, also used for -d and -l, but not for --log
   bool halt_on_reset;
