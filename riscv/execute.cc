@@ -149,6 +149,7 @@ static void update_gvmref_reg_result(processor_t *p, const std::pair<const reg_t
 
 static void update_gvmref_step_ret(processor_t *p, reg_t pc, insn_t insn)
 {
+  p->gvmref_step_ret.insn_executed = 1;
   p->gvmref_step_ret.pc = pc;
   p->gvmref_step_ret.insn = static_cast<uint32_t>(insn.bits());
   p->gvmref_step_ret.insn_result.insn_type = DONT_CARE;

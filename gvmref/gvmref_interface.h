@@ -57,6 +57,7 @@ struct gvmref_step_return_info_t {
   // 每次 step 时，返回 step 的结果
   // 包括指令类型、写回寄存器地址、写回寄存器数据、向量寄存器 mask 等
   int wg_done; // 该 workgroup 是否已完成
+  int insn_executed; // 本次 step 是否实际执行了一条 target 指令
   uint64_t pc;
   uint32_t insn;
   gvmref_insn_result_t insn_result;
@@ -95,7 +96,9 @@ int gvmref_bind_workgroup_lds_base(uint32_t software_wg_id, uint64_t lds_base);
 uint32_t gvmref_get_next_pc(uint32_t software_wg_id, uint32_t software_warp_id);
 // 返回指定 warp 的即将执行的指令 PC
 void gvmref_step(uint32_t software_wg_id, uint32_t software_warp_id, gvmref_step_return_info_t* ret);
-// 将指定 warp 步进一条指令
+// 尝试将指定 warp 步进到下一条 target 指令。
+// 调用方必须先检查 ret->insn_executed：为 1 时，pc/insn/insn_result 属于本次实际执行的指令；
+// 为 0 时，本次 step 未产生可消费的指令结果，pc 只表示当前 next PC，insn/insn_result 不可用于比较。
 // 并且，如果该指令是 1.会写回标量寄存器的指令 或者 2.会写回向量寄存器的指令
 // 则将该指令的执行结果返回
 void gvmref_get_xreg(gvmref_xreg_t* ret, uint32_t wg_id, uint32_t warp_id);

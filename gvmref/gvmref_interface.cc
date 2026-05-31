@@ -141,9 +141,13 @@ uint32_t gvmref_get_next_pc(uint32_t software_wg_id, uint32_t software_warp_id) 
 
 void gvmref_step(uint32_t software_wg_id, uint32_t software_warp_id, gvmref_step_return_info_t* ret) {
   auto& workgroup = get_workgroup_or_die(software_wg_id);
+  auto* proc = workgroup.proc[software_warp_id];
+  proc->gvmref_step_ret = {};
+  proc->gvmref_step_ret.pc = workgroup.get_next_pc(software_warp_id);
+  proc->gvmref_step_ret.insn_result.insn_type = DONT_CARE;
   workgroup.step(software_warp_id);
   gvmref_step_return_info_t ret_info;
-  ret_info = workgroup.proc[software_warp_id]->gvmref_step_ret;
+  ret_info = proc->gvmref_step_ret;
   ret_info.wg_done = workgroup.done();
   *ret = ret_info;
   return;
