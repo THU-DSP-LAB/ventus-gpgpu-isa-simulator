@@ -21,6 +21,13 @@ MMA = [
     ("mma_m16n16k8", "mma.m16n16k8", "0x0e00000a", "0x0e00007f"),
 ]
 
+RT = [
+    ("vt_rt_traverse", "vt.rt.traverse", "0xe200000a", "0xfe00707f",
+     "ventus_exec_rt_traverse(p, insn);", "add_ventus_rt_traverse_insn"),
+    ("vt_rt_release", "vt.rt.release", "0xe200100a", "0xfe00707f",
+     "ventus_exec_rt_release(p, insn);", "add_ventus_rt_release_insn"),
+]
+
 
 def read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
@@ -47,8 +54,13 @@ def main() -> int:
     require("0x0a ? 4" in decode or "0x0a ||" in decode,
             "insn_length does not force opcode 0x0a to 32 bits", failures)
     require("ventus_mma.h" in riscv_mk, "ventus_mma.h missing from riscv headers", failures)
+    require("ventus_rt.h" in riscv_mk, "ventus_rt.h missing from riscv headers", failures)
     require("void ventus_exec_mma(processor_t *p, insn_t insn)" in custom,
             "ventus_exec_mma declaration/definition missing", failures)
+    require("void ventus_exec_rt_traverse(processor_t *p, insn_t insn)" in custom,
+            "ventus_exec_rt_traverse declaration/definition missing", failures)
+    require("void ventus_exec_rt_release(processor_t *p, insn_t insn)" in custom,
+            "ventus_exec_rt_release declaration/definition missing", failures)
 
     for insn, disasm_name, match, mask in MMA:
         macro = insn.upper()
@@ -68,6 +80,25 @@ def main() -> int:
         require(f'"{disasm_name}"' in disasm, f"disassembler missing {disasm_name}", failures)
         require(f'add_ventus_mma_insn(this, "{disasm_name}"' in disasm,
                 f"{disasm_name} does not use MMA-specific formatter", failures)
+
+    for insn, disasm_name, match, mask, call, formatter in RT:
+        macro = insn.upper()
+        require(f"#define MATCH_{macro} {match}" in encoding,
+                f"MATCH_{macro} missing or changed", failures)
+        require(f"#define MASK_{macro} {mask}" in encoding,
+                f"MASK_{macro} missing or changed", failures)
+        require(f"DECLARE_INSN({insn}, MATCH_{macro}, MASK_{macro})" in encoding,
+                f"DECLARE_INSN({insn}) missing", failures)
+        require(re.search(rf"^\s*{re.escape(insn)}\s*\\", riscv_mk, re.MULTILINE) is not None,
+                f"{insn} missing from riscv.mk.in instruction list", failures)
+        header = ROOT / "riscv" / "insns" / f"{insn}.h"
+        require(header.exists(), f"riscv/insns/{insn}.h missing", failures)
+        if header.exists():
+            require(call in header.read_text(encoding="utf-8"),
+                    f"riscv/insns/{insn}.h does not call expected RT executor", failures)
+        require(f'"{disasm_name}"' in disasm, f"disassembler missing {disasm_name}", failures)
+        require(f'{formatter}(this, "{disasm_name}"' in disasm,
+                f"{disasm_name} does not use RT-specific formatter", failures)
 
     require("add_ventus_mma_insn" in disasm,
             "disassembler missing MMA-specific formatter", failures)

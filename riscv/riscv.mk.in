@@ -25,6 +25,7 @@ riscv_hdrs = \
 	encoding.h \
 	ventus_custom_arith.h \
 	ventus_mma.h \
+	ventus_rt.h \
 	ventus_custom.h \
 	ventus_shuffle.h \
 	cachesim.h \
@@ -940,6 +941,8 @@ riscv_insn_ext_v_gpgpu = \
 	mma_m16n8k8 \
 	mma_m8n16k8 \
 	mma_m16n16k8 \
+	vt_rt_traverse \
+	vt_rt_release \
 	vadd_f16x2 \
 	vmul_f16x2 \
 	vfma_f16x2 \
