@@ -185,30 +185,11 @@ void ventus_exec_rt_traverse(processor_t *p, insn_t insn)
     if (!lane_active(p, lane))
       continue;
 
+    auto mem = ventus_rt::make_hybrid_memory(
+        *p->get_mmu(), p->get_csr(CSR_PDS), p->get_csr(CSR_NUMW),
+        p->get_csr(CSR_NUMT), p->get_csr(CSR_TID), lane);
     const reg_t slot = p->VU.elt<uint32_t>(2, vs2_num, lane);
-    uint32_t status = ventus_rt::traversal_complete_miss;
-
-    const uint32_t terminate =
-        ventus_rt::load_word(*p->get_mmu(), slot, ventus_rt::control_base,
-                             ventus_rt::control_terminate_ray);
-    if (terminate) {
-      status = ventus_rt::traversal_terminated;
-    } else {
-      const uint32_t committed =
-          ventus_rt::load_word(*p->get_mmu(), slot,
-                               ventus_rt::committed_hit_record_base,
-                               ventus_rt::hit_record_status);
-      if (committed == ventus_rt::traversal_complete_hit ||
-          committed == ventus_rt::rt_status_hit)
-        status = ventus_rt::traversal_complete_hit;
-    }
-
-    ventus_rt::store_word(*p->get_mmu(), slot, 0, ventus_rt::slot_status,
-                          status == ventus_rt::traversal_complete_hit
-                              ? ventus_rt::rt_status_hit
-                              : status == ventus_rt::traversal_terminated
-                                    ? ventus_rt::rt_status_done
-                                    : ventus_rt::rt_status_miss);
+    const uint32_t status = ventus_rt::traverse(mem, slot);
     p->VU.elt<uint32_t>(0, vd_num, lane, true) = status;
   }
 
@@ -226,19 +207,11 @@ void ventus_exec_rt_release(processor_t *p, insn_t insn)
     if (!lane_active(p, lane))
       continue;
 
+    auto mem = ventus_rt::make_hybrid_memory(
+        *p->get_mmu(), p->get_csr(CSR_PDS), p->get_csr(CSR_NUMW),
+        p->get_csr(CSR_NUMT), p->get_csr(CSR_TID), lane);
     const reg_t slot = p->VU.elt<uint32_t>(2, vs2_num, lane);
-    ventus_rt::store_word(*p->get_mmu(), slot, ventus_rt::control_base,
-                          ventus_rt::control_done, 0);
-    ventus_rt::store_word(*p->get_mmu(), slot, ventus_rt::control_base,
-                          ventus_rt::control_incomplete, 0);
-    ventus_rt::store_word(*p->get_mmu(), slot, ventus_rt::control_base,
-                          ventus_rt::control_accept_hit, 0);
-    ventus_rt::store_word(*p->get_mmu(), slot, ventus_rt::control_base,
-                          ventus_rt::control_ignore_hit, 0);
-    ventus_rt::store_word(*p->get_mmu(), slot, ventus_rt::control_base,
-                          ventus_rt::control_terminate_ray, 0);
-    ventus_rt::store_word(*p->get_mmu(), slot, ventus_rt::control_base,
-                          ventus_rt::control_skip_closest_hit, 0);
+    ventus_rt::release(mem, slot);
   }
 
   p->VU.vstart->write(0);

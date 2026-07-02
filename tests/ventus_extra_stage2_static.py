@@ -49,12 +49,17 @@ def main() -> int:
         + read("riscv/ventus_custom.cc")
         + ((ROOT / "riscv" / "ventus_mma.h").read_text(encoding="utf-8")
            if (ROOT / "riscv" / "ventus_mma.h").exists() else "")
+        + ((ROOT / "riscv" / "ventus_rt.h").read_text(encoding="utf-8")
+           if (ROOT / "riscv" / "ventus_rt.h").exists() else "")
     )
 
     require("0x0a ? 4" in decode or "0x0a ||" in decode,
             "insn_length does not force opcode 0x0a to 32 bits", failures)
     require("ventus_mma.h" in riscv_mk, "ventus_mma.h missing from riscv headers", failures)
     require("ventus_rt.h" in riscv_mk, "ventus_rt.h missing from riscv headers", failures)
+    require("tests/ventus_rt_semantics.cc" in "\n".join(
+            str(path.relative_to(ROOT)) for path in (ROOT / "tests").glob("*")),
+            "ventus_rt_semantics.cc missing", failures)
     require("void ventus_exec_mma(processor_t *p, insn_t insn)" in custom,
             "ventus_exec_mma declaration/definition missing", failures)
     require("void ventus_exec_rt_traverse(processor_t *p, insn_t insn)" in custom,
@@ -140,6 +145,21 @@ def main() -> int:
             "encoded MMA abtype=0/cdtype=0 must decode to executable FP16/FP16", failures)
     require("ventus_mma::decode_mma_options(insn.bits())" in custom,
             "ventus_exec_mma must use explicit MMA encoding decode", failures)
+
+    for symbol in [
+        "pds_physical_addr",
+        "candidate_hit_record_base",
+        "committed_hit_record_base",
+        "traversal_candidate_non_opaque_triangle",
+        "traversal_candidate_procedural_aabb",
+        "geometry_procedural_aabb_list",
+        "trace_triangle_list",
+        "trace_aabb_list",
+        "make_hybrid_memory",
+        "ventus_rt::traverse(mem, slot)",
+        "ventus_rt::release(mem, slot)",
+    ]:
+        require(symbol in custom, f"local RT model symbol missing: {symbol}", failures)
 
     if failures:
         for failure in failures:
