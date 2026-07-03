@@ -110,6 +110,7 @@ static void write_ray(TestMemory &mem, reg_t slot, reg_t accel)
 {
   store_slot(mem, slot, 0, slot_accel_lo, uint32_t(accel));
   store_slot(mem, slot, 0, slot_accel_hi, uint32_t(uint64_t(accel) >> 32));
+  store_slot(mem, slot, 0, slot_cull_mask, 0xff);
   store_slot(mem, slot, 0, slot_sbt_offset, 2);
   store_slot(mem, slot, 0, slot_sbt_stride, 96);
   store_slot(mem, slot, 0, slot_origin_x, bit_cast_u32(0.0f));
@@ -120,6 +121,77 @@ static void write_ray(TestMemory &mem, reg_t slot, reg_t accel)
   store_slot(mem, slot, 0, slot_direction_y, bit_cast_u32(0.0f));
   store_slot(mem, slot, 0, slot_direction_z, bit_cast_u32(1.0f));
   store_slot(mem, slot, 0, slot_tmax, bit_cast_u32(100.0f));
+}
+
+static void write_vtas_header(TestMemory &mem, reg_t addr, uint32_t type,
+                              uint32_t root_ref)
+{
+  mem.store32(addr + as_header_magic, as_magic);
+  mem.store32(addr + as_header_version, as_version);
+  mem.store32(addr + as_header_type, type);
+  mem.store32(addr + as_header_root_node_ref, root_ref);
+}
+
+static uint32_t make_node_ref(uint32_t offset, uint32_t type)
+{
+  return (offset & node_ref_offset_mask) | type;
+}
+
+static void write_vtas_triangle(TestMemory &mem, reg_t addr, float z,
+                                uint32_t primitive_id, uint32_t sbt_offset,
+                                uint32_t opaque)
+{
+  write_vec3(mem, addr + triangle_v0, -1.0f, -1.0f, z);
+  write_vec3(mem, addr + triangle_v1, 1.0f, -1.0f, z);
+  write_vec3(mem, addr + triangle_v2, 0.0f, 1.0f, z);
+  mem.store32(addr + triangle_primitive_id, primitive_id);
+  mem.store32(addr + triangle_geometry_id, 5);
+  mem.store32(addr + triangle_sbt_record_offset, sbt_offset);
+  mem.store32(addr + triangle_flags, opaque);
+  mem.store32(addr + triangle_primitive_addr_lo, uint32_t(addr));
+  mem.store32(addr + triangle_primitive_addr_lo + 4, 0);
+}
+
+static void write_vtas_instance(TestMemory &mem, reg_t addr, reg_t blas,
+                                uint32_t instance_id,
+                                uint32_t instance_sbt_offset)
+{
+  mem.store32(addr + instance_blas_addr_lo, uint32_t(blas));
+  mem.store32(addr + instance_blas_addr_lo + 4, uint32_t(uint64_t(blas) >> 32));
+  mem.store32(addr + instance_mask, 0xff);
+  mem.store32(addr + instance_sbt_record_offset, instance_sbt_offset);
+  mem.store32(addr + instance_instance_id, instance_id);
+}
+
+static void check_vtas_tlas_blas_triangle_hit()
+{
+  TestMemory mem;
+  constexpr reg_t slot = 0;
+  constexpr reg_t tlas = 0x20000;
+  constexpr reg_t tlas_instance = tlas + 0x40;
+  constexpr reg_t blas = 0x21000;
+  constexpr reg_t blas_triangle = blas + 0x40;
+
+  write_vtas_header(mem, tlas, as_type_tlas,
+                    make_node_ref(0x40, node_instance));
+  write_vtas_instance(mem, tlas_instance, blas, 13, 4);
+  write_vtas_header(mem, blas, as_type_blas,
+                    make_node_ref(0x40, node_triangle));
+  write_vtas_triangle(mem, blas_triangle, 5.0f, 77, 2, 1);
+  write_ray(mem, slot, tlas);
+
+  assert(traverse(mem, slot) == traversal_complete_hit);
+  assert(load_slot(mem, slot, committed_hit_record_base,
+                   hit_record_primitive_id) == 77);
+  assert(load_slot(mem, slot, committed_hit_record_base,
+                   hit_record_instance_id) == 13);
+  assert(load_slot(mem, slot, committed_hit_record_base,
+                   hit_record_geometry_id) == 5);
+  assert(load_slot(mem, slot, committed_hit_record_base,
+                   hit_record_sbt_index) == 8);
+  assert(std::fabs(bit_cast_f32(load_slot(mem, slot, committed_hit_record_base,
+                                          hit_record_hit_t)) -
+                   5.0f) < 0.001f);
 }
 
 static void check_opaque_hit()
@@ -316,6 +388,7 @@ int main()
   check_non_opaque_candidate_accept_and_ignore();
   check_terminate_and_release();
   check_procedural_candidate_report_accept();
+  check_vtas_tlas_blas_triangle_hit();
   check_pds_formula();
   return 0;
 }

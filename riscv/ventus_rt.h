@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <vector>
 
 #ifndef VENTUS_RT_STANDALONE
 #include "decode.h"
@@ -84,6 +85,57 @@ constexpr uint32_t bvh_magic = 0x56545254; // "VTRT"
 constexpr uint32_t bvh_version = 1;
 constexpr uint32_t geometry_triangle_list = 1;
 constexpr uint32_t geometry_procedural_aabb_list = 2;
+
+constexpr uint32_t as_magic = 0x53415456; // "VTAS"
+constexpr uint32_t as_version = 1;
+constexpr uint32_t as_type_blas = 1;
+constexpr uint32_t as_type_tlas = 2;
+
+constexpr uint32_t as_header_magic = 0x00;
+constexpr uint32_t as_header_version = 0x04;
+constexpr uint32_t as_header_type = 0x08;
+constexpr uint32_t as_header_root_node_ref = 0x10;
+constexpr uint32_t as_header_root_aabb_min_x = 0x30;
+constexpr uint32_t as_header_root_aabb_min_y = 0x34;
+constexpr uint32_t as_header_root_aabb_min_z = 0x38;
+constexpr uint32_t as_header_root_aabb_max_x = 0x3c;
+constexpr uint32_t as_header_root_aabb_max_y = 0x40;
+constexpr uint32_t as_header_root_aabb_max_z = 0x44;
+
+constexpr uint32_t node_ref_type_mask = 0x7;
+constexpr uint32_t node_ref_offset_mask = ~node_ref_type_mask;
+constexpr uint32_t node_box4 = 1;
+constexpr uint32_t node_triangle = 2;
+constexpr uint32_t node_instance = 3;
+constexpr uint32_t node_aabb = 4;
+constexpr uint32_t invalid_node_ref = 0xffffffffu;
+
+constexpr uint32_t box4_child_ref = 0x00;
+constexpr uint32_t box4_min_x = 0x10;
+constexpr uint32_t box4_min_y = 0x20;
+constexpr uint32_t box4_min_z = 0x30;
+constexpr uint32_t box4_max_x = 0x40;
+constexpr uint32_t box4_max_y = 0x50;
+constexpr uint32_t box4_max_z = 0x60;
+
+constexpr uint32_t triangle_v0 = 0x00;
+constexpr uint32_t triangle_v1 = 0x0c;
+constexpr uint32_t triangle_v2 = 0x18;
+constexpr uint32_t triangle_primitive_id = 0x24;
+constexpr uint32_t triangle_geometry_id = 0x28;
+constexpr uint32_t triangle_sbt_record_offset = 0x2c;
+constexpr uint32_t triangle_flags = 0x30;
+constexpr uint32_t triangle_instance_id = 0x34;
+constexpr uint32_t triangle_primitive_addr_lo = 0x38;
+
+constexpr uint32_t instance_blas_addr_lo = 0x00;
+constexpr uint32_t instance_custom_index = 0x08;
+constexpr uint32_t instance_mask = 0x0c;
+constexpr uint32_t instance_sbt_record_offset = 0x10;
+constexpr uint32_t instance_flags = 0x14;
+constexpr uint32_t instance_instance_id = 0x18;
+constexpr uint32_t instance_object_to_world = 0x20;
+constexpr uint32_t instance_world_to_object = 0x50;
 
 constexpr uint32_t ray_flag_force_opaque = 1u << 0;
 constexpr uint32_t ray_flag_force_non_opaque = 1u << 1;
@@ -177,6 +229,7 @@ struct Ray {
   float tmin = 0.0f;
   float tmax = std::numeric_limits<float>::infinity();
   uint32_t flags = 0;
+  uint32_t cull_mask = 0xff;
   uint32_t sbt_offset = 0;
   uint32_t sbt_stride = 0;
 };
@@ -350,6 +403,7 @@ inline Ray load_ray(Memory &mem, reg_t slot)
 {
   Ray ray;
   ray.flags = load_word(mem, slot, 0, slot_flags);
+  ray.cull_mask = load_word(mem, slot, 0, slot_cull_mask);
   ray.sbt_offset = load_word(mem, slot, 0, slot_sbt_offset);
   ray.sbt_stride = load_word(mem, slot, 0, slot_sbt_stride);
   ray.origin = {
@@ -437,6 +491,208 @@ inline void copy_hit_record(Memory &mem, reg_t slot, reg_t dst_base,
   for (reg_t word = hit_record_status; word <= hit_record_need_software_opacity_test;
        ++word)
     store_word(mem, slot, dst_base, word, load_word(mem, slot, src_base, word));
+}
+
+
+inline uint32_t node_ref_type(uint32_t ref)
+{
+  return ref & node_ref_type_mask;
+}
+
+inline uint32_t node_ref_offset(uint32_t ref)
+{
+  return ref & node_ref_offset_mask;
+}
+
+template <typename Memory>
+inline Vec3 load_vec3_indexed(Memory &mem, reg_t addr, uint32_t index)
+{
+  return load_vec3(mem, addr + reg_t(index) * 12);
+}
+
+template <typename Memory>
+inline uint32_t load_node_ref(Memory &mem, uint64_t as_base)
+{
+  return mem.load32(as_base + as_header_root_node_ref);
+}
+
+template <typename Memory>
+inline Triangle load_vtas_triangle(Memory &mem, uint64_t as_base,
+                                   uint32_t node_ref,
+                                   uint32_t instance_id,
+                                   uint32_t instance_sbt_offset)
+{
+  const reg_t addr = as_base + node_ref_offset(node_ref);
+  Triangle tri;
+  tri.v0 = load_vec3(mem, addr + triangle_v0);
+  tri.v1 = load_vec3(mem, addr + triangle_v1);
+  tri.v2 = load_vec3(mem, addr + triangle_v2);
+  tri.primitive_id = mem.load32(addr + triangle_primitive_id);
+  tri.instance_id = instance_id;
+  tri.geometry_id = mem.load32(addr + triangle_geometry_id);
+  tri.sbt_index = instance_sbt_offset + mem.load32(addr + triangle_sbt_record_offset);
+  tri.hit_kind = 0xfe;
+  tri.opaque = mem.load32(addr + triangle_flags) & 0x1;
+  tri.primitive_addr = load_u64(mem, addr + triangle_primitive_addr_lo);
+  tri.instance_addr = 0;
+  return tri;
+}
+
+template <typename Memory>
+inline bool intersect_box4_child(Memory &mem, uint64_t as_base, uint32_t node_ref,
+                                 uint32_t child, const Ray &ray,
+                                 float &t_near)
+{
+  const reg_t addr = as_base + node_ref_offset(node_ref);
+  float tmin = ray.tmin;
+  float tmax = ray.tmax;
+  const float origin[3] = {ray.origin.x, ray.origin.y, ray.origin.z};
+  const float direction[3] = {ray.direction.x, ray.direction.y, ray.direction.z};
+  const uint32_t min_off[3] = {box4_min_x, box4_min_y, box4_min_z};
+  const uint32_t max_off[3] = {box4_max_x, box4_max_y, box4_max_z};
+
+  for (uint32_t axis = 0; axis < 3; axis++) {
+    const float bmin = bit_cast_f32(mem.load32(addr + min_off[axis] + child * 4));
+    const float bmax = bit_cast_f32(mem.load32(addr + max_off[axis] + child * 4));
+    if (std::fabs(direction[axis]) < 1.0e-8f) {
+      if (origin[axis] < bmin || origin[axis] > bmax)
+        return false;
+      continue;
+    }
+
+    const float inv_dir = 1.0f / direction[axis];
+    float t0 = (bmin - origin[axis]) * inv_dir;
+    float t1 = (bmax - origin[axis]) * inv_dir;
+    if (t0 > t1)
+      std::swap(t0, t1);
+    tmin = std::max(tmin, t0);
+    tmax = std::min(tmax, t1);
+    if (tmin > tmax)
+      return false;
+  }
+
+  t_near = tmin;
+  return true;
+}
+
+struct TraversalEntry {
+  uint64_t as_base = 0;
+  uint32_t node_ref = invalid_node_ref;
+  uint32_t instance_id = 0;
+  uint32_t instance_sbt_offset = 0;
+};
+
+struct ChildHit {
+  uint32_t ref = invalid_node_ref;
+  float t_near = 0.0f;
+};
+
+template <typename Memory>
+inline uint32_t trace_vtas(Memory &mem, reg_t slot, const Ray &ray,
+                           uint64_t tlas_addr, bool skip_non_opaque)
+{
+  if (mem.load32(tlas_addr + as_header_magic) != as_magic ||
+      (mem.load32(tlas_addr + as_header_version) & 0xffffu) != as_version ||
+      mem.load32(tlas_addr + as_header_type) != as_type_tlas) {
+    store_word(mem, slot, 0, slot_status, rt_status_miss);
+    store_word(mem, slot, control_base, control_done, 1);
+    return traversal_complete_miss;
+  }
+
+  Scene scene;
+  scene.hit_sbt_base = 0;
+  scene.shader_group_handle_size = 32;
+
+  Hit closest;
+  std::vector<TraversalEntry> stack;
+  stack.push_back({tlas_addr, load_node_ref(mem, tlas_addr), 0, 0});
+
+  while (!stack.empty()) {
+    TraversalEntry entry = stack.back();
+    stack.pop_back();
+    if (entry.node_ref == invalid_node_ref)
+      continue;
+
+    const uint32_t type = node_ref_type(entry.node_ref);
+    const reg_t node_addr = entry.as_base + node_ref_offset(entry.node_ref);
+
+    if (type == node_box4) {
+      ChildHit hits[4];
+      uint32_t hit_count = 0;
+      for (uint32_t i = 0; i < 4; i++) {
+        uint32_t child = mem.load32(node_addr + box4_child_ref + i * 4);
+        if (child == invalid_node_ref)
+          continue;
+        float t_near = 0.0f;
+        if (intersect_box4_child(mem, entry.as_base, entry.node_ref, i, ray, t_near))
+          hits[hit_count++] = {child, t_near};
+      }
+      std::sort(hits, hits + hit_count,
+                [](const ChildHit &a, const ChildHit &b) { return a.t_near < b.t_near; });
+      for (uint32_t i = hit_count; i > 0; i--)
+        stack.push_back({entry.as_base, hits[i - 1].ref, entry.instance_id,
+                         entry.instance_sbt_offset});
+      continue;
+    }
+
+    if (type == node_instance) {
+      const uint32_t mask = mem.load32(node_addr + instance_mask);
+      if ((ray.cull_mask & mask) == 0)
+        continue;
+
+      const uint64_t blas = load_u64(mem, node_addr + instance_blas_addr_lo);
+      if (!blas || mem.load32(blas + as_header_magic) != as_magic ||
+          mem.load32(blas + as_header_type) != as_type_blas)
+        continue;
+
+      stack.push_back({blas, load_node_ref(mem, blas),
+                       mem.load32(node_addr + instance_instance_id),
+                       mem.load32(node_addr + instance_sbt_record_offset)});
+      continue;
+    }
+
+    if (type == node_triangle) {
+      Triangle tri = load_vtas_triangle(mem, entry.as_base, entry.node_ref,
+                                        entry.instance_id,
+                                        entry.instance_sbt_offset);
+      Hit candidate = closest;
+      if (!intersect_triangle(ray, tri, candidate))
+        continue;
+
+      const bool force_opaque = (ray.flags & ray_flag_force_opaque) != 0;
+      const bool force_non_opaque = (ray.flags & ray_flag_force_non_opaque) != 0;
+      const bool opaque = force_opaque || (!force_non_opaque && tri.opaque != 0);
+      if (!opaque) {
+        if (skip_non_opaque)
+          continue;
+
+        write_hit_record(mem, slot, candidate_hit_record_base, scene, candidate,
+                         rt_status_hit);
+        write_hit_attrib(mem, slot, candidate);
+        store_word(mem, slot, control_base, control_incomplete, 1);
+        store_word(mem, slot, 0, slot_status, rt_status_hit);
+        return traversal_candidate_non_opaque_triangle;
+      }
+
+      closest = candidate;
+    }
+  }
+
+  if (!closest.valid) {
+    store_word(mem, slot, 0, slot_status, rt_status_miss);
+    store_word(mem, slot, committed_hit_record_base, hit_record_status, 0);
+    store_word(mem, slot, control_base, control_done, 1);
+    return traversal_complete_miss;
+  }
+
+  write_hit_record(mem, slot, committed_hit_record_base, scene, closest,
+                   rt_status_hit);
+  write_hit_attrib(mem, slot, closest);
+  store_word(mem, slot, 0, slot_hit_t, bit_cast_u32(closest.t));
+  store_word(mem, slot, 0, slot_sbt_index, closest.tri.sbt_index);
+  store_word(mem, slot, 0, slot_status, rt_status_hit);
+  store_word(mem, slot, control_base, control_done, 1);
+  return traversal_complete_hit;
 }
 
 template <typename Memory>
@@ -551,6 +807,9 @@ inline uint32_t traverse(Memory &mem, reg_t slot)
   }
 
   const uint32_t magic = mem.load32(accel_addr + 0);
+  if (magic == as_magic)
+    return trace_vtas(mem, slot, ray, accel_addr, skip_non_opaque);
+
   const uint32_t version = mem.load32(accel_addr + 4);
   const uint32_t geometry_type = mem.load32(accel_addr + 8);
   Scene scene;
