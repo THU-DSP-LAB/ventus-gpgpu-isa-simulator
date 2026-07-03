@@ -168,15 +168,15 @@ static void check_vtas_tlas_blas_triangle_hit()
   TestMemory mem;
   constexpr reg_t slot = 0;
   constexpr reg_t tlas = 0x20000;
-  constexpr reg_t tlas_instance = tlas + 0x40;
+  constexpr reg_t tlas_instance = tlas + 0x50;
   constexpr reg_t blas = 0x21000;
-  constexpr reg_t blas_triangle = blas + 0x40;
+  constexpr reg_t blas_triangle = blas + 0x50;
 
   write_vtas_header(mem, tlas, as_type_tlas,
-                    make_node_ref(0x40, node_instance));
+                    make_node_ref(0x50, node_instance));
   write_vtas_instance(mem, tlas_instance, blas, 13, 4);
   write_vtas_header(mem, blas, as_type_blas,
-                    make_node_ref(0x40, node_triangle));
+                    make_node_ref(0x50, node_triangle));
   write_vtas_triangle(mem, blas_triangle, 5.0f, 77, 2, 1);
   write_ray(mem, slot, tlas);
 

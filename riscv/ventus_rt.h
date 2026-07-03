@@ -90,6 +90,7 @@ constexpr uint32_t as_magic = 0x53415456; // "VTAS"
 constexpr uint32_t as_version = 1;
 constexpr uint32_t as_type_blas = 1;
 constexpr uint32_t as_type_tlas = 2;
+constexpr uint32_t as_header_size = 0x50;
 
 constexpr uint32_t as_header_magic = 0x00;
 constexpr uint32_t as_header_version = 0x04;
