@@ -373,7 +373,7 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   uint64_t num_workgroup_y=knl_data->kernel_size[1];
   uint64_t num_workgroup_z=knl_data->kernel_size[2];
   uint64_t num_workgroup=num_workgroup_x*num_workgroup_y*num_workgroup_z;
-  uint64_t num_processor=num_warp*num_workgroup;
+  uint64_t num_processor=num_warp*SPIKE_RUN_WG_NUM;
   uint64_t ldssize=knl_data->ldsSize;
   //uint64_t pdssize=knl_data->pdsSize * num_thread;
   uint64_t pdssize = 0x10000000;

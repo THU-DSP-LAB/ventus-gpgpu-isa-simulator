@@ -80,9 +80,13 @@ public:
   bool get_reach_end() override{return reach_end.empty();}
   void modify_reach_end() override{
     reach_end.erase(reach_end.begin()+current_proc);
-    current_proc= current_proc==0?reach_end.size()-1:current_proc-1;
+    if (reach_end.empty())
+      current_proc = 0;
+    else
+      current_proc= current_proc==0?reach_end.size()-1:current_proc-1;
   }
   void append_reach_end() override{reach_end.push_back(0);current_proc=0;}
+  void finish_kernel() override{stop();}
 
 private:
   warp_schedule_t w;
