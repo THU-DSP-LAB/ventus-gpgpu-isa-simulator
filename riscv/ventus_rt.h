@@ -70,6 +70,7 @@ constexpr reg_t hit_record_instance_addr_hi = 14;
 constexpr reg_t hit_record_front_face = 15;
 constexpr reg_t hit_record_opaque = 16;
 constexpr reg_t hit_record_need_software_opacity_test = 17;
+constexpr reg_t hit_record_instance_sbt_record_offset = 18;
 
 constexpr uint32_t rt_status_hit = 2;
 constexpr uint32_t rt_status_miss = 3;
@@ -197,6 +198,7 @@ struct Triangle {
   uint32_t instance_id = 0;
   uint32_t geometry_id = 0;
   uint32_t sbt_index = 0;
+  uint32_t instance_sbt_record_offset = 0;
   uint32_t hit_kind = 0xfe;
   uint32_t opaque = 1;
   uint64_t primitive_addr = 0;
@@ -210,6 +212,7 @@ struct ProceduralAabb {
   uint32_t instance_id = 0;
   uint32_t geometry_id = 0;
   uint32_t sbt_index = 0;
+  uint32_t instance_sbt_record_offset = 0;
   uint32_t hit_kind = 0xff;
   uint64_t primitive_addr = 0;
   uint64_t instance_addr = 0;
@@ -476,6 +479,8 @@ inline void write_hit_record(Memory &mem, reg_t slot, reg_t base,
   store_word(mem, slot, base, hit_record_opaque, hit.tri.opaque ? 1 : 0);
   store_word(mem, slot, base, hit_record_need_software_opacity_test,
              hit.tri.opaque ? 0 : 1);
+  store_word(mem, slot, base, hit_record_instance_sbt_record_offset,
+             hit.tri.instance_sbt_record_offset);
 }
 
 template <typename Memory>
@@ -489,7 +494,7 @@ template <typename Memory>
 inline void copy_hit_record(Memory &mem, reg_t slot, reg_t dst_base,
                             reg_t src_base)
 {
-  for (reg_t word = hit_record_status; word <= hit_record_need_software_opacity_test;
+  for (reg_t word = hit_record_status; word <= hit_record_instance_sbt_record_offset;
        ++word)
     store_word(mem, slot, dst_base, word, load_word(mem, slot, src_base, word));
 }
@@ -531,7 +536,8 @@ inline Triangle load_vtas_triangle(Memory &mem, uint64_t as_base,
   tri.primitive_id = mem.load32(addr + triangle_primitive_id);
   tri.instance_id = instance_id;
   tri.geometry_id = mem.load32(addr + triangle_geometry_id);
-  tri.sbt_index = instance_sbt_offset + mem.load32(addr + triangle_sbt_record_offset);
+  tri.sbt_index = mem.load32(addr + triangle_sbt_record_offset);
+  tri.instance_sbt_record_offset = instance_sbt_offset;
   tri.hit_kind = 0xfe;
   tri.opaque = mem.load32(addr + triangle_flags) & 0x1;
   tri.primitive_addr = load_u64(mem, addr + triangle_primitive_addr_lo);
