@@ -651,12 +651,120 @@ struct TraversalDebugCounters {
   uint32_t triangle_hits = 0;
 };
 
+struct BruteTraceCounters {
+  uint32_t tlas_boxes = 0;
+  uint32_t blas_boxes = 0;
+  uint32_t instances = 0;
+  uint32_t triangles = 0;
+  uint32_t triangle_hits = 0;
+};
+
+template <typename Memory>
+inline void brute_trace_blas_node(Memory &mem, uint64_t blas_base,
+                                  uint32_t node_ref, const Ray &ray,
+                                  uint32_t instance_id,
+                                  uint32_t instance_sbt_offset,
+                                  uint64_t instance_addr, Hit &closest,
+                                  BruteTraceCounters &counters)
+{
+  if (node_ref == invalid_node_ref)
+    return;
+
+  const uint32_t type = node_ref_type(node_ref);
+  const reg_t node_addr = blas_base + node_ref_offset(node_ref);
+
+  if (type == node_box4) {
+    counters.blas_boxes++;
+    for (uint32_t i = 0; i < 4; i++) {
+      const uint32_t child = mem.load32(node_addr + box4_child_ref + i * 4);
+      brute_trace_blas_node(mem, blas_base, child, ray, instance_id,
+                            instance_sbt_offset, instance_addr, closest,
+                            counters);
+    }
+    return;
+  }
+
+  if (type != node_triangle)
+    return;
+
+  counters.triangles++;
+  const Triangle tri = load_vtas_triangle(mem, blas_base, node_ref, instance_id,
+                                          instance_sbt_offset, instance_addr);
+  Hit candidate = closest;
+  if (intersect_triangle(ray, tri, candidate)) {
+    counters.triangle_hits++;
+    closest = candidate;
+  }
+}
+
+template <typename Memory>
+inline void brute_trace_tlas_node(Memory &mem, uint64_t tlas_base,
+                                  uint32_t node_ref, const Ray &ray,
+                                  Hit &closest,
+                                  BruteTraceCounters &counters)
+{
+  if (node_ref == invalid_node_ref)
+    return;
+
+  const uint32_t type = node_ref_type(node_ref);
+  const reg_t node_addr = tlas_base + node_ref_offset(node_ref);
+
+  if (type == node_box4) {
+    counters.tlas_boxes++;
+    for (uint32_t i = 0; i < 4; i++) {
+      const uint32_t child = mem.load32(node_addr + box4_child_ref + i * 4);
+      brute_trace_tlas_node(mem, tlas_base, child, ray, closest, counters);
+    }
+    return;
+  }
+
+  if (type != node_instance)
+    return;
+
+  const uint32_t mask = mem.load32(node_addr + instance_mask);
+  if ((ray.cull_mask & mask) == 0)
+    return;
+
+  const uint64_t blas = load_u64(mem, node_addr + instance_blas_addr_lo);
+  if (!blas || mem.load32(blas + as_header_magic) != as_magic ||
+      mem.load32(blas + as_header_type) != as_type_blas)
+    return;
+
+  counters.instances++;
+  Ray object_ray = ray;
+  object_ray.origin =
+      transform_instance_point(mem, node_addr + instance_world_to_object,
+                               ray.origin);
+  object_ray.direction =
+      transform_instance_vector(mem, node_addr + instance_world_to_object,
+                                ray.direction);
+
+  brute_trace_blas_node(mem, blas, load_node_ref(mem, blas), object_ray,
+                        mem.load32(node_addr + instance_instance_id),
+                        mem.load32(node_addr + instance_sbt_record_offset),
+                        node_addr, closest, counters);
+}
+
+template <typename Memory>
+inline Hit brute_trace_vtas(Memory &mem, uint64_t tlas_addr, const Ray &ray,
+                            BruteTraceCounters &counters)
+{
+  Hit closest;
+  brute_trace_tlas_node(mem, tlas_addr, load_node_ref(mem, tlas_addr), ray,
+                        closest, counters);
+  return closest;
+}
+
 template <typename Memory>
 inline uint32_t trace_vtas(Memory &mem, reg_t slot, const Ray &ray,
                            uint64_t tlas_addr, bool skip_non_opaque)
 {
   static uint32_t debug_count = 0;
-  const bool debug_enabled = std::getenv("VENTUS_RT_DEBUG_TRAVERSAL") != nullptr;
+  const bool debug_enabled =
+      std::getenv("VENTUS_RT_DEBUG_TRAVERSAL") != nullptr ||
+      std::getenv("VENTUS_RT_DEBUG_BRUTE") != nullptr;
+  const bool brute_enabled =
+      std::getenv("VENTUS_RT_DEBUG_BRUTE") != nullptr;
   const char *debug_start_env = std::getenv("VENTUS_RT_DEBUG_TRAVERSAL_START");
   const uint32_t debug_start =
       debug_start_env ? static_cast<uint32_t>(std::strtoul(debug_start_env, nullptr, 0)) : 0;
@@ -802,6 +910,29 @@ inline uint32_t trace_vtas(Memory &mem, reg_t slot, const Ray &ray,
 
       closest = candidate;
     }
+  }
+
+  if (debug && brute_enabled) {
+    BruteTraceCounters brute_counters;
+    Hit brute = brute_trace_vtas(mem, tlas_addr, ray, brute_counters);
+    const bool mismatch =
+        closest.valid != brute.valid ||
+        (closest.valid && brute.valid &&
+         (std::fabs(closest.t - brute.t) > 1.0e-4f ||
+          closest.tri.primitive_id != brute.tri.primitive_id));
+    std::fprintf(stderr,
+                 "ventus-rt: trace[%u] brute_compare mismatch=%u "
+                 "bvh_hit=%u brute_hit=%u bvh_t=%.6g brute_t=%.6g "
+                 "bvh_prim=%u brute_prim=%u brute={tlas_boxes:%u blas_boxes:%u "
+                 "instances:%u triangles:%u tri_hits:%u}\n",
+                 debug_id, mismatch ? 1u : 0u, closest.valid ? 1u : 0u,
+                 brute.valid ? 1u : 0u, closest.valid ? closest.t : -1.0f,
+                 brute.valid ? brute.t : -1.0f,
+                 closest.valid ? closest.tri.primitive_id : 0xffffffffu,
+                 brute.valid ? brute.tri.primitive_id : 0xffffffffu,
+                 brute_counters.tlas_boxes, brute_counters.blas_boxes,
+                 brute_counters.instances, brute_counters.triangles,
+                 brute_counters.triangle_hits);
   }
 
   if (!closest.valid) {
