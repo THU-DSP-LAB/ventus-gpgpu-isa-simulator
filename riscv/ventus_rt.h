@@ -54,6 +54,7 @@ constexpr reg_t control_skip_closest_hit = 5;
 constexpr reg_t committed_hit_record_base = 192;
 constexpr reg_t candidate_hit_record_base = 112;
 constexpr reg_t hit_attrib_base = 272;
+constexpr reg_t continuation_base = 352;
 constexpr reg_t hit_record_status = 0;
 constexpr reg_t hit_record_hit_t = 1;
 constexpr reg_t hit_record_sbt_index = 2;
@@ -143,6 +144,42 @@ constexpr uint32_t instance_world_to_object = 0x50;
 
 constexpr uint32_t ray_flag_force_opaque = 1u << 0;
 constexpr uint32_t ray_flag_force_non_opaque = 1u << 1;
+constexpr uint32_t ray_flag_terminate_on_first_hit = 1u << 2;
+
+constexpr reg_t continuation_state_flags = 0;
+constexpr reg_t continuation_stack_count = 1;
+constexpr reg_t continuation_current_context = 2;
+constexpr reg_t continuation_resume_index = 3;
+constexpr uint32_t continuation_active = 1u << 0;
+constexpr uint32_t continuation_overflow = 1u << 1;
+constexpr uint32_t continuation_done = 1u << 2;
+
+constexpr uint32_t continuation_context_count = 2;
+constexpr uint32_t continuation_context_words = 12;
+constexpr uint32_t continuation_stack_entry_count = 32;
+constexpr uint32_t continuation_stack_entry_words = 4;
+constexpr reg_t continuation_context_base_word = 4;
+constexpr reg_t continuation_stack_base_word =
+    continuation_context_base_word +
+    continuation_context_count * continuation_context_words;
+
+constexpr reg_t continuation_context_as_base_lo = 0;
+constexpr reg_t continuation_context_as_base_hi = 1;
+constexpr reg_t continuation_context_origin_x = 2;
+constexpr reg_t continuation_context_origin_y = 3;
+constexpr reg_t continuation_context_origin_z = 4;
+constexpr reg_t continuation_context_direction_x = 5;
+constexpr reg_t continuation_context_direction_y = 6;
+constexpr reg_t continuation_context_direction_z = 7;
+constexpr reg_t continuation_context_instance_id = 8;
+constexpr reg_t continuation_context_instance_sbt_offset = 9;
+constexpr reg_t continuation_context_instance_addr_lo = 10;
+constexpr reg_t continuation_context_instance_addr_hi = 11;
+
+constexpr reg_t continuation_stack_node_ref = 0;
+constexpr reg_t continuation_stack_as_base_lo = 1;
+constexpr reg_t continuation_stack_as_base_hi = 2;
+constexpr reg_t continuation_stack_context_id = 3;
 
 inline reg_t pds_physical_addr(reg_t pds_base, reg_t num_warps,
                                reg_t num_threads, reg_t tid, reg_t lane,
@@ -491,7 +528,8 @@ inline void write_hit_record(Memory &mem, reg_t slot, reg_t base,
                              uint32_t status)
 {
   const uint32_t sbt_index =
-      hit.tri.sbt_index + load_word(mem, slot, 0, slot_sbt_offset);
+      hit.tri.instance_sbt_record_offset + hit.tri.sbt_index +
+      load_word(mem, slot, 0, slot_sbt_offset);
   const uint64_t shader_record_ptr =
       scene.hit_sbt_base +
       uint64_t(sbt_index) * uint64_t(load_word(mem, slot, 0, slot_sbt_stride)) +
@@ -542,6 +580,315 @@ inline void copy_hit_record(Memory &mem, reg_t slot, reg_t dst_base,
   for (reg_t word = hit_record_status; word <= hit_record_instance_sbt_record_offset;
        ++word)
     store_word(mem, slot, dst_base, word, load_word(mem, slot, src_base, word));
+}
+
+template <typename Memory>
+inline bool committed_hit_valid(Memory &mem, reg_t slot)
+{
+  return load_word(mem, slot, committed_hit_record_base, hit_record_status) ==
+         rt_status_hit;
+}
+
+template <typename Memory>
+inline float current_tmax(Memory &mem, reg_t slot)
+{
+  if (committed_hit_valid(mem, slot))
+    return bit_cast_f32(load_word(mem, slot, committed_hit_record_base,
+                                  hit_record_hit_t));
+  return bit_cast_f32(load_word(mem, slot, 0, slot_tmax));
+}
+
+template <typename Memory>
+inline void clear_continuation(Memory &mem, reg_t slot)
+{
+  const reg_t words = continuation_stack_base_word +
+                      continuation_stack_entry_count *
+                          continuation_stack_entry_words;
+  for (reg_t word = 0; word < words; ++word)
+    store_word(mem, slot, continuation_base, word, 0);
+}
+
+template <typename Memory>
+inline bool continuation_is_active(Memory &mem, reg_t slot)
+{
+  return (load_word(mem, slot, continuation_base,
+                    continuation_state_flags) & continuation_active) != 0;
+}
+
+template <typename Memory>
+inline void mark_continuation_active(Memory &mem, reg_t slot)
+{
+  uint32_t flags = load_word(mem, slot, continuation_base,
+                             continuation_state_flags);
+  flags |= continuation_active;
+  flags &= ~continuation_done;
+  store_word(mem, slot, continuation_base, continuation_state_flags, flags);
+}
+
+template <typename Memory>
+inline void mark_continuation_done(Memory &mem, reg_t slot)
+{
+  uint32_t flags = load_word(mem, slot, continuation_base,
+                             continuation_state_flags);
+  flags &= ~continuation_active;
+  flags |= continuation_done;
+  store_word(mem, slot, continuation_base, continuation_state_flags, flags);
+  store_word(mem, slot, continuation_base, continuation_stack_count, 0);
+  store_word(mem, slot, continuation_base, continuation_resume_index, 0);
+}
+
+template <typename Memory>
+inline void mark_continuation_overflow(Memory &mem, reg_t slot)
+{
+  uint32_t flags = load_word(mem, slot, continuation_base,
+                             continuation_state_flags);
+  flags |= continuation_overflow;
+  store_word(mem, slot, continuation_base, continuation_state_flags, flags);
+}
+
+template <typename Memory>
+inline void commit_candidate_hit(Memory &mem, reg_t slot)
+{
+  copy_hit_record(mem, slot, committed_hit_record_base,
+                  candidate_hit_record_base);
+  const uint32_t hit_t =
+      load_word(mem, slot, candidate_hit_record_base, hit_record_hit_t);
+  const uint32_t sbt_index =
+      load_word(mem, slot, candidate_hit_record_base, hit_record_sbt_index);
+  store_word(mem, slot, 0, slot_hit_t, hit_t);
+  store_word(mem, slot, 0, slot_sbt_index, sbt_index);
+  store_word(mem, slot, 0, slot_status, rt_status_hit);
+}
+
+template <typename Memory>
+inline void commit_hit(Memory &mem, reg_t slot, const Scene &scene,
+                       const Hit &hit)
+{
+  write_hit_record(mem, slot, committed_hit_record_base, scene, hit,
+                   rt_status_hit);
+  write_hit_attrib(mem, slot, hit);
+  store_word(mem, slot, 0, slot_hit_t, bit_cast_u32(hit.t));
+  store_word(mem, slot, 0, slot_sbt_index,
+             hit.tri.instance_sbt_record_offset + hit.tri.sbt_index +
+                 load_word(mem, slot, 0, slot_sbt_offset));
+  store_word(mem, slot, 0, slot_status, rt_status_hit);
+}
+
+template <typename Memory>
+inline uint32_t finish_traversal(Memory &mem, reg_t slot)
+{
+  mark_continuation_done(mem, slot);
+  store_word(mem, slot, control_base, control_done, 1);
+  if (committed_hit_valid(mem, slot)) {
+    store_word(mem, slot, 0, slot_status, rt_status_hit);
+    return traversal_complete_hit;
+  }
+
+  store_word(mem, slot, 0, slot_status, rt_status_miss);
+  store_word(mem, slot, committed_hit_record_base, hit_record_status, 0);
+  return traversal_complete_miss;
+}
+
+template <typename Memory>
+inline void pause_candidate(Memory &mem, reg_t slot, uint32_t status)
+{
+  mark_continuation_active(mem, slot);
+  store_word(mem, slot, control_base, control_incomplete, 1);
+  store_word(mem, slot, 0, slot_status, rt_status_hit);
+  (void)status;
+}
+
+struct ContinuationContext {
+  uint64_t as_base = 0;
+  Ray ray;
+  uint32_t instance_id = 0;
+  uint32_t instance_sbt_offset = 0;
+  uint64_t instance_addr = 0;
+};
+
+struct TraversalEntry {
+  uint64_t as_base = 0;
+  uint32_t node_ref = invalid_node_ref;
+  Ray ray;
+  uint32_t instance_id = 0;
+  uint32_t instance_sbt_offset = 0;
+  uint64_t instance_addr = 0;
+};
+
+inline reg_t continuation_context_word(uint32_t context_id, reg_t word)
+{
+  return continuation_context_base_word +
+         reg_t(context_id) * continuation_context_words + word;
+}
+
+template <typename Memory>
+inline void store_continuation_context(Memory &mem, reg_t slot,
+                                       uint32_t context_id,
+                                       const ContinuationContext &ctx)
+{
+  store_word(mem, slot, continuation_base,
+             continuation_context_word(context_id,
+                                       continuation_context_as_base_lo),
+             uint32_t(ctx.as_base));
+  store_word(mem, slot, continuation_base,
+             continuation_context_word(context_id,
+                                       continuation_context_as_base_hi),
+             uint32_t(ctx.as_base >> 32));
+  store_word(mem, slot, continuation_base,
+             continuation_context_word(context_id,
+                                       continuation_context_origin_x),
+             bit_cast_u32(ctx.ray.origin.x));
+  store_word(mem, slot, continuation_base,
+             continuation_context_word(context_id,
+                                       continuation_context_origin_y),
+             bit_cast_u32(ctx.ray.origin.y));
+  store_word(mem, slot, continuation_base,
+             continuation_context_word(context_id,
+                                       continuation_context_origin_z),
+             bit_cast_u32(ctx.ray.origin.z));
+  store_word(mem, slot, continuation_base,
+             continuation_context_word(context_id,
+                                       continuation_context_direction_x),
+             bit_cast_u32(ctx.ray.direction.x));
+  store_word(mem, slot, continuation_base,
+             continuation_context_word(context_id,
+                                       continuation_context_direction_y),
+             bit_cast_u32(ctx.ray.direction.y));
+  store_word(mem, slot, continuation_base,
+             continuation_context_word(context_id,
+                                       continuation_context_direction_z),
+             bit_cast_u32(ctx.ray.direction.z));
+  store_word(mem, slot, continuation_base,
+             continuation_context_word(context_id,
+                                       continuation_context_instance_id),
+             ctx.instance_id);
+  store_word(mem, slot, continuation_base,
+             continuation_context_word(
+                 context_id, continuation_context_instance_sbt_offset),
+             ctx.instance_sbt_offset);
+  store_word(mem, slot, continuation_base,
+             continuation_context_word(
+                 context_id, continuation_context_instance_addr_lo),
+             uint32_t(ctx.instance_addr));
+  store_word(mem, slot, continuation_base,
+             continuation_context_word(
+                 context_id, continuation_context_instance_addr_hi),
+             uint32_t(ctx.instance_addr >> 32));
+}
+
+template <typename Memory>
+inline ContinuationContext load_continuation_context(Memory &mem, reg_t slot,
+                                                     uint32_t context_id)
+{
+  ContinuationContext ctx;
+  uint64_t lo = load_word(mem, slot, continuation_base,
+                          continuation_context_word(
+                              context_id, continuation_context_as_base_lo));
+  uint64_t hi = load_word(mem, slot, continuation_base,
+                          continuation_context_word(
+                              context_id, continuation_context_as_base_hi));
+  ctx.as_base = lo | (hi << 32);
+  ctx.ray = load_ray(mem, slot);
+  ctx.ray.origin = {
+      bit_cast_f32(load_word(mem, slot, continuation_base,
+                             continuation_context_word(
+                                 context_id, continuation_context_origin_x))),
+      bit_cast_f32(load_word(mem, slot, continuation_base,
+                             continuation_context_word(
+                                 context_id, continuation_context_origin_y))),
+      bit_cast_f32(load_word(mem, slot, continuation_base,
+                             continuation_context_word(
+                                 context_id, continuation_context_origin_z))),
+  };
+  ctx.ray.direction = {
+      bit_cast_f32(load_word(mem, slot, continuation_base,
+                             continuation_context_word(
+                                 context_id,
+                                 continuation_context_direction_x))),
+      bit_cast_f32(load_word(mem, slot, continuation_base,
+                             continuation_context_word(
+                                 context_id,
+                                 continuation_context_direction_y))),
+      bit_cast_f32(load_word(mem, slot, continuation_base,
+                             continuation_context_word(
+                                 context_id,
+                                 continuation_context_direction_z))),
+  };
+  ctx.instance_id = load_word(mem, slot, continuation_base,
+                              continuation_context_word(
+                                  context_id,
+                                  continuation_context_instance_id));
+  ctx.instance_sbt_offset =
+      load_word(mem, slot, continuation_base,
+                continuation_context_word(
+                    context_id, continuation_context_instance_sbt_offset));
+  lo = load_word(mem, slot, continuation_base,
+                 continuation_context_word(
+                     context_id, continuation_context_instance_addr_lo));
+  hi = load_word(mem, slot, continuation_base,
+                 continuation_context_word(
+                     context_id, continuation_context_instance_addr_hi));
+  ctx.instance_addr = lo | (hi << 32);
+  return ctx;
+}
+
+inline reg_t continuation_stack_word(uint32_t index, reg_t word)
+{
+  return continuation_stack_base_word +
+         reg_t(index) * continuation_stack_entry_words + word;
+}
+
+template <typename Memory>
+inline bool push_continuation_entry(Memory &mem, reg_t slot, uint32_t &count,
+                                    const TraversalEntry &entry,
+                                    uint32_t context_id)
+{
+  if (count >= continuation_stack_entry_count) {
+    mark_continuation_overflow(mem, slot);
+    return false;
+  }
+
+  store_word(mem, slot, continuation_base,
+             continuation_stack_word(count, continuation_stack_node_ref),
+             entry.node_ref);
+  store_word(mem, slot, continuation_base,
+             continuation_stack_word(count, continuation_stack_as_base_lo),
+             uint32_t(entry.as_base));
+  store_word(mem, slot, continuation_base,
+             continuation_stack_word(count, continuation_stack_as_base_hi),
+             uint32_t(entry.as_base >> 32));
+  store_word(mem, slot, continuation_base,
+             continuation_stack_word(count, continuation_stack_context_id),
+             context_id);
+  ++count;
+  store_word(mem, slot, continuation_base, continuation_stack_count, count);
+  return true;
+}
+
+template <typename Memory>
+inline bool pop_continuation_entry(Memory &mem, reg_t slot, uint32_t &count,
+                                   TraversalEntry &entry,
+                                   uint32_t &context_id)
+{
+  if (count == 0)
+    return false;
+
+  --count;
+  entry.node_ref = load_word(mem, slot, continuation_base,
+                             continuation_stack_word(
+                                 count, continuation_stack_node_ref));
+  uint64_t lo = load_word(mem, slot, continuation_base,
+                          continuation_stack_word(
+                              count, continuation_stack_as_base_lo));
+  uint64_t hi = load_word(mem, slot, continuation_base,
+                          continuation_stack_word(
+                              count, continuation_stack_as_base_hi));
+  entry.as_base = lo | (hi << 32);
+  context_id = load_word(mem, slot, continuation_base,
+                         continuation_stack_word(
+                             count, continuation_stack_context_id));
+  store_word(mem, slot, continuation_base, continuation_stack_count, count);
+  return true;
 }
 
 
@@ -627,15 +974,6 @@ inline bool intersect_box4_child(Memory &mem, uint64_t as_base, uint32_t node_re
   t_near = tmin;
   return true;
 }
-
-struct TraversalEntry {
-  uint64_t as_base = 0;
-  uint32_t node_ref = invalid_node_ref;
-  Ray ray;
-  uint32_t instance_id = 0;
-  uint32_t instance_sbt_offset = 0;
-  uint64_t instance_addr = 0;
-};
 
 struct ChildHit {
   uint32_t ref = invalid_node_ref;
@@ -1048,43 +1386,269 @@ inline uint32_t trace_aabb_list(Memory &mem, reg_t slot, const Ray &ray,
 }
 
 template <typename Memory>
+inline uint32_t trace_triangle_list_cont(Memory &mem, reg_t slot,
+                                         const Ray &ray, const Scene &scene)
+{
+  uint32_t start = 0;
+  if (continuation_is_active(mem, slot)) {
+    start = load_word(mem, slot, continuation_base,
+                      continuation_resume_index);
+  } else {
+    clear_continuation(mem, slot);
+    mark_continuation_active(mem, slot);
+  }
+
+  for (uint32_t i = start; i < scene.primitive_count; ++i) {
+    Ray current_ray = ray;
+    current_ray.tmax = current_tmax(mem, slot);
+    const Triangle tri =
+        load_triangle(mem, scene.primitive_addr + i * scene.primitive_stride);
+    Hit candidate;
+    candidate.t = current_ray.tmax;
+    if (!intersect_triangle(current_ray, tri, candidate))
+      continue;
+
+    const bool force_opaque =
+        (current_ray.flags & ray_flag_force_opaque) != 0;
+    const bool force_non_opaque =
+        (current_ray.flags & ray_flag_force_non_opaque) != 0;
+    const bool opaque = force_opaque || (!force_non_opaque && tri.opaque != 0);
+    if (!opaque) {
+      write_hit_record(mem, slot, candidate_hit_record_base, scene, candidate,
+                       rt_status_hit);
+      write_hit_attrib(mem, slot, candidate);
+      store_word(mem, slot, continuation_base, continuation_resume_index,
+                 i + 1);
+      pause_candidate(mem, slot, traversal_candidate_non_opaque_triangle);
+      return traversal_candidate_non_opaque_triangle;
+    }
+
+    commit_hit(mem, slot, scene, candidate);
+    if (current_ray.flags & ray_flag_terminate_on_first_hit)
+      return finish_traversal(mem, slot);
+  }
+
+  return finish_traversal(mem, slot);
+}
+
+template <typename Memory>
+inline uint32_t trace_aabb_list_cont(Memory &mem, reg_t slot, const Ray &ray,
+                                     const Scene &scene)
+{
+  uint32_t start = 0;
+  if (continuation_is_active(mem, slot)) {
+    start = load_word(mem, slot, continuation_base,
+                      continuation_resume_index);
+  } else {
+    clear_continuation(mem, slot);
+    mark_continuation_active(mem, slot);
+  }
+
+  for (uint32_t i = start; i < scene.primitive_count; ++i) {
+    Ray current_ray = ray;
+    current_ray.tmax = current_tmax(mem, slot);
+    const ProceduralAabb aabb =
+        load_aabb(mem, scene.primitive_addr + i * scene.primitive_stride);
+    float hit_t = 0.0f;
+    if (!intersect_aabb(current_ray, aabb, hit_t))
+      continue;
+
+    const Hit candidate = hit_from_aabb(aabb, hit_t);
+    write_hit_record(mem, slot, candidate_hit_record_base, scene, candidate,
+                     rt_status_hit);
+    write_hit_attrib(mem, slot, candidate);
+    store_word(mem, slot, continuation_base, continuation_resume_index, i + 1);
+    pause_candidate(mem, slot, traversal_candidate_procedural_aabb);
+    return traversal_candidate_procedural_aabb;
+  }
+
+  return finish_traversal(mem, slot);
+}
+
+template <typename Memory>
+inline uint32_t trace_vtas_cont(Memory &mem, reg_t slot, const Ray &ray,
+                                uint64_t tlas_addr)
+{
+  if (mem.load32(tlas_addr + as_header_magic) != as_magic ||
+      (mem.load32(tlas_addr + as_header_version) & 0xffffu) != as_version ||
+      mem.load32(tlas_addr + as_header_type) != as_type_tlas)
+    return finish_traversal(mem, slot);
+
+  Scene scene;
+  scene.hit_sbt_base = 0;
+  scene.shader_group_handle_size = 32;
+
+  uint32_t stack_count =
+      load_word(mem, slot, continuation_base, continuation_stack_count);
+  if (!continuation_is_active(mem, slot)) {
+    clear_continuation(mem, slot);
+    ContinuationContext ctx;
+    ctx.as_base = tlas_addr;
+    ctx.ray = ray;
+    store_continuation_context(mem, slot, 0, ctx);
+    TraversalEntry root = {tlas_addr, load_node_ref(mem, tlas_addr),
+                           ray, 0, 0, 0};
+    stack_count = 0;
+    if (!push_continuation_entry(mem, slot, stack_count, root, 0))
+      return finish_traversal(mem, slot);
+    mark_continuation_active(mem, slot);
+  }
+
+  while (true) {
+    TraversalEntry entry;
+    uint32_t context_id = 0;
+    if (!pop_continuation_entry(mem, slot, stack_count, entry, context_id))
+      return finish_traversal(mem, slot);
+
+    if (context_id >= continuation_context_count ||
+        entry.node_ref == invalid_node_ref)
+      continue;
+
+    ContinuationContext ctx =
+        load_continuation_context(mem, slot, context_id);
+    entry.ray = ctx.ray;
+    entry.ray.tmax = current_tmax(mem, slot);
+    entry.instance_id = ctx.instance_id;
+    entry.instance_sbt_offset = ctx.instance_sbt_offset;
+    entry.instance_addr = ctx.instance_addr;
+
+    const uint32_t type = node_ref_type(entry.node_ref);
+    const reg_t node_addr = entry.as_base + node_ref_offset(entry.node_ref);
+
+    if (type == node_box4) {
+      ChildHit hits[4];
+      uint32_t hit_count = 0;
+      for (uint32_t i = 0; i < 4; i++) {
+        uint32_t child = mem.load32(node_addr + box4_child_ref + i * 4);
+        if (child == invalid_node_ref)
+          continue;
+        float t_near = 0.0f;
+        if (intersect_box4_child(mem, entry.as_base, entry.node_ref, i,
+                                 entry.ray, t_near))
+          hits[hit_count++] = {child, t_near};
+      }
+
+      std::sort(hits, hits + hit_count,
+                [](const ChildHit &a, const ChildHit &b) {
+                  return a.t_near < b.t_near;
+                });
+      for (uint32_t i = hit_count; i > 0; i--) {
+        TraversalEntry child = {entry.as_base, hits[i - 1].ref, entry.ray,
+                                entry.instance_id,
+                                entry.instance_sbt_offset,
+                                entry.instance_addr};
+        if (!push_continuation_entry(mem, slot, stack_count, child,
+                                     context_id))
+          return finish_traversal(mem, slot);
+      }
+      continue;
+    }
+
+    if (type == node_instance) {
+      const uint32_t mask = mem.load32(node_addr + instance_mask);
+      if ((entry.ray.cull_mask & mask) == 0)
+        continue;
+
+      const uint64_t blas = load_u64(mem, node_addr + instance_blas_addr_lo);
+      if (!blas || mem.load32(blas + as_header_magic) != as_magic ||
+          mem.load32(blas + as_header_type) != as_type_blas)
+        continue;
+
+      Ray object_ray = entry.ray;
+      object_ray.origin = transform_instance_point(
+          mem, node_addr + instance_world_to_object, entry.ray.origin);
+      object_ray.direction = transform_instance_vector(
+          mem, node_addr + instance_world_to_object, entry.ray.direction);
+
+      ContinuationContext child_ctx;
+      child_ctx.as_base = blas;
+      child_ctx.ray = object_ray;
+      child_ctx.instance_id = mem.load32(node_addr + instance_instance_id);
+      child_ctx.instance_sbt_offset =
+          mem.load32(node_addr + instance_sbt_record_offset);
+      child_ctx.instance_addr = node_addr;
+      store_continuation_context(mem, slot, 1, child_ctx);
+
+      TraversalEntry root = {blas, load_node_ref(mem, blas), object_ray,
+                             child_ctx.instance_id,
+                             child_ctx.instance_sbt_offset,
+                             child_ctx.instance_addr};
+      if (!push_continuation_entry(mem, slot, stack_count, root, 1))
+        return finish_traversal(mem, slot);
+      continue;
+    }
+
+    if (type != node_triangle)
+      continue;
+
+    Triangle tri = load_vtas_triangle(mem, entry.as_base, entry.node_ref,
+                                      entry.instance_id,
+                                      entry.instance_sbt_offset,
+                                      entry.instance_addr);
+    Hit candidate;
+    candidate.t = current_tmax(mem, slot);
+    if (!intersect_triangle(entry.ray, tri, candidate))
+      continue;
+
+    const bool force_opaque = (entry.ray.flags & ray_flag_force_opaque) != 0;
+    const bool force_non_opaque =
+        (entry.ray.flags & ray_flag_force_non_opaque) != 0;
+    const bool opaque = force_opaque || (!force_non_opaque && tri.opaque != 0);
+    if (!opaque) {
+      write_hit_record(mem, slot, candidate_hit_record_base, scene, candidate,
+                       rt_status_hit);
+      write_hit_attrib(mem, slot, candidate);
+      pause_candidate(mem, slot, traversal_candidate_non_opaque_triangle);
+      return traversal_candidate_non_opaque_triangle;
+    }
+
+    commit_hit(mem, slot, scene, candidate);
+    if (entry.ray.flags & ray_flag_terminate_on_first_hit)
+      return finish_traversal(mem, slot);
+  }
+}
+
+template <typename Memory>
 inline uint32_t traverse(Memory &mem, reg_t slot)
 {
-  if (load_word(mem, slot, control_base, control_terminate_ray)) {
-    store_word(mem, slot, 0, slot_status, rt_status_done);
+  if (!continuation_is_active(mem, slot)) {
+    clear_continuation(mem, slot);
+    store_word(mem, slot, committed_hit_record_base, hit_record_status, 0);
+  }
+
+  const bool accept_hit =
+      load_word(mem, slot, control_base, control_accept_hit) != 0;
+  const bool terminate_ray =
+      load_word(mem, slot, control_base, control_terminate_ray) != 0;
+
+  if (accept_hit) {
+    const float hit_t =
+        bit_cast_f32(load_word(mem, slot, candidate_hit_record_base,
+                               hit_record_hit_t));
+    const Ray ray = load_ray(mem, slot);
+    if (hit_t >= ray.tmin && hit_t <= current_tmax(mem, slot))
+      commit_candidate_hit(mem, slot);
+  }
+
+  if (terminate_ray) {
+    clear_control(mem, slot);
     store_word(mem, slot, control_base, control_done, 1);
+    mark_continuation_done(mem, slot);
+    if (committed_hit_valid(mem, slot))
+      return traversal_complete_hit;
+    store_word(mem, slot, 0, slot_status, rt_status_done);
     return traversal_terminated;
   }
 
-  if (load_word(mem, slot, control_base, control_accept_hit)) {
-    copy_hit_record(mem, slot, committed_hit_record_base,
-                    candidate_hit_record_base);
-    const uint32_t hit_t =
-        load_word(mem, slot, candidate_hit_record_base, hit_record_hit_t);
-    const uint32_t sbt_index =
-        load_word(mem, slot, candidate_hit_record_base, hit_record_sbt_index);
-    store_word(mem, slot, 0, slot_hit_t, hit_t);
-    store_word(mem, slot, 0, slot_sbt_index, sbt_index);
-    store_word(mem, slot, 0, slot_status, rt_status_hit);
-    clear_control(mem, slot);
-    store_word(mem, slot, control_base, control_done, 1);
-    return traversal_complete_hit;
-  }
-
-  const bool skip_non_opaque =
-      load_word(mem, slot, control_base, control_ignore_hit) != 0;
   clear_control(mem, slot);
   const Ray ray = load_ray(mem, slot);
   const uint64_t accel_addr = load_accel_addr(mem, slot);
-  if (accel_addr == 0) {
-    store_word(mem, slot, 0, slot_status, rt_status_miss);
-    store_word(mem, slot, control_base, control_done, 1);
-    return traversal_complete_miss;
-  }
+  if (accel_addr == 0)
+    return finish_traversal(mem, slot);
 
   const uint32_t magic = mem.load32(accel_addr + 0);
   if (magic == as_magic)
-    return trace_vtas(mem, slot, ray, accel_addr, skip_non_opaque);
+    return trace_vtas_cont(mem, slot, ray, accel_addr);
 
   const uint32_t version = mem.load32(accel_addr + 4);
   const uint32_t geometry_type = mem.load32(accel_addr + 8);
@@ -1097,27 +1661,23 @@ inline uint32_t traverse(Memory &mem, reg_t slot)
 
   if (magic != bvh_magic || version != bvh_version ||
       scene.primitive_count == 0 ||
-      scene.primitive_addr == 0 || scene.primitive_stride == 0) {
-    store_word(mem, slot, 0, slot_status, rt_status_miss);
-    store_word(mem, slot, control_base, control_done, 1);
-    return traversal_complete_miss;
-  }
+      scene.primitive_addr == 0 || scene.primitive_stride == 0)
+    return finish_traversal(mem, slot);
 
   if (geometry_type == geometry_triangle_list)
-    return trace_triangle_list(mem, slot, ray, scene, skip_non_opaque);
+    return trace_triangle_list_cont(mem, slot, ray, scene);
 
   if (geometry_type == geometry_procedural_aabb_list)
-    return trace_aabb_list(mem, slot, ray, scene, skip_non_opaque);
+    return trace_aabb_list_cont(mem, slot, ray, scene);
 
-  store_word(mem, slot, 0, slot_status, rt_status_miss);
-  store_word(mem, slot, control_base, control_done, 1);
-  return traversal_complete_miss;
+  return finish_traversal(mem, slot);
 }
 
 template <typename Memory>
 inline void release(Memory &mem, reg_t slot)
 {
   clear_control(mem, slot);
+  clear_continuation(mem, slot);
 }
 
 #ifndef VENTUS_RT_STANDALONE
