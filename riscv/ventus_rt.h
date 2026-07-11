@@ -980,6 +980,21 @@ struct ChildHit {
   float t_near = 0.0f;
 };
 
+/*
+ * Legacy one-shot tracing path.
+ *
+ * Current vt.rt.traverse execution enters traverse() and dispatches to the
+ * *_cont functions below.  Those continuation paths persist traversal state in
+ * scratch so that any-hit/intersection callbacks can accept, ignore, terminate,
+ * and then resume traversal.
+ *
+ * The functions in this disabled block predate that continuation model.  They
+ * either traverse to completion with a local stack or pause at a candidate
+ * without enough scratch state to resume the same BVH/list walk.  Keep them as
+ * debug/reference material only; do not wire them back into the instruction
+ * path without redesigning their state semantics.
+ */
+#if 0
 struct TraversalDebugCounters {
   uint32_t boxes = 0;
   uint32_t box_child_tests = 0;
@@ -1384,6 +1399,7 @@ inline uint32_t trace_aabb_list(Memory &mem, reg_t slot, const Ray &ray,
   store_word(mem, slot, control_base, control_done, 1);
   return traversal_complete_miss;
 }
+#endif
 
 template <typename Memory>
 inline uint32_t trace_triangle_list_cont(Memory &mem, reg_t slot,
