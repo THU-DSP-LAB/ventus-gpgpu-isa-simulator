@@ -6,9 +6,6 @@
 #include <iostream>
 #include <iomanip>
 #include <cmath>
-#include <cinttypes>
-#include <cstdio>
-#include <cstdlib>
 // rvv-gpgpu-enable
 #define GPGPU_ENABLE true
 
