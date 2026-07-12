@@ -21,6 +21,9 @@ class mmu_t;
 namespace ventus_rt {
 
 constexpr reg_t lanes = 32;
+constexpr reg_t rt_pds_base_bytes = 4096;
+constexpr reg_t rt_region_size_bytes = 1008;
+constexpr reg_t rt_total_size_bytes = rt_pds_base_bytes + rt_region_size_bytes;
 
 constexpr reg_t slot_status = 0;
 constexpr reg_t slot_accel_lo = 1;
@@ -42,8 +45,11 @@ constexpr reg_t slot_payload_ptr_lo = 16;
 constexpr reg_t slot_payload_ptr_hi = 17;
 constexpr reg_t slot_hit_t = 18;
 constexpr reg_t slot_sbt_index = 19;
+constexpr reg_t slot_launch_id_x = 20;
+constexpr reg_t slot_launch_id_y = 21;
+constexpr reg_t slot_launch_id_z = 22;
 
-constexpr reg_t control_base = 80;
+constexpr reg_t control_base = 96;
 constexpr reg_t control_done = 0;
 constexpr reg_t control_incomplete = 1;
 constexpr reg_t control_accept_hit = 2;
@@ -51,10 +57,10 @@ constexpr reg_t control_ignore_hit = 3;
 constexpr reg_t control_terminate_ray = 4;
 constexpr reg_t control_skip_closest_hit = 5;
 
-constexpr reg_t committed_hit_record_base = 192;
-constexpr reg_t candidate_hit_record_base = 112;
-constexpr reg_t hit_attrib_base = 272;
-constexpr reg_t continuation_base = 352;
+constexpr reg_t committed_hit_record_base = 208;
+constexpr reg_t candidate_hit_record_base = 128;
+constexpr reg_t hit_attrib_base = 288;
+constexpr reg_t continuation_base = 368;
 constexpr reg_t hit_record_status = 0;
 constexpr reg_t hit_record_hit_t = 1;
 constexpr reg_t hit_record_sbt_index = 2;
@@ -1627,15 +1633,17 @@ inline uint32_t trace_vtas_cont(Memory &mem, reg_t slot, const Ray &ray,
 template <typename Memory>
 inline uint32_t traverse(Memory &mem, reg_t slot)
 {
-  if (!continuation_is_active(mem, slot)) {
+  const bool resuming = continuation_is_active(mem, slot);
+  if (!resuming) {
     clear_continuation(mem, slot);
     store_word(mem, slot, committed_hit_record_base, hit_record_status, 0);
+    clear_control(mem, slot);
   }
 
   const bool accept_hit =
-      load_word(mem, slot, control_base, control_accept_hit) != 0;
+      resuming && load_word(mem, slot, control_base, control_accept_hit) != 0;
   const bool terminate_ray =
-      load_word(mem, slot, control_base, control_terminate_ray) != 0;
+      resuming && load_word(mem, slot, control_base, control_terminate_ray) != 0;
 
   if (accept_hit) {
     const float hit_t =
@@ -1742,15 +1750,18 @@ struct HybridMemory {
 
   uint32_t load32(reg_t addr)
   {
-    return addr < 4096 ? slot.load32(addr) : raw.load32(addr);
+    if (addr < rt_total_size_bytes)
+      return slot.load32(addr);
+    return raw.load32(addr);
   }
 
   void store32(reg_t addr, uint32_t value)
   {
-    if (addr < 4096)
+    if (addr < rt_total_size_bytes) {
       slot.store32(addr, value);
-    else
-      raw.store32(addr, value);
+      return;
+    }
+    raw.store32(addr, value);
   }
 };
 
