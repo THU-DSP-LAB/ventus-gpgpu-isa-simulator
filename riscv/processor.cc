@@ -1350,6 +1350,7 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
   size_t numw = 0;
   size_t numt = 0;
   size_t numwg = 0;
+  size_t numres = 1;
   uint64_t ldssize=0;
   uint64_t ldsbase=0x70000000;
   uint64_t pdssize=0;
@@ -1379,6 +1380,8 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
       numw = get_int_token(str, ',', pos);
     else if (attr == "numwg")
       numwg = get_int_token(str, ',', pos);
+    else if (attr == "numres")
+      numres = get_int_token(str, ',', pos);
     else if (attr == "kernelx")
       kernel_size[0] = get_int_token(str, ',', pos);
     else if (attr == "kernely")
@@ -1430,6 +1433,7 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
   thread_number = numt;
   warp_number = numw;
   workgroup_number = numwg;
+  resident_workgroup_number = numres;
   lds_size = ldssize == 0 ? (numw * numt )<< 10 : ldssize;
   lds_base = ldsbase;
   pds_size = pdssize == 0 ? (numw * numt )<< 10 : pdssize;

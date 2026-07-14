@@ -116,21 +116,24 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
   uint64_t goy = w.global_offset_y;
   uint64_t goz = w.global_offset_z;
   uint64_t dim = w.work_dim_64;
-  w.workgroup_number = 1;
+  w.workgroup_number = w.resident_workgroup_number;
 
   uint64_t spike_curr_wgid = w.curr_wgid;
 
-  assert(spike_curr_wgid < w.workgroup_size_x * w.workgroup_size_y * w.workgroup_size_z);
-  gidz = spike_curr_wgid / (w.workgroup_size_x * w.workgroup_size_y);
-  gidy = (spike_curr_wgid % (w.workgroup_size_x * w.workgroup_size_y)) / w.workgroup_size_x;
-  gidx = (spike_curr_wgid % (w.workgroup_size_x * w.workgroup_size_y)) % w.workgroup_size_x;
-  //printf("simt() current_wgid is %ld, gidx %ld, gidy %ld, gidz %ld\n", spike_curr_wgid, gidx, gidy, gidz);
-
   workgroups = new warp_schedule_t[w.workgroup_number];
   for (size_t i=0;i<w.workgroup_number;i++) {
+    const uint64_t workgroup_id = spike_curr_wgid + i;
+    assert(workgroup_id < w.workgroup_size_x * w.workgroup_size_y *
+                          w.workgroup_size_z);
+    gidz = workgroup_id / (w.workgroup_size_x * w.workgroup_size_y);
+    gidy = (workgroup_id % (w.workgroup_size_x * w.workgroup_size_y)) /
+           w.workgroup_size_x;
+    gidx = (workgroup_id % (w.workgroup_size_x * w.workgroup_size_y)) %
+           w.workgroup_size_x;
     assert(w.warp_number>0 & w.workgroup_number>0 & w.thread_number>0);
     assert(w.warp_number * w.workgroup_number == cfg->nprocs());
-    workgroups[i].set_warp_schedule(w.warp_number,w.thread_number,w.workgroup_number, spike_curr_wgid);
+    workgroups[i].set_warp_schedule(w.warp_number,w.thread_number,
+                                    w.workgroup_number, workgroup_id);
 
     for (size_t j = 0; j < w.warp_number; j++) {
       reach_end[i*w.warp_number+j] = i*w.warp_number+j;
@@ -144,7 +147,7 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
       // TODO: 使用x*y*z计算block中有效thread数量可能不可靠
       //现在一个warp就是一个core
       procs[i*w.warp_number+j]->gpgpu_unit.init_warp(w.warp_number, w.thread_number,
-              j * w.thread_number, spike_curr_wgid, j, pds, lds, knl_base, gidx, gidy, gidz, clprintf,gsx,gsy,gsz,lsx,lsy,lsz,gox,goy,goz,dim, num_thread_this_warp);
+              j * w.thread_number, workgroup_id, j, pds, lds, knl_base, gidx, gidy, gidz, clprintf,gsx,gsy,gsz,lsx,lsy,lsz,gox,goy,goz,dim, num_thread_this_warp);
       assert(w.thread_number == (procs[i]->VU.get_vlen() / procs[i]->VU.get_elen()));
     }
     

@@ -371,7 +371,6 @@ int spike_device::set_filename(const char* filename,const char* logname){
   return 0;  
 }
 
-#define SPIKE_RUN_WG_NUM 1
 int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   uint64_t num_warp=knl_data->wg_size;
   uint64_t num_thread=knl_data->wf_size;
@@ -379,10 +378,12 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   uint64_t num_workgroup_y=knl_data->kernel_size[1];
   uint64_t num_workgroup_z=knl_data->kernel_size[2];
   uint64_t num_workgroup=num_workgroup_x*num_workgroup_y*num_workgroup_z;
-  uint64_t num_processor=num_warp*SPIKE_RUN_WG_NUM;
+  // A zero value is the ABI-compatible default for pre-residency callers.
+  const uint64_t resident_workgroup_capacity =
+      knl_data->pdsResidentWgCount ? knl_data->pdsResidentWgCount : 1;
+  uint64_t num_processor=num_warp*resident_workgroup_capacity;
   uint64_t ldssize=knl_data->ldsSize;
-  //uint64_t pdssize=knl_data->pdsSize * num_thread;
-  uint64_t pdssize = 0x10000000;
+  uint64_t pdssize = knl_data->pdsSize * num_thread * num_warp;
   uint64_t pdsbase=knl_data->pdsBaseAddr;
   uint64_t start_pc=knl_start_pc;
   uint64_t knlbase=knl_data->metaDataBaseAddr;
@@ -594,8 +595,8 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   char arg_logfilename[256];
   snprintf(arg_logfilename, sizeof(arg_logfilename), "--log=%s", logfilename);
   snprintf(arg_num_core, sizeof(arg_num_core), "-p%ld", num_processor);
-  snprintf(arg_gpgpu, sizeof(arg_gpgpu), "numw:%ld,numt:%ld,numwg:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx,knlbase:0x%lx,currwgid:%lx,gsx:%ld,gsy:%ld,gsz:%ld,lsx:%ld,lsy:%ld,lsz:%ld,gox:%ld,goy:%ld,goz:%ld,dim:%ld",\
-        num_warp,num_thread,num_workgroup,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase,knlbase,currwgid,gsx,gsy,gsz,lsx,lsy,lsz,gox,goy,goz,work_dim_64);
+  snprintf(arg_gpgpu, sizeof(arg_gpgpu), "numw:%ld,numt:%ld,numwg:%ld,numres:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx,knlbase:0x%lx,currwgid:%lx,gsx:%ld,gsy:%ld,gsz:%ld,lsx:%ld,lsy:%ld,lsz:%ld,gox:%ld,goy:%ld,goz:%ld,dim:%ld",\
+        num_warp,num_thread,num_workgroup,resident_workgroup_capacity,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase,knlbase,currwgid,gsx,gsy,gsz,lsx,lsy,lsz,gox,goy,goz,work_dim_64);
   fprintf(stderr, "arg gpgpu is %s\n",arg_gpgpu);
   snprintf(arg_vlen_elen, sizeof(arg_vlen_elen), "vlen:%ld,elen:%d", num_thread * 32, 32);
   snprintf(arg_mem_scope, sizeof(arg_mem_scope), "-m0x70000000:0x%lx", buffer.back().base + buffer.back().size);
@@ -661,16 +662,6 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
                 << nprocs() << ").\n";
       exit(1);
     }
-  } else {
-    // Set default set of hartids based on nprocs, but don't set the
-    // explicit_hartids flag (which means that downstream code can know that
-    // we've only set the number of harts, not explicitly chosen their IDs).
-    std::vector<int> default_hartids;
-    default_hartids.reserve(nprocs());
-    for (size_t i = 0; i < num_warp * SPIKE_RUN_WG_NUM; ++i) {
-      default_hartids.push_back(i);
-    }
-    cfg.hartids = default_hartids;
   }
 
   std::vector<std::pair<reg_t, mem_t*>> all_buffer_data(const_buffer_data);
@@ -682,8 +673,28 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   auto return_code = 0;
 //  char log_name[256] = {0};
   log_file_t log_file(log_path);
-  for (uint64_t i = 0; i < num_workgroup / SPIKE_RUN_WG_NUM; i++)
+  const bool batch_log =
+      parse_bool(std::getenv("VENTUS_SPIKE_BATCH_LOG")).value_or(false);
+  while (currwgid < num_workgroup)
   {
+      const uint64_t active_workgroups =
+          std::min<uint64_t>(resident_workgroup_capacity,
+                             num_workgroup - currwgid);
+      const uint64_t active_processors = num_warp * active_workgroups;
+      std::vector<int> hartids;
+      hartids.reserve(active_processors);
+      for (uint64_t hart = 0; hart < active_processors; hart++)
+        hartids.push_back(hart);
+      cfg.hartids = hartids;
+      snprintf(arg_gpgpu, sizeof(arg_gpgpu), "numw:%ld,numt:%ld,numwg:%ld,numres:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx,knlbase:0x%lx,currwgid:%lx,gsx:%ld,gsy:%ld,gsz:%ld,lsx:%ld,lsy:%ld,lsz:%ld,gox:%ld,goy:%ld,goz:%ld,dim:%ld",\
+          num_warp,num_thread,num_workgroup,active_workgroups,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase,knlbase,currwgid,gsx,gsy,gsz,lsx,lsy,lsz,gox,goy,goz,work_dim_64);
+      cfg.gpgpuarch = arg_gpgpu;
+      if (batch_log) {
+        fprintf(stderr,
+                "spike: batch first_wg=%lu active_wg=%lu cores=%lu pds_base=0x%lx pds_stride=0x%lx\n",
+                currwgid, active_workgroups, active_processors, pdsbase,
+                pdssize);
+      }
       sim=new sim_t(&cfg, halted,
               all_buffer_data, plugin_devices, htif_args, dm_config, log_file, dtb_enabled, dtb_file,
 #ifdef HAVE_BOOST_ASIO
@@ -707,7 +718,7 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
       if (ic) ic->set_log(log_cache);
       if (dc) dc->set_log(log_cache);
 
-      for (size_t i = 0; i < num_warp; i++)
+      for (size_t i = 0; i < active_processors; i++)
       {
           if (ic) sim->get_core(i)->get_mmu()->register_memtracer(&*ic);
           if (dc) sim->get_core(i)->get_mmu()->register_memtracer(&*dc);
@@ -721,9 +732,7 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
       sim->set_histogram(histogram);
 
       return_code = sim->run();
-      currwgid++;
-      snprintf(arg_gpgpu, sizeof(arg_gpgpu), "numw:%ld,numt:%ld,numwg:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx,knlbase:0x%lx,currwgid:%lx,gsx:%ld,gsy:%ld,gsz:%ld,lsx:%ld,lsy:%ld,lsz:%ld,gox:%ld,goy:%ld,goz:%ld,dim:%ld",\
-          num_warp,num_thread,num_workgroup,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase,knlbase,currwgid,gsx,gsy,gsz,lsx,lsy,lsz,gox,goy,goz,work_dim_64);
+      currwgid += active_workgroups;
   //    sprintf(log_name, "object_%ld.riscv.log", currwgid);
   //    log_path = log_name;
       delete sim;
