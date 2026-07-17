@@ -200,6 +200,7 @@ void state_t::reset(processor_t* const proc, reg_t max_isa)
   FPR.reset();
   regext_info.ext_imm=0;
   regext_info.valid=0;
+  regext_info.validi=0;
   regext_info.ext_rd=0;
   regext_info.ext_rs1=0;
   regext_info.ext_rs2=0;
