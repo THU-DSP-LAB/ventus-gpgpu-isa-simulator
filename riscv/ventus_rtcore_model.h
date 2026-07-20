@@ -45,6 +45,7 @@ public:
   {
     LegacyWarpResult result;
     const uint32_t mask = effective_mask(issue);
+    validateAbiTags(issue, mask, make_memory);
 
     for (uint32_t lane = 0; lane < issue.lane_count; ++lane) {
       const uint32_t lane_bit = uint32_t{1} << lane;
@@ -66,6 +67,7 @@ public:
                           MemoryFactory &&make_memory)
   {
     const uint32_t mask = effective_mask(issue);
+    validateAbiTags(issue, mask, make_memory);
 
     for (uint32_t lane = 0; lane < issue.lane_count; ++lane) {
       const uint32_t lane_bit = uint32_t{1} << lane;
@@ -80,6 +82,20 @@ public:
   }
 
 private:
+  template <typename MemoryFactory>
+  static void validateAbiTags(const LegacyWarpIssue &issue, uint32_t mask,
+                              MemoryFactory &make_memory)
+  {
+    for (uint32_t lane = 0; lane < issue.lane_count; ++lane) {
+      const uint32_t lane_bit = uint32_t{1} << lane;
+      if ((mask & lane_bit) == 0)
+        continue;
+
+      auto memory = make_memory(lane);
+      require_rt_abi_tag(memory, issue.lane_slots[lane]);
+    }
+  }
+
   static uint32_t effective_mask(const LegacyWarpIssue &issue)
   {
     if (issue.lane_count > lanes)

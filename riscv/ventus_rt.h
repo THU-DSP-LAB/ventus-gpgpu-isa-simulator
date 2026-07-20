@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <stdexcept>
 #include <unordered_map>
 #include <vector>
 
@@ -25,6 +26,8 @@ constexpr reg_t lanes = 32;
 constexpr reg_t rt_pds_base_bytes = 4096;
 constexpr reg_t rt_region_size_bytes = 384;
 constexpr reg_t rt_total_size_bytes = rt_pds_base_bytes + rt_region_size_bytes;
+constexpr uint32_t rt_abi_version = 2;
+constexpr uint32_t rt_abi_tag = 0x56540000u | rt_abi_version;
 
 constexpr reg_t slot_status = 0;
 constexpr reg_t slot_accel_lo = 1;
@@ -49,6 +52,7 @@ constexpr reg_t slot_sbt_index = 19;
 constexpr reg_t slot_launch_id_x = 20;
 constexpr reg_t slot_launch_id_y = 21;
 constexpr reg_t slot_launch_id_z = 22;
+constexpr reg_t slot_abi_tag = 23;
 
 constexpr reg_t cps_header_base = 96;
 constexpr reg_t cps_frame_base = 0;
@@ -233,6 +237,13 @@ inline void store_word(Memory &mem, reg_t slot, reg_t byte_base, reg_t word,
                        uint32_t value)
 {
   mem.store32(word_addr(slot, byte_base, word), value);
+}
+
+template <typename Memory>
+inline void require_rt_abi_tag(Memory &mem, reg_t slot)
+{
+  if (load_word(mem, slot, 0, slot_abi_tag) != rt_abi_tag)
+    throw std::invalid_argument("Ventus RT ABI tag mismatch");
 }
 
 struct Vec3 {
@@ -1969,6 +1980,7 @@ template <typename Memory>
 inline uint32_t traverse(Memory &mem, reg_t slot,
                          RtPrivateState &private_state)
 {
+  require_rt_abi_tag(mem, slot);
   const uint64_t key = rt_context_key(mem, slot, 0);
   std::unordered_map<uint64_t, RtPrivateContext> &contexts =
       private_state.contexts();
@@ -2054,6 +2066,7 @@ inline uint32_t traverse(Memory &mem, reg_t slot,
 template <typename Memory>
 inline void release(Memory &mem, reg_t slot, RtPrivateState &private_state)
 {
+  require_rt_abi_tag(mem, slot);
   private_state.contexts().erase(rt_context_key(mem, slot, 0));
   clear_control(mem, slot);
 }

@@ -136,6 +136,7 @@ static void write_aabb(TestMemory &mem, reg_t addr, uint32_t primitive_id,
 
 static void write_ray(TestMemory &mem, reg_t slot, reg_t accel)
 {
+  store_slot(mem, slot, 0, slot_abi_tag, rt_abi_tag);
   store_slot(mem, slot, 0, slot_accel_lo, uint32_t(accel));
   store_slot(mem, slot, 0, slot_accel_hi, uint32_t(uint64_t(accel) >> 32));
   store_slot(mem, slot, 0, slot_cull_mask, 0xff);
@@ -552,6 +553,9 @@ static void check_rt_private_context_abi()
   assert(traverse(mem, slot) == traversal_complete_miss);
 
   assert(rt_region_size_bytes == 384);
+  assert(rt_abi_version == 2);
+  assert(rt_abi_tag == 0x56540002u);
+  assert(slot_abi_tag * sizeof(uint32_t) == 92);
   assert(cps_header_base == 96);
   assert(control_base == 112);
   assert(candidate_hit_record_base == 144);
@@ -559,6 +563,104 @@ static void check_rt_private_context_abi()
   assert(hit_attrib_base == 304);
   for (const auto &word : mem.words)
     assert(word.first < rt_region_size_bytes || word.first >= accel);
+}
+
+static void check_rt_abi_tag_rejection()
+{
+  TestMemory mem;
+  constexpr reg_t slot = 0;
+  constexpr reg_t accel = 0x28000;
+  constexpr reg_t tris = 0x29000;
+
+  write_scene(mem, accel, tris, 1);
+  write_triangle(mem, tris, 2.0f, 51, 0, 0);
+  write_ray(mem, slot, accel);
+
+  RtCoreModel model;
+  LegacyWarpIssue issue;
+  issue.active_mask = 1;
+  issue.lane_count = 1;
+  issue.lane_slots[0] = slot;
+
+  store_slot(mem, slot, 0, slot_abi_tag, 0);
+  bool rejected = false;
+  try {
+    model.executeLegacyTraverse(
+        issue, [&mem](uint32_t) { return TestMemoryProxy{mem}; });
+  } catch (const std::invalid_argument &) {
+    rejected = true;
+  }
+  assert(rejected);
+  RtCoreDebugSnapshot snapshot = model.debugSnapshot();
+  assert(snapshot.traverse_issue_count == 0);
+  assert(snapshot.private_context_count == 0);
+  assert(!snapshot.command_active);
+
+  store_slot(mem, slot, 0, slot_abi_tag, rt_abi_tag);
+  const LegacyWarpResult result = model.executeLegacyTraverse(
+      issue, [&mem](uint32_t) { return TestMemoryProxy{mem}; });
+  assert(result.lane_status[0] == traversal_candidate_non_opaque_triangle);
+  snapshot = model.debugSnapshot();
+  assert(snapshot.traverse_issue_count == 1);
+  assert(snapshot.private_context_count == 1);
+
+  store_slot(mem, slot, 0, slot_abi_tag, rt_abi_tag - 1);
+  rejected = false;
+  try {
+    model.executeLegacyRelease(
+        issue, [&mem](uint32_t) { return TestMemoryProxy{mem}; });
+  } catch (const std::invalid_argument &) {
+    rejected = true;
+  }
+  assert(rejected);
+  snapshot = model.debugSnapshot();
+  assert(snapshot.release_issue_count == 0);
+  assert(snapshot.private_context_count == 1);
+  assert(!snapshot.command_active);
+
+  store_slot(mem, slot, 0, slot_abi_tag, rt_abi_tag);
+  model.executeLegacyRelease(
+      issue, [&mem](uint32_t) { return TestMemoryProxy{mem}; });
+  snapshot = model.debugSnapshot();
+  assert(snapshot.release_issue_count == 1);
+  assert(snapshot.private_context_count == 0);
+}
+
+static void check_rt_abi_tag_warp_preflight()
+{
+  TestMemory mem;
+  constexpr reg_t valid_slot = 0;
+  constexpr reg_t invalid_slot = 0x1000;
+  constexpr reg_t accel = 0x2a000;
+  constexpr reg_t tris = 0x2b000;
+
+  write_scene(mem, accel, tris, 1);
+  write_triangle(mem, tris, 2.0f, 61, 0, 0);
+  write_ray(mem, valid_slot, accel);
+  write_ray(mem, invalid_slot, accel);
+  store_slot(mem, invalid_slot, 0, slot_abi_tag, 0);
+
+  RtCoreModel model;
+  LegacyWarpIssue issue;
+  issue.active_mask = 3;
+  issue.lane_count = 2;
+  issue.lane_slots[0] = valid_slot;
+  issue.lane_slots[1] = invalid_slot;
+
+  bool rejected = false;
+  try {
+    model.executeLegacyTraverse(
+        issue, [&mem](uint32_t) { return TestMemoryProxy{mem}; });
+  } catch (const std::invalid_argument &) {
+    rejected = true;
+  }
+  assert(rejected);
+  const RtCoreDebugSnapshot snapshot = model.debugSnapshot();
+  assert(snapshot.traverse_issue_count == 0);
+  assert(snapshot.private_context_count == 0);
+  assert(load_slot(mem, valid_slot, candidate_hit_record_base,
+                   hit_record_status) == 0);
+  assert(load_slot(mem, valid_slot, control_base, control_incomplete) == 0);
 }
 
 static void check_rtcore_legacy_warp_boundary()
@@ -663,6 +765,8 @@ int main()
   check_vtas_tlas_blas_triangle_hit();
   check_pds_formula();
   check_rt_private_context_abi();
+  check_rt_abi_tag_rejection();
+  check_rt_abi_tag_warp_preflight();
   check_rtcore_legacy_warp_boundary();
   return 0;
 }
