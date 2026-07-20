@@ -1,5 +1,5 @@
 #define VENTUS_RT_STANDALONE
-#include "ventus_rt.h"
+#include "ventus_rtcore_model.h"
 
 #include <cassert>
 #include <cmath>
@@ -10,6 +10,13 @@ using namespace ventus_rt;
 
 struct TestMemory {
   std::unordered_map<reg_t, uint32_t> words;
+  uint64_t context_id = next_context_id++;
+  static uint64_t next_context_id;
+
+  uint64_t rt_context_key(reg_t slot) const
+  {
+    return (context_id << 32) ^ slot;
+  }
 
   uint32_t load32(reg_t addr)
   {
@@ -20,6 +27,27 @@ struct TestMemory {
   void store32(reg_t addr, uint32_t value)
   {
     words[addr] = value;
+  }
+};
+
+uint64_t TestMemory::next_context_id = 1;
+
+struct TestMemoryProxy {
+  TestMemory &memory;
+
+  uint64_t rt_context_key(reg_t slot) const
+  {
+    return memory.rt_context_key(slot);
+  }
+
+  uint32_t load32(reg_t addr)
+  {
+    return memory.load32(addr);
+  }
+
+  void store32(reg_t addr, uint32_t value)
+  {
+    memory.store32(addr, value);
   }
 };
 
@@ -271,6 +299,34 @@ static void check_closest_hit_wins()
                    hit_record_primitive_id) == 2);
 }
 
+static void check_candidate_replaces_farther_opaque_hit()
+{
+  TestMemory mem;
+  constexpr reg_t slot = 0;
+  constexpr reg_t accel = 0x13200;
+  constexpr reg_t tris = 0x13300;
+
+  write_scene(mem, accel, tris, 2);
+  write_triangle(mem, tris, 7.0f, 41, 0, 1);
+  write_triangle(mem, tris + 80, 3.0f, 42, 0, 0);
+  write_ray(mem, slot, accel);
+
+  assert(traverse(mem, slot) == traversal_candidate_non_opaque_triangle);
+  assert(load_slot(mem, slot, committed_hit_record_base,
+                   hit_record_primitive_id) == 41);
+  assert(load_slot(mem, slot, candidate_hit_record_base,
+                   hit_record_primitive_id) == 42);
+
+  store_slot(mem, slot, control_base, control_accept_hit, 1);
+  assert(traverse(mem, slot) == traversal_complete_hit);
+  assert(load_slot(mem, slot, committed_hit_record_base,
+                   hit_record_primitive_id) == 42);
+  assert(std::fabs(bit_cast_f32(load_slot(mem, slot,
+                                          committed_hit_record_base,
+                                          hit_record_hit_t)) -
+                   3.0f) < 0.001f);
+}
+
 static void check_non_opaque_candidate_accept_and_ignore()
 {
   {
@@ -327,6 +383,7 @@ static void check_non_opaque_candidate_accept_and_ignore()
     assert(traverse(mem, slot) == traversal_candidate_non_opaque_triangle);
     assert(load_slot(mem, slot, candidate_hit_record_base,
                      hit_record_primitive_id) == 10);
+    release(mem, slot);
   }
 
   {
@@ -358,7 +415,13 @@ static void check_terminate_and_release()
 {
   TestMemory mem;
   constexpr reg_t slot = 0;
+  constexpr reg_t accel = 0x22000;
+  constexpr reg_t tris = 0x23000;
 
+  write_scene(mem, accel, tris, 1);
+  write_triangle(mem, tris, 2.0f, 31, 0, 0);
+  write_ray(mem, slot, accel);
+  assert(traverse(mem, slot) == traversal_candidate_non_opaque_triangle);
   store_slot(mem, slot, control_base, control_terminate_ray, 1);
   assert(traverse(mem, slot) == traversal_terminated);
   assert(load_slot(mem, slot, control_base, control_done) == 1);
@@ -370,6 +433,27 @@ static void check_terminate_and_release()
   release(mem, slot);
   assert(load_slot(mem, slot, control_base, control_done) == 0);
   assert(load_slot(mem, slot, control_base, control_terminate_ray) == 0);
+}
+
+static void check_accept_and_terminate_completes_hit()
+{
+  TestMemory mem;
+  constexpr reg_t slot = 0;
+  constexpr reg_t accel = 0x26000;
+  constexpr reg_t tris = 0x27000;
+
+  write_scene(mem, accel, tris, 1);
+  write_triangle(mem, tris, 2.0f, 32, 0, 0);
+  write_ray(mem, slot, accel);
+  assert(traverse(mem, slot) == traversal_candidate_non_opaque_triangle);
+
+  store_slot(mem, slot, control_base, control_accept_hit, 1);
+  store_slot(mem, slot, control_base, control_terminate_ray, 1);
+  assert(traverse(mem, slot) == traversal_complete_hit);
+  assert(load_slot(mem, slot, 0, slot_status) == rt_status_hit);
+  assert(load_slot(mem, slot, control_base, control_done) == 1);
+  assert(load_slot(mem, slot, committed_hit_record_base,
+                   hit_record_primitive_id) == 32);
 }
 
 static void check_procedural_candidate_report_accept()
@@ -453,15 +537,132 @@ static void check_pds_formula()
   assert(mem.load32(physical) == 0xabcdef01);
 }
 
+static void check_rt_private_context_abi()
+{
+  TestMemory mem;
+  constexpr reg_t slot = 0;
+  constexpr reg_t accel = 0x24000;
+  constexpr reg_t tris = 0x25000;
+
+  write_scene(mem, accel, tris, 1);
+  write_triangle(mem, tris, 2.0f, 41, 0, 0);
+  write_ray(mem, slot, accel);
+  assert(traverse(mem, slot) == traversal_candidate_non_opaque_triangle);
+  store_slot(mem, slot, control_base, control_ignore_hit, 1);
+  assert(traverse(mem, slot) == traversal_complete_miss);
+
+  assert(rt_region_size_bytes == 384);
+  assert(cps_header_base == 96);
+  assert(control_base == 112);
+  assert(candidate_hit_record_base == 144);
+  assert(committed_hit_record_base == 224);
+  assert(hit_attrib_base == 304);
+  for (const auto &word : mem.words)
+    assert(word.first < rt_region_size_bytes || word.first >= accel);
+}
+
+static void check_rtcore_legacy_warp_boundary()
+{
+  TestMemory mem;
+  constexpr reg_t hit_slot = 0x0000;
+  constexpr reg_t miss_slot = 0x1000;
+  constexpr reg_t accel = 0x10000;
+  constexpr reg_t tris = 0x11000;
+
+  write_scene(mem, accel, tris, 1);
+  write_triangle(mem, tris, 5.0f, 42, 4, 1);
+  write_ray(mem, hit_slot, accel);
+  write_ray(mem, miss_slot, accel);
+  store_slot(mem, miss_slot, 0, slot_origin_x, bit_cast_u32(4.0f));
+
+  RtCoreModel model;
+  LegacyWarpIssue issue;
+  issue.active_mask = (uint32_t{1} << 0) | (uint32_t{1} << 2);
+  issue.first_lane = 0;
+  issue.lane_count = 4;
+  issue.lane_slots[0] = hit_slot;
+  issue.lane_slots[2] = miss_slot;
+
+  const LegacyWarpResult result = model.executeLegacyTraverse(
+      issue, [&mem](uint32_t) { return TestMemoryProxy{mem}; });
+  assert(result.valid_mask == issue.active_mask);
+  assert(result.lane_status[0] == traversal_complete_hit);
+  assert(result.lane_status[2] == traversal_complete_miss);
+  assert((result.valid_mask & (uint32_t{1} << 1)) == 0);
+
+  RtCoreDebugSnapshot snapshot = model.debugSnapshot();
+  assert(snapshot.traverse_issue_count == 1);
+  assert(snapshot.release_issue_count == 0);
+  assert(snapshot.private_context_count == 0);
+  assert(!snapshot.command_active);
+
+  const uint32_t released_mask = model.executeLegacyRelease(
+      issue, [&mem](uint32_t) { return TestMemoryProxy{mem}; });
+  assert(released_mask == issue.active_mask);
+  assert(load_slot(mem, hit_slot, control_base, control_done) == 0);
+  assert(load_slot(mem, miss_slot, control_base, control_done) == 0);
+
+  snapshot = model.debugSnapshot();
+  assert(snapshot.traverse_issue_count == 1);
+  assert(snapshot.release_issue_count == 1);
+  assert(snapshot.private_context_count == 0);
+
+  constexpr reg_t candidate_slot = 0x2000;
+  constexpr reg_t candidate_accel = 0x12000;
+  constexpr reg_t candidate_tris = 0x13000;
+  write_scene(mem, candidate_accel, candidate_tris, 1);
+  write_triangle(mem, candidate_tris, 2.0f, 91, 0, 0);
+  write_ray(mem, candidate_slot, candidate_accel);
+
+  LegacyWarpIssue candidate_issue;
+  candidate_issue.active_mask = uint32_t{1} << 1;
+  candidate_issue.lane_count = 4;
+  candidate_issue.lane_slots[1] = candidate_slot;
+  const LegacyWarpResult candidate_result = model.executeLegacyTraverse(
+      candidate_issue, [&mem](uint32_t) { return TestMemoryProxy{mem}; });
+  assert(candidate_result.valid_mask == candidate_issue.active_mask);
+  assert(candidate_result.lane_status[1] ==
+         traversal_candidate_non_opaque_triangle);
+  snapshot = model.debugSnapshot();
+  assert(snapshot.private_context_count == 1);
+
+  model.executeLegacyRelease(
+      candidate_issue, [&mem](uint32_t) { return TestMemoryProxy{mem}; });
+  snapshot = model.debugSnapshot();
+  assert(snapshot.private_context_count == 0);
+  const uint64_t previous_generation = snapshot.sm_generation;
+
+  model.resetSm();
+  snapshot = model.debugSnapshot();
+  assert(snapshot.sm_generation == previous_generation + 1);
+  assert(snapshot.traverse_issue_count == 0);
+  assert(snapshot.release_issue_count == 0);
+  assert(snapshot.private_context_count == 0);
+
+  LegacyWarpIssue suffix_issue = issue;
+  suffix_issue.first_lane = 2;
+  const LegacyWarpResult suffix_result = model.executeLegacyTraverse(
+      suffix_issue, [&mem](uint32_t) { return TestMemoryProxy{mem}; });
+  assert(suffix_result.valid_mask == (uint32_t{1} << 2));
+  assert(suffix_result.lane_status[2] == traversal_complete_miss);
+  snapshot = model.debugSnapshot();
+  assert(snapshot.traverse_issue_count == 1);
+  assert(snapshot.release_issue_count == 0);
+}
+
 int main()
 {
   check_opaque_hit();
   check_miss();
   check_closest_hit_wins();
+  check_candidate_replaces_farther_opaque_hit();
   check_non_opaque_candidate_accept_and_ignore();
   check_terminate_and_release();
+  check_accept_and_terminate_completes_hit();
   check_procedural_candidate_report_accept();
   check_vtas_tlas_blas_triangle_hit();
   check_pds_formula();
+  check_rt_private_context_abi();
+  check_rtcore_legacy_warp_boundary();
   return 0;
 }

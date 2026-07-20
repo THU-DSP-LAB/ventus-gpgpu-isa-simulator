@@ -51,12 +51,16 @@ def main() -> int:
            if (ROOT / "riscv" / "ventus_mma.h").exists() else "")
         + ((ROOT / "riscv" / "ventus_rt.h").read_text(encoding="utf-8")
            if (ROOT / "riscv" / "ventus_rt.h").exists() else "")
+        + ((ROOT / "riscv" / "ventus_rtcore_model.h").read_text(encoding="utf-8")
+           if (ROOT / "riscv" / "ventus_rtcore_model.h").exists() else "")
     )
 
     require("0x0a ? 4" in decode or "0x0a ||" in decode,
             "insn_length does not force opcode 0x0a to 32 bits", failures)
     require("ventus_mma.h" in riscv_mk, "ventus_mma.h missing from riscv headers", failures)
     require("ventus_rt.h" in riscv_mk, "ventus_rt.h missing from riscv headers", failures)
+    require("ventus_rtcore_model.h" in riscv_mk,
+            "ventus_rtcore_model.h missing from riscv headers", failures)
     require("tests/ventus_rt_semantics.cc" in "\n".join(
             str(path.relative_to(ROOT)) for path in (ROOT / "tests").glob("*")),
             "ventus_rt_semantics.cc missing", failures)
@@ -66,6 +70,12 @@ def main() -> int:
             "ventus_exec_rt_traverse declaration/definition missing", failures)
     require("void ventus_exec_rt_release(processor_t *p, insn_t insn)" in custom,
             "ventus_exec_rt_release declaration/definition missing", failures)
+    require("executeLegacyTraverse" in custom,
+            "RT traverse instruction does not enter the warp RTCore model", failures)
+    require("executeLegacyRelease" in custom,
+            "RT release instruction does not enter the warp RTCore model", failures)
+    require("class LegacyPdsAdapter" in custom,
+            "named legacy PDS adapter boundary missing", failures)
 
     for insn, disasm_name, match, mask in MMA:
         macro = insn.upper()
@@ -156,8 +166,10 @@ def main() -> int:
         "trace_triangle_list",
         "trace_aabb_list",
         "make_hybrid_memory",
-        "ventus_rt::traverse(mem, slot)",
-        "ventus_rt::release(mem, slot)",
+        "ventus_rt::traverse(memory, issue.lane_slots[lane], private_state)",
+        "ventus_rt::release(memory, issue.lane_slots[lane], private_state)",
+        "RtPrivateState private_state_",
+        "private_state_.reset()",
     ]:
         require(symbol in custom, f"local RT model symbol missing: {symbol}", failures)
 

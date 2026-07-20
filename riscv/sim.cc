@@ -493,6 +493,7 @@ const char* sim_t::get_symbol(uint64_t addr)
 
 void sim_t::reset()
 {
+  rtcore_model.resetSm();
   if (dtb_enabled)
     set_rom();
 }

@@ -17,6 +17,7 @@
 #include "log_file.h"
 #include "processor.h"
 #include "simif.h"
+#include "ventus_rtcore_model.h"
 
 #include <fesvr/htif.h>
 #include <fesvr/context.h>
@@ -87,8 +88,12 @@ public:
   }
   void append_reach_end() override{reach_end.push_back(0);current_proc=0;}
   void finish_kernel() override{finish_with_code(1);}
+  ventus_rt::RtCoreModel* get_rtcore_model() override{return &rtcore_model;}
 
 private:
+  // The current functional Spike has no explicit multi-SM placement model, so
+  // all warp processors share one logical SM0 RTCore instance.
+  ventus_rt::RtCoreModel rtcore_model;
   warp_schedule_t w;
   std::vector<uint64_t> reach_end;
   warp_schedule_t *workgroups;

@@ -1,4 +1,5 @@
 #include "ventus_custom.h"
+#include "ventus_rtcore_model.h"
 
 #include "trap.h"
 #include <array>
@@ -180,17 +181,33 @@ void ventus_exec_rt_traverse(processor_t *p, insn_t insn)
   const reg_t vl = p->VU.vl->read();
   const reg_t vd_num = insn.rd();
   const reg_t vs2_num = insn.rs2();
+  ventus_rt::RtCoreModel *model = p->get_sim()->get_rtcore_model();
+  if (model == nullptr)
+    throw trap_illegal_instruction(insn.bits());
 
+  ventus_rt::LegacyWarpIssue issue;
+  issue.active_mask =
+      static_cast<uint32_t>(p->gpgpu_unit.simt_stack.get_mask());
+  issue.first_lane = static_cast<uint32_t>(p->VU.vstart->read());
+  issue.lane_count = static_cast<uint32_t>(vl);
   for (reg_t lane = p->VU.vstart->read(); lane < vl; ++lane) {
     if (!lane_active(p, lane))
       continue;
+    issue.lane_slots[lane] = p->VU.elt<uint32_t>(2, vs2_num, lane);
+  }
 
-    auto mem = ventus_rt::make_hybrid_memory(
-        *p->get_mmu(), p->get_csr(CSR_PDS), p->get_csr(CSR_NUMW),
-        p->get_csr(CSR_NUMT), p->get_csr(CSR_TID), lane);
-    const reg_t slot = p->VU.elt<uint32_t>(2, vs2_num, lane);
-    const uint32_t status = ventus_rt::traverse(mem, slot);
-    p->VU.elt<uint32_t>(0, vd_num, lane, true) = status;
+  const ventus_rt::LegacyWarpResult result = model->executeLegacyTraverse(
+      issue, [p](uint32_t lane) {
+        return ventus_rt::make_hybrid_memory(
+            *p->get_mmu(), p->get_csr(CSR_PDS), p->get_csr(CSR_NUMW),
+            p->get_csr(CSR_NUMT), p->get_csr(CSR_TID), lane);
+      });
+
+  for (reg_t lane = p->VU.vstart->read(); lane < vl; ++lane) {
+    const uint32_t lane_bit = uint32_t{1} << lane;
+    if ((result.valid_mask & lane_bit) == 0)
+      continue;
+    p->VU.elt<uint32_t>(0, vd_num, lane, true) = result.lane_status[lane];
   }
 
   p->VU.vstart->write(0);
@@ -202,17 +219,26 @@ void ventus_exec_rt_release(processor_t *p, insn_t insn)
 
   const reg_t vl = p->VU.vl->read();
   const reg_t vs2_num = insn.rs2();
+  ventus_rt::RtCoreModel *model = p->get_sim()->get_rtcore_model();
+  if (model == nullptr)
+    throw trap_illegal_instruction(insn.bits());
 
+  ventus_rt::LegacyWarpIssue issue;
+  issue.active_mask =
+      static_cast<uint32_t>(p->gpgpu_unit.simt_stack.get_mask());
+  issue.first_lane = static_cast<uint32_t>(p->VU.vstart->read());
+  issue.lane_count = static_cast<uint32_t>(vl);
   for (reg_t lane = p->VU.vstart->read(); lane < vl; ++lane) {
     if (!lane_active(p, lane))
       continue;
+    issue.lane_slots[lane] = p->VU.elt<uint32_t>(2, vs2_num, lane);
+  }
 
-    auto mem = ventus_rt::make_hybrid_memory(
+  model->executeLegacyRelease(issue, [p](uint32_t lane) {
+    return ventus_rt::make_hybrid_memory(
         *p->get_mmu(), p->get_csr(CSR_PDS), p->get_csr(CSR_NUMW),
         p->get_csr(CSR_NUMT), p->get_csr(CSR_TID), lane);
-    const reg_t slot = p->VU.elt<uint32_t>(2, vs2_num, lane);
-    ventus_rt::release(mem, slot);
-  }
+  });
 
   p->VU.vstart->write(0);
 }

@@ -26,6 +26,7 @@ riscv_hdrs = \
 	ventus_custom_arith.h \
 	ventus_mma.h \
 	ventus_rt.h \
+	ventus_rtcore_model.h \
 	ventus_custom.h \
 	ventus_shuffle.h \
 	cachesim.h \
