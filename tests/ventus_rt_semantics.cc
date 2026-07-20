@@ -181,6 +181,21 @@ static void write_vtas_triangle(TestMemory &mem, reg_t addr, float z,
   mem.store32(addr + triangle_primitive_addr_lo + 4, 0);
 }
 
+static void write_vtas_aabb(TestMemory &mem, reg_t addr,
+                            uint32_t primitive_id, uint32_t sbt_offset,
+                            uint32_t opaque)
+{
+  write_vec3(mem, addr + aabb_min, -1.0f, -1.0f, 2.0f);
+  write_vec3(mem, addr + aabb_max, 1.0f, 1.0f, 4.0f);
+  mem.store32(addr + aabb_primitive_id, primitive_id);
+  mem.store32(addr + aabb_geometry_id, 9);
+  mem.store32(addr + aabb_sbt_record_offset, sbt_offset);
+  mem.store32(addr + aabb_hit_kind, 0xff);
+  mem.store32(addr + aabb_flags, opaque);
+  mem.store32(addr + aabb_primitive_addr_lo, uint32_t(addr));
+  mem.store32(addr + aabb_primitive_addr_lo + 4, 0);
+}
+
 static void write_vtas_instance(TestMemory &mem, reg_t addr, reg_t blas,
                                 uint32_t instance_id,
                                 uint32_t instance_sbt_offset)
@@ -228,6 +243,56 @@ static void check_vtas_tlas_blas_triangle_hit()
   assert(std::fabs(bit_cast_f32(load_slot(mem, slot, committed_hit_record_base,
                                           hit_record_hit_t)) -
                    5.0f) < 0.001f);
+}
+
+static void check_vtas_tlas_blas_aabb_candidate()
+{
+  TestMemory mem;
+  constexpr reg_t slot = 0;
+  constexpr reg_t tlas = 0x22000;
+  constexpr reg_t tlas_instance = tlas + 0x50;
+  constexpr reg_t blas = 0x23000;
+  constexpr reg_t blas_aabb = blas + 0x50;
+
+  write_vtas_header(mem, tlas, as_type_tlas,
+                    make_node_ref(0x50, node_instance));
+  write_vtas_instance(mem, tlas_instance, blas, 19, 6);
+  write_vtas_header(mem, blas, as_type_blas,
+                    make_node_ref(0x50, node_aabb));
+  write_vtas_aabb(mem, blas_aabb, 88, 3, 1);
+  write_ray(mem, slot, tlas);
+
+  assert(traverse(mem, slot) == traversal_candidate_procedural_aabb);
+  assert(load_slot(mem, slot, candidate_hit_record_base,
+                   hit_record_primitive_id) == 88);
+  assert(load_slot(mem, slot, candidate_hit_record_base,
+                   hit_record_instance_id) == 19);
+  assert(load_slot(mem, slot, candidate_hit_record_base,
+                   hit_record_geometry_id) == 9);
+  assert(load_slot(mem, slot, candidate_hit_record_base,
+                   hit_record_sbt_index) == 11);
+  assert(load_slot(mem, slot, candidate_hit_record_base,
+                   hit_record_instance_sbt_record_offset) == 6);
+  assert(load_slot(mem, slot, candidate_hit_record_base,
+                   hit_record_opaque) == 1);
+
+  store_slot(mem, slot, candidate_hit_record_base, hit_record_status,
+             rt_status_hit);
+  store_slot(mem, slot, candidate_hit_record_base, hit_record_hit_t,
+             bit_cast_u32(3.0f));
+  store_slot(mem, slot, candidate_hit_record_base, hit_record_hit_kind, 0x7f);
+  store_slot(mem, slot, control_base, control_accept_hit, 1);
+
+  assert(traverse(mem, slot) == traversal_complete_hit);
+  assert(load_slot(mem, slot, committed_hit_record_base,
+                   hit_record_primitive_id) == 88);
+  assert(load_slot(mem, slot, committed_hit_record_base,
+                   hit_record_sbt_index) == 11);
+  assert(load_slot(mem, slot, committed_hit_record_base,
+                   hit_record_hit_kind) == 0x7f);
+  assert(std::fabs(bit_cast_f32(load_slot(mem, slot, committed_hit_record_base,
+                                          hit_record_hit_t)) -
+                   3.0f) < 0.001f);
 }
 
 static void check_opaque_hit()
@@ -763,6 +828,7 @@ int main()
   check_accept_and_terminate_completes_hit();
   check_procedural_candidate_report_accept();
   check_vtas_tlas_blas_triangle_hit();
+  check_vtas_tlas_blas_aabb_candidate();
   check_pds_formula();
   check_rt_private_context_abi();
   check_rt_abi_tag_rejection();
