@@ -36,6 +36,16 @@ int main()
   assert(live_lane_mask(two_warps, 0, 32) == UINT64_C(0xffffffff));
   assert(live_lane_mask(two_warps, 1, 32) == UINT64_C(0x0000ffff));
 
+  const Geometry three_dimensional_edge = {
+      3, 2, 2, 4, 2, 2, 0, 0, 0};
+  assert(live_lane_mask(three_dimensional_edge, 0, 16) ==
+         UINT64_C(0x7777));
+
+  const Geometry three_dimensional_z_tail = {
+      3, 2, 3, 4, 2, 2, 0, 0, 1};
+  assert(live_lane_mask(three_dimensional_z_tail, 0, 16) ==
+         UINT64_C(0x0077));
+
   const Geometry invalid = {};
   assert(live_lane_mask(invalid, 0, 32) == 0);
 
