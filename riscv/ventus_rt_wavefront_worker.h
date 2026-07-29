@@ -66,6 +66,8 @@ struct CompletionMetadata {
   uint32_t launch_id_x = 0;
   uint32_t launch_id_y = 0;
   uint32_t launch_id_z = 0;
+  /* Vulkan pipeline shader-group index decoded from the terminal SBT record. */
+  uint32_t callback_group = 0;
 };
 
 struct CompletionRecord {
@@ -432,6 +434,7 @@ dispatch_global_traversal_batch(GlobalLevelQueue<Memory> &queue,
 struct ResumeDispatchRequest {
   uint32_t ray_ref = 0;
   TraversalDispatchTarget completed_stage = TraversalDispatchTarget::Fault;
+  uint32_t callback_group = 0;
   uint64_t payload_address = 0;
   uint32_t cps_frame = 0;
   uint32_t cps_stack_size = 0;
@@ -455,6 +458,7 @@ enum class CompletionField : uint32_t {
   LaunchIdX,
   LaunchIdY,
   LaunchIdZ,
+  CallbackGroup,
   Ready,
   Count,
 };
@@ -471,6 +475,10 @@ struct CompletionPlaneLayout {
   /* Two u32 hit attributes per ray, at a caller-owned global stride. */
   uint64_t hit_attribute_base_address = 0;
   uint32_t hit_attribute_stride_bytes = 0;
+  uint64_t miss_sbt_base_address = 0;
+  uint64_t miss_sbt_stride_bytes = 0;
+  uint64_t hit_sbt_base_address = 0;
+  uint64_t hit_sbt_stride_bytes = 0;
 };
 
 static inline uint64_t
@@ -489,11 +497,54 @@ completion_field_address(const CompletionPlaneLayout &layout,
          (uint64_t)ray_ref * sizeof(uint32_t);
 }
 
+constexpr uint32_t kShaderGroupHandleIndexOffset = 4;
+constexpr uint32_t kShaderGroupHandleSize = 32;
+
+template <typename Memory>
+static inline bool
+resolve_terminal_callback_group(Memory &memory,
+                                const CompletionPlaneLayout &layout,
+                                const TraversalDispatchResult &result,
+                                CompletionRecord &completion,
+                                uint32_t *group)
+{
+  if (!group)
+    return false;
+
+  if (result.target == TraversalDispatchTarget::Miss) {
+    if (!layout.miss_sbt_base_address || !layout.miss_sbt_stride_bytes)
+      return false;
+    const uint64_t record = layout.miss_sbt_base_address +
+      (uint64_t)completion.trace_input.fields[
+         static_cast<uint32_t>(TraceField::MissIndex)] *
+         layout.miss_sbt_stride_bytes;
+    *group = memory.load_u32(record + kShaderGroupHandleIndexOffset);
+    return true;
+  }
+
+  if (result.target != TraversalDispatchTarget::ClosestHit)
+    return false;
+  if (!layout.hit_sbt_base_address || !layout.hit_sbt_stride_bytes)
+    return false;
+  const uint32_t sbt_index =
+    completion.committed_hit[ventus_rt::hit_record_sbt_index];
+  const uint64_t shader_record = layout.hit_sbt_base_address +
+    (uint64_t)sbt_index * layout.hit_sbt_stride_bytes +
+    kShaderGroupHandleSize;
+  completion.committed_hit[ventus_rt::hit_record_shader_record_ptr_lo] =
+    uint32_t(shader_record);
+  completion.committed_hit[ventus_rt::hit_record_shader_record_ptr_hi] =
+    uint32_t(shader_record >> 32);
+  *group = memory.load_u32(shader_record - kShaderGroupHandleSize +
+                           kShaderGroupHandleIndexOffset);
+  return true;
+}
+
 template <typename Memory>
 static inline bool
 write_global_completion(Memory &memory, const CompletionPlaneLayout &layout,
                         const TraversalDispatchResult &result,
-                        const CompletionArena<Memory> &completion_arena)
+                        CompletionArena<Memory> &completion_arena)
 {
   if (!layout.base_address || !layout.capacity || result.ray_ref >= layout.capacity)
     return false;
@@ -501,8 +552,11 @@ write_global_completion(Memory &memory, const CompletionPlaneLayout &layout,
       result.target != TraversalDispatchTarget::ClosestHit)
     return false;
 
-  const CompletionRecord *completion = completion_arena.find(result.ray_ref);
+  CompletionRecord *completion = completion_arena.find(result.ray_ref);
   if (!completion)
+    return false;
+  if (!resolve_terminal_callback_group(memory, layout, result, *completion,
+                                       &completion->metadata.callback_group))
     return false;
 
   uint64_t hit_attribute_address = 0;
@@ -546,6 +600,7 @@ write_global_completion(Memory &memory, const CompletionPlaneLayout &layout,
   store(CompletionField::LaunchIdX, metadata.launch_id_x);
   store(CompletionField::LaunchIdY, metadata.launch_id_y);
   store(CompletionField::LaunchIdZ, metadata.launch_id_z);
+  store(CompletionField::CallbackGroup, metadata.callback_group);
   store(CompletionField::Ready, 1);
   return true;
 }
@@ -566,6 +621,7 @@ make_resume_dispatch_request(const TraversalDispatchResult &result,
   *request = {
       .ray_ref = result.ray_ref,
       .completed_stage = result.target,
+      .callback_group = metadata.callback_group,
       .payload_address = metadata.payload_address,
       .cps_frame = metadata.cps_frame,
       .cps_stack_size = metadata.cps_stack_size,

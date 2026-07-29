@@ -50,6 +50,7 @@ static void write_triangle(TestMemory &memory, uint64_t address, float z,
 
 static void write_scene(TestMemory &memory, uint64_t accel, uint64_t triangles)
 {
+  constexpr uint64_t hit_sbt = 0x50000;
   memory.store_u32(accel + 0, bvh_magic);
   memory.store_u32(accel + 4, bvh_version);
   memory.store_u32(accel + 8, geometry_triangle_list);
@@ -57,9 +58,11 @@ static void write_scene(TestMemory &memory, uint64_t accel, uint64_t triangles)
   memory.store_u32(accel + 16, uint32_t(triangles));
   memory.store_u32(accel + 20, uint32_t(triangles >> 32));
   memory.store_u32(accel + 24, 80);
-  memory.store_u32(accel + 28, 0);
+  memory.store_u32(accel + 28, uint32_t(hit_sbt));
   memory.store_u32(accel + 32, 0);
   memory.store_u32(accel + 36, 32);
+  /* Trace SBT offset 2 plus triangle SBT index 4 selects record 6. */
+  memory.store_u32(hit_sbt + 6 * 96 + 4, 7);
 }
 
 static void write_trace_mailbox(TestMemory &memory, uint64_t mailbox,
@@ -221,23 +224,13 @@ static void check_global_consumer_facade(TestMemory &memory,
       consumer.consume_producer_phase(queue_base, /* max batch */ 1);
   assert(results.size() == 1);
   assert(results[0].target == TraversalDispatchTarget::ClosestHit);
-  const std::vector<ResumeDispatchRequest> requests =
-      consumer.resume_requests(results);
-  assert(requests.size() == 1);
-  assert(requests[0].ray_ref == 0 &&
-         requests[0].completed_stage == TraversalDispatchTarget::ClosestHit);
-  assert(requests[0].payload_address == 0x234567000ull);
-  assert(requests[0].cps_frame == 0x1234 &&
-         requests[0].cps_stack_size == 96 &&
-         requests[0].continuation_id == 23);
-  assert(requests[0].launch_id_x == 8 && requests[0].launch_id_y == 9 &&
-         requests[0].launch_id_z == 10);
-
   const CompletionPlaneLayout completion_layout = {
       .base_address = 0xc0000,
       .capacity = 4,
       .hit_attribute_base_address = 0xd0000,
       .hit_attribute_stride_bytes = 8,
+      .hit_sbt_base_address = 0x50000,
+      .hit_sbt_stride_bytes = 96,
   };
   assert(write_global_completion(memory, completion_layout, results[0],
                                  consumer.completion_arena()));
@@ -260,11 +253,25 @@ static void check_global_consumer_facade(TestMemory &memory,
   assert(completion_field(CompletionField::CpsFrame) == 0x1234);
   assert(completion_field(CompletionField::ContinuationId) == 23);
   assert(completion_field(CompletionField::LaunchIdX) == 8);
+  assert(completion_field(CompletionField::CallbackGroup) == 7);
   assert(completion_field(CompletionField::Ready) == 1);
   assert(memory.load_u32(0xd0000) ==
          consumer.completion_arena()
              .find(results[0].ray_ref)
              ->committed_attributes[0]);
+
+  const std::vector<ResumeDispatchRequest> requests =
+      consumer.resume_requests(results);
+  assert(requests.size() == 1);
+  assert(requests[0].ray_ref == 0 &&
+         requests[0].completed_stage == TraversalDispatchTarget::ClosestHit);
+  assert(requests[0].callback_group == 7);
+  assert(requests[0].payload_address == 0x234567000ull);
+  assert(requests[0].cps_frame == 0x1234 &&
+         requests[0].cps_stack_size == 96 &&
+         requests[0].continuation_id == 23);
+  assert(requests[0].launch_id_x == 8 && requests[0].launch_id_y == 9 &&
+         requests[0].launch_id_z == 10);
 }
 
 int main()
