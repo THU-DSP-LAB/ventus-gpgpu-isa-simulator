@@ -201,10 +201,12 @@ static std::vector<int> parse_hartids(const char *s)
 
 #define ARGBASEADDR 0x90000000
 
+static constexpr size_t SPIKE_DEVICE_PATH_MAX = 4096;
+
 
 spike_device::spike_device():sim(NULL),buffer(),buffer_data(){
-  srcfilename=new char[128];
-  logfilename=new char[128];
+  srcfilename=new char[SPIKE_DEVICE_PATH_MAX];
+  logfilename=new char[SPIKE_DEVICE_PATH_MAX];
   uint64_t lds_vaddr;
   uint64_t pc_src_vaddr;
   fprintf(stderr, "spike device initialize: allocating local memory: ");
@@ -357,11 +359,15 @@ int spike_device::copy_from_dev(uint64_t vaddr, uint64_t size, void *data){
 }
 
 int spike_device::set_filename(const char* filename,const char* logname){
-  sprintf(srcfilename,"%s",filename);
+  int n = snprintf(srcfilename, SPIKE_DEVICE_PATH_MAX, "%s", filename);
+  if (n < 0 || (size_t)n >= SPIKE_DEVICE_PATH_MAX)
+    return -1;
   if(logname==nullptr)
-    sprintf(logfilename,"%s.log",filename);
+    n = snprintf(logfilename, SPIKE_DEVICE_PATH_MAX, "%s.log", filename);
   else
-    sprintf(logfilename,"%s",logname);  
+    n = snprintf(logfilename, SPIKE_DEVICE_PATH_MAX, "%s", logname);
+  if (n < 0 || (size_t)n >= SPIKE_DEVICE_PATH_MAX)
+    return -1;
   return 0;  
 }
 
@@ -583,18 +589,18 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   char arg_num_core[16];
   char arg_vlen_elen[32];
   char arg_mem_scope[64];
-  char arg_gpgpu[256];
+  char arg_gpgpu[512];
   char arg_start_pc[32];;
-  char arg_logfilename[64];
-  sprintf(arg_logfilename,"--log=%s",logfilename);
-  sprintf(arg_num_core,"-p%ld",num_processor);
-  sprintf(arg_gpgpu,"numw:%ld,numt:%ld,numwg:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx,knlbase:0x%lx,currwgid:%lx,gsx:%ld,gsy:%ld,gsz:%ld,lsx:%ld,lsy:%ld,lsz:%ld,gox:%ld,goy:%ld,goz:%ld,dim:%ld",\
+  char arg_logfilename[256];
+  snprintf(arg_logfilename, sizeof(arg_logfilename), "--log=%s", logfilename);
+  snprintf(arg_num_core, sizeof(arg_num_core), "-p%ld", num_processor);
+  snprintf(arg_gpgpu, sizeof(arg_gpgpu), "numw:%ld,numt:%ld,numwg:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx,knlbase:0x%lx,currwgid:%lx,gsx:%ld,gsy:%ld,gsz:%ld,lsx:%ld,lsy:%ld,lsz:%ld,gox:%ld,goy:%ld,goz:%ld,dim:%ld",\
         num_warp,num_thread,num_workgroup,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase,knlbase,currwgid,gsx,gsy,gsz,lsx,lsy,lsz,gox,goy,goz,work_dim_64);
   fprintf(stderr, "arg gpgpu is %s\n",arg_gpgpu);
-  sprintf(arg_vlen_elen,"vlen:%ld,elen:%d",num_thread*32,32);
-  sprintf(arg_mem_scope,"-m0x70000000:0x%lx",buffer.back().base+buffer.back().size);
+  snprintf(arg_vlen_elen, sizeof(arg_vlen_elen), "vlen:%ld,elen:%d", num_thread * 32, 32);
+  snprintf(arg_mem_scope, sizeof(arg_mem_scope), "-m0x70000000:0x%lx", buffer.back().base + buffer.back().size);
   fprintf(stderr, "vaddr mem scope is %s\n",arg_mem_scope);
-  sprintf(arg_start_pc,"--pc=0x%lx",start_pc);
+  snprintf(arg_start_pc, sizeof(arg_start_pc), "--pc=0x%lx", start_pc);
   char arg_log[16];
   char arg_commitlog[16];
   if (parse_bool(std::getenv("VENTUS_SPIKE_LOG")).value_or(true)) {
@@ -716,7 +722,7 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
 
       return_code = sim->run();
       currwgid++;
-      sprintf(arg_gpgpu,"numw:%ld,numt:%ld,numwg:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx,knlbase:0x%lx,currwgid:%lx,gsx:%ld,gsy:%ld,gsz:%ld,lsx:%ld,lsy:%ld,lsz:%ld,gox:%ld,goy:%ld,goz:%ld,dim:%ld",\
+      snprintf(arg_gpgpu, sizeof(arg_gpgpu), "numw:%ld,numt:%ld,numwg:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx,knlbase:0x%lx,currwgid:%lx,gsx:%ld,gsy:%ld,gsz:%ld,lsx:%ld,lsy:%ld,lsz:%ld,gox:%ld,goy:%ld,goz:%ld,dim:%ld",\
           num_warp,num_thread,num_workgroup,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase,knlbase,currwgid,gsx,gsy,gsz,lsx,lsy,lsz,gox,goy,goz,work_dim_64);
   //    sprintf(log_name, "object_%ld.riscv.log", currwgid);
   //    log_path = log_name;
