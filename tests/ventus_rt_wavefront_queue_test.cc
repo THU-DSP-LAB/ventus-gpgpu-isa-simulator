@@ -16,6 +16,12 @@ static Submission submit(uint32_t tag, uint32_t parent, uint32_t phase)
 struct TestMemory {
   uint32_t load_u32(uint64_t address) { return words[address]; }
   void store_u32(uint64_t address, uint32_t value) { words[address] = value; }
+  uint32_t atomic_fetch_add_u32(uint64_t address, uint32_t value)
+  {
+    const uint32_t previous = words[address];
+    words[address] = previous + value;
+    return previous;
+  }
   std::unordered_map<uint64_t, uint32_t> words;
 };
 
@@ -27,7 +33,7 @@ static void write_mailbox(TestMemory &memory, uint64_t base, uint32_t tag,
   memory.store_u32(base + 4u * kMailboxVersionWord, kMailboxAbiVersion);
   memory.store_u32(base + 4u * kMailboxGenerationWord, phase);
   memory.store_u32(base + kMailboxHeaderBytes +
-                       4u * static_cast<uint32_t>(TraceField::TlasAddr),
+                       4u * static_cast<uint32_t>(TraceField::TlasAddrLo),
                    tag);
   memory.store_u32(base + kMailboxHeaderBytes +
                        4u * static_cast<uint32_t>(TraceField::ParentFrame),
@@ -42,6 +48,15 @@ static void write_mailbox(TestMemory &memory, uint64_t base, uint32_t tag,
   memory.store_u32(base + 4u * kMailboxValidWord, valid);
 }
 
+static void set_mailbox_queue_base(TestMemory &memory, uint64_t mailbox,
+                                   uint64_t queue_base)
+{
+  memory.store_u32(mailbox + 4u * kMailboxQueueBaseLoWord,
+                   static_cast<uint32_t>(queue_base));
+  memory.store_u32(mailbox + 4u * kMailboxQueueBaseHiWord,
+                   static_cast<uint32_t>(queue_base >> 32));
+}
+
 int main()
 {
   TestMemory memory;
@@ -52,6 +67,10 @@ int main()
          MailboxResult::Accepted);
   assert(parsed.valid && parsed.ray_tag == 99 && parsed.parent_frame == 5 &&
          parsed.phase_generation == 7 && parsed.depth == 2);
+  memory.store_u32(mailbox + 4u * kMailboxQueueBaseHiWord, 1);
+  assert(read_submission_mailbox(memory, mailbox, 7, &parsed) ==
+         MailboxResult::AddressNotRepresentable);
+  memory.store_u32(mailbox + 4u * kMailboxQueueBaseHiWord, 0);
   assert(read_submission_mailbox(memory, mailbox, 8, &parsed) ==
          MailboxResult::GenerationMismatch);
   memory.store_u32(mailbox + kMailboxHeaderBytes +
@@ -174,5 +193,117 @@ int main()
   assert(batches.dequeue_batch(32).size() == 32);
   assert(batches.dequeue_batch(32).size() == 32);
   assert(batches.dequeue_batch(32).size() == 6);
+
+  /*
+   * Global level queue: RTcore compacts sparse child staging, atomically
+   * reserves one contiguous tail range, and transposes complete mailbox
+   * records into the Mesa field-major global queue layout.
+   */
+  constexpr uint64_t staging_base = 0x10000;
+  constexpr uint64_t queue_base = 0x40000;
+  constexpr uint32_t generation = 19;
+  constexpr uint64_t staging_stride = 0x100;
+  std::vector<uint64_t> staging(32);
+  for (uint32_t lane = 0; lane < staging.size(); ++lane)
+    staging[lane] = staging_base + lane * staging_stride;
+
+  write_mailbox(memory, staging[0], 1000, 101, generation, 1, 1);
+  write_mailbox(memory, staging[2], 1002, 102, generation, 1, 1);
+  write_mailbox(memory, staging[3], 1003, 103, generation, 1, 1);
+  write_mailbox(memory, staging[7], 1007, 107, generation, 1, 1);
+  write_mailbox(memory, staging[31], 1031, 131, generation, 1, 1);
+  for (uint32_t lane : {0u, 2u, 3u, 7u, 31u})
+    set_mailbox_queue_base(memory, staging[lane], queue_base);
+  /* Lane 1 is active but emits no child; lane 2 is valid but inactive. */
+  memory.store_u32(mailbox_field_address(staging[7], TraceField::DirectionZ),
+                   0x3f800000u);
+
+  GlobalLevelQueue<TestMemory> level_queue_initializer(
+      memory, queue_base, /*capacity=*/16, generation);
+  GlobalLevelQueueRegistry<TestMemory> level_queues(memory);
+  set_mailbox_queue_base(memory, staging[3], queue_base + 0x1000);
+  assert(level_queues.submit_rt_enqueue_batch(staging, (1u << 0) | (1u << 3),
+                                               generation) ==
+         LevelQueueResult::Malformed);
+  assert(memory.load_u32(queue_base + 4u * kQueueReserveTailWord) == 0);
+  assert(memory.load_u32(staging[0] + 4u * kMailboxValidWord) == 1);
+  assert(memory.load_u32(staging[3] + 4u * kMailboxValidWord) == 1);
+  set_mailbox_queue_base(memory, staging[3], queue_base);
+  uint32_t sparse_count = 99;
+  const uint32_t sparse_mask = (1u << 0) | (1u << 1) | (1u << 3) |
+                               (1u << 7) | (1u << 31);
+  assert(level_queues.submit_rt_enqueue_batch(staging, sparse_mask, generation,
+                                               &sparse_count) ==
+         LevelQueueResult::Accepted);
+  GlobalLevelQueue<TestMemory> *level_queue = level_queues.find(queue_base);
+  assert(level_queue);
+  assert(sparse_count == 4);
+  assert(level_queue->reserve_tail() == 4);
+  assert(memory.load_u32(staging[0] + 4u * kMailboxValidWord) == 0);
+  assert(memory.load_u32(staging[2] + 4u * kMailboxValidWord) == 1);
+  assert(memory.load_u32(staging[3] + 4u * kMailboxValidWord) == 0);
+  assert(memory.load_u32(staging[7] + 4u * kMailboxValidWord) == 0);
+  assert(memory.load_u32(staging[31] + 4u * kMailboxValidWord) == 0);
+  assert(memory.load_u32(queue_field_address(
+             queue_base, level_queue->field_stride_bytes(), TraceField::TlasAddrLo,
+             0)) == 1000);
+  assert(memory.load_u32(queue_field_address(
+             queue_base, level_queue->field_stride_bytes(), TraceField::TlasAddrLo,
+             1)) == 1003);
+  assert(memory.load_u32(queue_field_address(
+             queue_base, level_queue->field_stride_bytes(), TraceField::TlasAddrLo,
+             3)) == 1031);
+  assert(memory.load_u32(queue_field_address(
+             queue_base, level_queue->field_stride_bytes(), TraceField::DirectionZ,
+             2)) == 0x3f800000u);
+  for (uint32_t ray_ref = 0; ray_ref < 4; ++ray_ref)
+    assert(memory.load_u32(queue_field_address(
+               queue_base, level_queue->field_stride_bytes(), TraceField::Ready,
+               ray_ref)) == 1);
+
+  /* A fully inactive/no-child warp consumes neither staging nor queue space. */
+  sparse_count = 99;
+  assert(level_queues.submit_rt_enqueue_batch(staging, 1u << 1, generation,
+                                               &sparse_count) ==
+         LevelQueueResult::Accepted);
+  assert(sparse_count == 0 && level_queue->reserve_tail() == 4);
+
+  /* Two producer RTcores share exactly one tail atomic and get unique ranges. */
+  write_mailbox(memory, staging[4], 2004, 204, generation, 1, 1);
+  write_mailbox(memory, staging[5], 2005, 205, generation, 1, 1);
+  write_mailbox(memory, staging[8], 3008, 308, generation, 1, 1);
+  for (uint32_t lane : {4u, 5u, 8u})
+    set_mailbox_queue_base(memory, staging[lane], queue_base);
+  assert(level_queues.submit_rt_enqueue_batch(staging, (1u << 4) | (1u << 5),
+                                               generation) ==
+         LevelQueueResult::Accepted);
+  assert(level_queue->reserve_tail() == 6);
+  assert(level_queues.submit_rt_enqueue_batch(staging, 1u << 8, generation) ==
+         LevelQueueResult::Accepted);
+  assert(level_queue->reserve_tail() == 7);
+  assert(memory.load_u32(queue_field_address(
+             queue_base, level_queue->field_stride_bytes(), TraceField::TlasAddrLo,
+             4)) == 2004);
+  assert(memory.load_u32(queue_field_address(
+             queue_base, level_queue->field_stride_bytes(), TraceField::TlasAddrLo,
+             5)) == 2005);
+  assert(memory.load_u32(queue_field_address(
+             queue_base, level_queue->field_stride_bytes(), TraceField::TlasAddrLo,
+             6)) == 3008);
+
+  /* Consumer phase starts only after all producers seal the level. */
+  assert(level_queue->dequeue_batch(32).empty());
+  assert(level_queue->seal_producer_phase());
+  std::vector<FieldMajorRecord> level_batch = level_queue->dequeue_batch(32);
+  assert(level_batch.size() == 7);
+  assert(level_batch[0].fields[static_cast<uint32_t>(TraceField::TlasAddrLo)] ==
+         1000);
+  assert(level_batch[2].fields[static_cast<uint32_t>(TraceField::DirectionZ)] ==
+         0x3f800000u);
+  assert(level_batch[6].fields[static_cast<uint32_t>(TraceField::TlasAddrLo)] ==
+         3008);
+  assert(level_queue->consume_head() == 7);
+  assert(level_queues.submit_rt_enqueue_batch(staging, 1u << 2, generation) ==
+         LevelQueueResult::Sealed);
   return 0;
 }

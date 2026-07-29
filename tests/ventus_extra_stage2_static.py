@@ -26,6 +26,8 @@ RT = [
      "ventus_exec_rt_traverse(p, insn);", "add_ventus_rt_traverse_insn"),
     ("vt_rt_release", "vt.rt.release", "0xe200100a", "0xfe00707f",
      "ventus_exec_rt_release(p, insn);", "add_ventus_rt_release_insn"),
+    ("vt_rt_enqueue", "vt.rt.enqueue", "0xe200200a", "0xfe00707f",
+     "ventus_exec_rt_enqueue(p, insn);", "add_ventus_rt_enqueue_insn"),
 ]
 
 
@@ -66,6 +68,12 @@ def main() -> int:
             "ventus_exec_rt_traverse declaration/definition missing", failures)
     require("void ventus_exec_rt_release(processor_t *p, insn_t insn)" in custom,
             "ventus_exec_rt_release declaration/definition missing", failures)
+    require("void ventus_exec_rt_enqueue(processor_t *p, insn_t insn)" in custom,
+            "ventus_exec_rt_enqueue declaration/definition missing", failures)
+    require("const uint32_t mailbox_addr = p->VU.elt<uint32_t>(2, vs2_num, lane);" in custom,
+            "ventus_exec_rt_enqueue does not read per-lane mailbox addresses", failures)
+    require("GlobalLevelQueueRegistry<GlobalRTQueueMemory>" in custom,
+            "ventus_exec_rt_enqueue does not submit through the global queue ABI", failures)
 
     for insn, disasm_name, match, mask in MMA:
         macro = insn.upper()

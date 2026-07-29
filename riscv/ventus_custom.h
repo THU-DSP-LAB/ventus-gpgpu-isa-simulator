@@ -14,5 +14,6 @@ void ventus_exec_sfu(processor_t *p, insn_t insn, VentusSFUOp op,
 void ventus_exec_mma(processor_t *p, insn_t insn);
 void ventus_exec_rt_traverse(processor_t *p, insn_t insn);
 void ventus_exec_rt_release(processor_t *p, insn_t insn);
+void ventus_exec_rt_enqueue(processor_t *p, insn_t insn);
 
 #endif

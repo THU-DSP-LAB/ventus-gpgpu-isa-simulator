@@ -614,6 +614,9 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   //strcat(arg_mem_scope,temp);
   //--------------------------------------------------num_core-------------------pc------mem_scope   //mem_scope is unused now.
   //-------------vlen_elen-----------gpgpu-------------------log_file_output
+  const char *isa = std::getenv("VENTUS_SPIKE_ISA");
+  if (!isa || !isa[0])
+    isa = "rv32gcv_zfh";
   char strings[][32]={"spike","-l", "--log-commits", " ","--isa", "rv32gcv_zfh", " ","-m0x70000000:0x90000000",\
        "--varch", " ","--gpgpuarch","numw:1,numt:8,numwg:1"," "," "};
 
@@ -622,6 +625,7 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
     argv[i]=strings[i];
   }
   argv[11]=arg_gpgpu;
+  argv[5]=const_cast<char *>(isa);
   argv[1] = arg_log;;
   argv[2] = arg_commitlog;
   argv[3]=arg_num_core;

@@ -1,8 +1,10 @@
 #include "ventus_custom.h"
+#include "ventus_rt_wavefront_queue.h"
 
 #include "trap.h"
 #include <array>
 #include <cstdint>
+#include <vector>
 
 namespace {
 
@@ -23,6 +25,47 @@ void require_ventus_custom_state(processor_t *p, insn_t insn)
 
   if (p->VU.vl->read() > VENTUS_CUSTOM_LANES)
     throw trap_illegal_instruction(insn.bits());
+}
+
+/* Adapter for the global wavefront ABI.  It deliberately exposes only
+ * device-global u32 operations: enqueue must not be able to fall back to the
+ * legacy PDS address transform.  Spike currently executes one SM at a time,
+ * so this read-modify-write is the functional model of the RTcore tail atomic;
+ * the global queue ABI itself remains valid when RTL supplies a real atomic. */
+class GlobalRTQueueMemory {
+public:
+  explicit GlobalRTQueueMemory(mmu_t &mmu) : mmu_(mmu) {}
+
+  uint32_t load_u32(uint64_t address)
+  {
+    return mmu_.load_uint32(address);
+  }
+
+  void store_u32(uint64_t address, uint32_t value)
+  {
+    mmu_.store_uint32(address, value);
+  }
+
+  uint32_t atomic_fetch_add_u32(uint64_t address, uint32_t value)
+  {
+    const uint32_t previous = load_u32(address);
+    store_u32(address, previous + value);
+    return previous;
+  }
+
+private:
+  mmu_t &mmu_;
+};
+
+uint32_t active_lanes_from_vstart(processor_t *p)
+{
+  const reg_t vstart = p->VU.vstart->read();
+  if (vstart >= VENTUS_CUSTOM_LANES)
+    return 0;
+  const uint32_t from_vstart =
+      vstart == 0 ? UINT32_MAX : UINT32_MAX << vstart;
+  return static_cast<uint32_t>(p->gpgpu_unit.simt_stack.get_mask()) &
+         from_vstart;
 }
 
 void require_ventus_mma_state(processor_t *p, insn_t insn)
@@ -212,6 +255,48 @@ void ventus_exec_rt_release(processor_t *p, insn_t insn)
         p->get_csr(CSR_NUMT), p->get_csr(CSR_TID), lane);
     const reg_t slot = p->VU.elt<uint32_t>(2, vs2_num, lane);
     ventus_rt::release(mem, slot);
+  }
+
+  p->VU.vstart->write(0);
+}
+
+void ventus_exec_rt_enqueue(processor_t *p, insn_t insn)
+{
+  require_ventus_custom_state(p, insn);
+
+  const reg_t vl = p->VU.vl->read();
+  const reg_t vs2_num = insn.rs2();
+  const uint32_t active_mask = active_lanes_from_vstart(p);
+  std::vector<uint64_t> mailbox_addresses(vl);
+  GlobalRTQueueMemory memory(*p->get_mmu());
+  bool have_valid_mailbox = false;
+  uint32_t generation = 0;
+
+  for (reg_t lane = p->VU.vstart->read(); lane < vl; ++lane) {
+    if (!lane_active(p, lane))
+      continue;
+
+    /* This is a global staging-record address, not a PDS slot. */
+    const uint32_t mailbox_addr = p->VU.elt<uint32_t>(2, vs2_num, lane);
+    mailbox_addresses[lane] = mailbox_addr;
+    if (!have_valid_mailbox &&
+        memory.load_u32((uint64_t)mailbox_addr +
+                        4u * ventus_rt_wavefront::kMailboxValidWord)) {
+      generation = memory.load_u32((uint64_t)mailbox_addr +
+                                   4u * ventus_rt_wavefront::kMailboxGenerationWord);
+      have_valid_mailbox = true;
+    }
+  }
+
+  if (have_valid_mailbox) {
+    /* Queue identity comes from mailbox words 4/5.  No CSR or PDS state is
+     * used to infer it, so sparse child emission remains per-lane correct. */
+    ventus_rt_wavefront::GlobalLevelQueueRegistry<GlobalRTQueueMemory> queues(
+        memory);
+    const auto result = queues.submit_rt_enqueue_batch(mailbox_addresses,
+                                                         active_mask, generation);
+    if (result != ventus_rt_wavefront::LevelQueueResult::Accepted)
+      throw trap_illegal_instruction(insn.bits());
   }
 
   p->VU.vstart->write(0);

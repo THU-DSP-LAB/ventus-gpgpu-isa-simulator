@@ -633,6 +633,11 @@ static void NOINLINE add_ventus_rt_release_insn(disassembler_t* d, const char* n
   d->add_insn(new disasm_insn_t(name, match, mask, {&vs2}));
 }
 
+static void NOINLINE add_ventus_rt_enqueue_insn(disassembler_t* d, const char* name, uint32_t match, uint32_t mask)
+{
+  d->add_insn(new disasm_insn_t(name, match, mask, {&vs2}));
+}
+
 static void NOINLINE add_vector_branch_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
 {
   d->add_insn(new disasm_insn_t(name, match, mask, {&vs2, &vs1, &branch_target}));
@@ -906,6 +911,7 @@ void disassembler_t::add_instructions(const isa_parser_t* isa)
   add_ventus_mma_insn(this, "mma.m16n16k8", match_mma_m16n16k8, mask_mma_m16n16k8);
   add_ventus_rt_traverse_insn(this, "vt.rt.traverse", match_vt_rt_traverse, mask_vt_rt_traverse);
   add_ventus_rt_release_insn(this, "vt.rt.release", match_vt_rt_release, mask_vt_rt_release);
+  add_ventus_rt_enqueue_insn(this, "vt.rt.enqueue", match_vt_rt_enqueue, mask_vt_rt_enqueue);
   add_vector_vv_insn(this, "vadd.f16x2", match_vadd_f16x2, mask_vadd_f16x2);
   add_vector_vv_insn(this, "vmul.f16x2", match_vmul_f16x2, mask_vmul_f16x2);
   add_vector_vv_insn(this, "vfma.f16x2", match_vfma_f16x2, mask_vfma_f16x2);
