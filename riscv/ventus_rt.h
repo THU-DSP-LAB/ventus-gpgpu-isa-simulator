@@ -3,7 +3,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <vector>
@@ -352,6 +354,49 @@ inline Vec3 load_vec3(Memory &mem, reg_t addr)
 }
 
 template <typename Memory>
+inline float load_f32(Memory &mem, reg_t addr)
+{
+  return bit_cast_f32(mem.load32(addr));
+}
+
+template <typename Memory>
+inline Vec3 transform_instance_point(Memory &mem, reg_t matrix_addr,
+                                     Vec3 value)
+{
+  return {
+      load_f32(mem, matrix_addr + 0) * value.x +
+          load_f32(mem, matrix_addr + 4) * value.y +
+          load_f32(mem, matrix_addr + 8) * value.z +
+          load_f32(mem, matrix_addr + 12),
+      load_f32(mem, matrix_addr + 16) * value.x +
+          load_f32(mem, matrix_addr + 20) * value.y +
+          load_f32(mem, matrix_addr + 24) * value.z +
+          load_f32(mem, matrix_addr + 28),
+      load_f32(mem, matrix_addr + 32) * value.x +
+          load_f32(mem, matrix_addr + 36) * value.y +
+          load_f32(mem, matrix_addr + 40) * value.z +
+          load_f32(mem, matrix_addr + 44),
+  };
+}
+
+template <typename Memory>
+inline Vec3 transform_instance_vector(Memory &mem, reg_t matrix_addr,
+                                      Vec3 value)
+{
+  return {
+      load_f32(mem, matrix_addr + 0) * value.x +
+          load_f32(mem, matrix_addr + 4) * value.y +
+          load_f32(mem, matrix_addr + 8) * value.z,
+      load_f32(mem, matrix_addr + 16) * value.x +
+          load_f32(mem, matrix_addr + 20) * value.y +
+          load_f32(mem, matrix_addr + 24) * value.z,
+      load_f32(mem, matrix_addr + 32) * value.x +
+          load_f32(mem, matrix_addr + 36) * value.y +
+          load_f32(mem, matrix_addr + 40) * value.z,
+  };
+}
+
+template <typename Memory>
 inline ProceduralAabb load_aabb(Memory &mem, reg_t addr)
 {
   ProceduralAabb aabb;
@@ -526,7 +571,8 @@ template <typename Memory>
 inline Triangle load_vtas_triangle(Memory &mem, uint64_t as_base,
                                    uint32_t node_ref,
                                    uint32_t instance_id,
-                                   uint32_t instance_sbt_offset)
+                                   uint32_t instance_sbt_offset,
+                                   uint64_t instance_addr)
 {
   const reg_t addr = as_base + node_ref_offset(node_ref);
   Triangle tri;
@@ -541,7 +587,7 @@ inline Triangle load_vtas_triangle(Memory &mem, uint64_t as_base,
   tri.hit_kind = 0xfe;
   tri.opaque = mem.load32(addr + triangle_flags) & 0x1;
   tri.primitive_addr = load_u64(mem, addr + triangle_primitive_addr_lo);
-  tri.instance_addr = 0;
+  tri.instance_addr = instance_addr;
   return tri;
 }
 
@@ -585,8 +631,10 @@ inline bool intersect_box4_child(Memory &mem, uint64_t as_base, uint32_t node_re
 struct TraversalEntry {
   uint64_t as_base = 0;
   uint32_t node_ref = invalid_node_ref;
+  Ray ray;
   uint32_t instance_id = 0;
   uint32_t instance_sbt_offset = 0;
+  uint64_t instance_addr = 0;
 };
 
 struct ChildHit {
@@ -594,16 +642,55 @@ struct ChildHit {
   float t_near = 0.0f;
 };
 
+struct TraversalDebugCounters {
+  uint32_t boxes = 0;
+  uint32_t box_child_tests = 0;
+  uint32_t box_child_hits = 0;
+  uint32_t instances = 0;
+  uint32_t triangles = 0;
+  uint32_t triangle_hits = 0;
+};
+
 template <typename Memory>
 inline uint32_t trace_vtas(Memory &mem, reg_t slot, const Ray &ray,
                            uint64_t tlas_addr, bool skip_non_opaque)
 {
+  static uint32_t debug_count = 0;
+  const bool debug_enabled = std::getenv("VENTUS_RT_DEBUG_TRAVERSAL") != nullptr;
+  const char *debug_start_env = std::getenv("VENTUS_RT_DEBUG_TRAVERSAL_START");
+  const uint32_t debug_start =
+      debug_start_env ? static_cast<uint32_t>(std::strtoul(debug_start_env, nullptr, 0)) : 0;
+  const uint32_t debug_id = debug_enabled ? debug_count++ : 0;
+  const bool debug = debug_enabled && debug_id >= debug_start &&
+                     debug_id < debug_start + 8;
+  TraversalDebugCounters debug_counters;
+
   if (mem.load32(tlas_addr + as_header_magic) != as_magic ||
       (mem.load32(tlas_addr + as_header_version) & 0xffffu) != as_version ||
       mem.load32(tlas_addr + as_header_type) != as_type_tlas) {
+    if (debug) {
+      std::fprintf(stderr,
+                   "ventus-rt: trace[%u] invalid TLAS addr=0x%llx magic=0x%x "
+                   "version=0x%x type=%u\n",
+                   debug_id, (unsigned long long)tlas_addr,
+                   mem.load32(tlas_addr + as_header_magic),
+                   mem.load32(tlas_addr + as_header_version),
+                   mem.load32(tlas_addr + as_header_type));
+    }
     store_word(mem, slot, 0, slot_status, rt_status_miss);
     store_word(mem, slot, control_base, control_done, 1);
     return traversal_complete_miss;
+  }
+
+  if (debug) {
+    std::fprintf(stderr,
+                 "ventus-rt: trace[%u] tlas=0x%llx root=0x%x ray_o=(%.6g %.6g %.6g) "
+                 "ray_d=(%.6g %.6g %.6g) t=[%.6g %.6g] flags=0x%x mask=0x%x\n",
+                 debug_id, (unsigned long long)tlas_addr,
+                 load_node_ref(mem, tlas_addr), ray.origin.x, ray.origin.y,
+                 ray.origin.z, ray.direction.x, ray.direction.y,
+                 ray.direction.z, ray.tmin, ray.tmax, ray.flags,
+                 ray.cull_mask);
   }
 
   Scene scene;
@@ -612,7 +699,7 @@ inline uint32_t trace_vtas(Memory &mem, reg_t slot, const Ray &ray,
 
   Hit closest;
   std::vector<TraversalEntry> stack;
-  stack.push_back({tlas_addr, load_node_ref(mem, tlas_addr), 0, 0});
+  stack.push_back({tlas_addr, load_node_ref(mem, tlas_addr), ray, 0, 0, 0});
 
   while (!stack.empty()) {
     TraversalEntry entry = stack.back();
@@ -624,6 +711,7 @@ inline uint32_t trace_vtas(Memory &mem, reg_t slot, const Ray &ray,
     const reg_t node_addr = entry.as_base + node_ref_offset(entry.node_ref);
 
     if (type == node_box4) {
+      debug_counters.boxes++;
       ChildHit hits[4];
       uint32_t hit_count = 0;
       for (uint32_t i = 0; i < 4; i++) {
@@ -631,18 +719,39 @@ inline uint32_t trace_vtas(Memory &mem, reg_t slot, const Ray &ray,
         if (child == invalid_node_ref)
           continue;
         float t_near = 0.0f;
-        if (intersect_box4_child(mem, entry.as_base, entry.node_ref, i, ray, t_near))
+        debug_counters.box_child_tests++;
+        const bool child_hit = intersect_box4_child(
+            mem, entry.as_base, entry.node_ref, i, entry.ray, t_near);
+        if (debug && debug_counters.boxes == 1) {
+          std::fprintf(stderr,
+                       "ventus-rt: trace[%u] root child[%u] ref=0x%x "
+                       "min=(%.6g %.6g %.6g) max=(%.6g %.6g %.6g) hit=%u "
+                       "t=%.6g\n",
+                       debug_id, i, child,
+                       load_f32(mem, node_addr + box4_min_x + i * 4),
+                       load_f32(mem, node_addr + box4_min_y + i * 4),
+                       load_f32(mem, node_addr + box4_min_z + i * 4),
+                       load_f32(mem, node_addr + box4_max_x + i * 4),
+                       load_f32(mem, node_addr + box4_max_y + i * 4),
+                       load_f32(mem, node_addr + box4_max_z + i * 4),
+                       child_hit ? 1u : 0u, t_near);
+        }
+        if (child_hit) {
+          debug_counters.box_child_hits++;
           hits[hit_count++] = {child, t_near};
+        }
       }
       std::sort(hits, hits + hit_count,
                 [](const ChildHit &a, const ChildHit &b) { return a.t_near < b.t_near; });
       for (uint32_t i = hit_count; i > 0; i--)
-        stack.push_back({entry.as_base, hits[i - 1].ref, entry.instance_id,
-                         entry.instance_sbt_offset});
+        stack.push_back({entry.as_base, hits[i - 1].ref, entry.ray,
+                         entry.instance_id, entry.instance_sbt_offset,
+                         entry.instance_addr});
       continue;
     }
 
     if (type == node_instance) {
+      debug_counters.instances++;
       const uint32_t mask = mem.load32(node_addr + instance_mask);
       if ((ray.cull_mask & mask) == 0)
         continue;
@@ -652,19 +761,29 @@ inline uint32_t trace_vtas(Memory &mem, reg_t slot, const Ray &ray,
           mem.load32(blas + as_header_type) != as_type_blas)
         continue;
 
-      stack.push_back({blas, load_node_ref(mem, blas),
+      Ray object_ray = entry.ray;
+      object_ray.origin = transform_instance_point(
+          mem, node_addr + instance_world_to_object, entry.ray.origin);
+      object_ray.direction = transform_instance_vector(
+          mem, node_addr + instance_world_to_object, entry.ray.direction);
+
+      stack.push_back({blas, load_node_ref(mem, blas), object_ray,
                        mem.load32(node_addr + instance_instance_id),
-                       mem.load32(node_addr + instance_sbt_record_offset)});
+                       mem.load32(node_addr + instance_sbt_record_offset),
+                       node_addr});
       continue;
     }
 
     if (type == node_triangle) {
+      debug_counters.triangles++;
       Triangle tri = load_vtas_triangle(mem, entry.as_base, entry.node_ref,
                                         entry.instance_id,
-                                        entry.instance_sbt_offset);
+                                        entry.instance_sbt_offset,
+                                        entry.instance_addr);
       Hit candidate = closest;
-      if (!intersect_triangle(ray, tri, candidate))
+      if (!intersect_triangle(entry.ray, tri, candidate))
         continue;
+      debug_counters.triangle_hits++;
 
       const bool force_opaque = (ray.flags & ray_flag_force_opaque) != 0;
       const bool force_non_opaque = (ray.flags & ray_flag_force_non_opaque) != 0;
@@ -686,10 +805,29 @@ inline uint32_t trace_vtas(Memory &mem, reg_t slot, const Ray &ray,
   }
 
   if (!closest.valid) {
+    if (debug) {
+      std::fprintf(stderr,
+                   "ventus-rt: trace[%u] miss boxes=%u box_tests=%u "
+                   "box_hits=%u instances=%u triangles=%u tri_hits=%u\n",
+                   debug_id, debug_counters.boxes,
+                   debug_counters.box_child_tests,
+                   debug_counters.box_child_hits, debug_counters.instances,
+                   debug_counters.triangles, debug_counters.triangle_hits);
+    }
     store_word(mem, slot, 0, slot_status, rt_status_miss);
     store_word(mem, slot, committed_hit_record_base, hit_record_status, 0);
     store_word(mem, slot, control_base, control_done, 1);
     return traversal_complete_miss;
+  }
+
+  if (debug) {
+    std::fprintf(stderr,
+                 "ventus-rt: trace[%u] hit t=%.6g boxes=%u box_tests=%u "
+                 "box_hits=%u instances=%u triangles=%u tri_hits=%u prim=%u\n",
+                 debug_id, closest.t, debug_counters.boxes,
+                 debug_counters.box_child_tests, debug_counters.box_child_hits,
+                 debug_counters.instances, debug_counters.triangles,
+                 debug_counters.triangle_hits, closest.tri.primitive_id);
   }
 
   write_hit_record(mem, slot, committed_hit_record_base, scene, closest,
