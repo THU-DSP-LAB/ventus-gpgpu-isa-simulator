@@ -7,6 +7,7 @@
 #include "trap.h"
 #include "abstract_device.h"
 #include <string>
+#include <cstdint>
 #include <vector>
 #include <unordered_map>
 #include <map>
@@ -655,8 +656,18 @@ public:
                           uint64_t r_mask, reg_t else_pc, uint64_t else_mask); // push r_mask else_pc else_mask
           void pop_join();   // 
 
-          reg_t get_npc() { return npc; };
-          uint64_t get_mask() { return mask; };
+          reg_t get_npc() const { return npc; };
+          /*
+           * Keep the immutable physical/live-lane mask separate from the
+           * SIMT reconvergence mask.  The latter may narrow at a divergent
+           * branch, but it must never resurrect a lane which was absent from
+           * the dispatched warp.  This is the same contract as RTL's
+           * init_thread_mask and branch_join::thread_masks.
+           */
+          uint64_t get_mask() const { return mask & live_mask; };
+          bool lane_active(reg_t lane) const {
+            return lane < mask_width && ((get_mask() >> lane) & 1u) != 0;
+          }
 
           void reset();
 
@@ -671,12 +682,14 @@ public:
             }
           }
 
-          void init_mask(int numt) {
-            mask_width = numt;
-            width_mask = 1;
-            for(int i = 0; i< numt - 1; i ++) 
-              width_mask = width_mask | (width_mask << 1);
-            mask = 0xffffffffffffffff & width_mask;
+          void init_mask(uint32_t physical_lane_count,
+                         uint32_t active_lane_count) {
+            assert(physical_lane_count > 0 && physical_lane_count <= 64);
+            assert(active_lane_count <= physical_lane_count);
+            mask_width = physical_lane_count;
+            width_mask = low_bits_mask(physical_lane_count);
+            live_mask = low_bits_mask(active_lane_count);
+            mask = live_mask;
           }
           bool stack_empty(){
             return _stack.empty();
@@ -684,14 +697,21 @@ public:
 
         private:
           std::vector<simt_stack_entry_t> _stack;
-          reg_t npc;
-          uint64_t mask;
+          static uint64_t low_bits_mask(uint32_t lane_count) {
+            return lane_count == 64 ? UINT64_MAX :
+                                      ((UINT64_C(1) << lane_count) - 1u);
+          }
 
-          int mask_width;
-          uint64_t width_mask;
+          reg_t npc = 0;
+          /* Current divergent-path execution mask, always a subset of L. */
+          uint64_t mask = 0;
+          /* Launch live lanes L, established once for each physical warp. */
+          uint64_t live_mask = 0;
 
-          // bool all_one(uint64_t val) { return (val & width_mask) == width_mask; }
-          bool all_zero(uint64_t val) { return (val & width_mask) == 0; }
+          uint32_t mask_width = 0;
+          uint64_t width_mask = 0;
+
+          bool all_zero(uint64_t val) { return (val & live_mask) == 0; }
       };
 
       simt_stack_t simt_stack;

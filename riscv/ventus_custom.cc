@@ -13,7 +13,7 @@ constexpr float VENTUS_CUSTOM_LMUL = 1.0f;
 
 bool lane_active(processor_t *p, reg_t lane)
 {
-  return ((p->gpgpu_unit.simt_stack.get_mask() >> lane) & 0x1) != 0;
+  return p->gpgpu_unit.simt_stack.lane_active(lane);
 }
 
 void require_ventus_custom_state(processor_t *p, insn_t insn)

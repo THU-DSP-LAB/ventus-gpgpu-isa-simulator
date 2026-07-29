@@ -35,7 +35,7 @@ enum class SubmitResult {
  * the global queue remains field-major and is owned exclusively by RTcore.
  */
 constexpr uint32_t kMailboxMagic = 0x56545251u; /* "VTRQ" */
-constexpr uint32_t kMailboxAbiVersion = 6;
+constexpr uint32_t kMailboxAbiVersion = 8;
 constexpr uint32_t kMailboxHeaderBytes = 32;
 constexpr uint32_t kMailboxMagicWord = 0;
 constexpr uint32_t kMailboxVersionWord = 1;
@@ -64,8 +64,13 @@ enum class TraceField : uint32_t {
   Tmax,
   PayloadLo,
   PayloadHi,
-  ChildCpsFrame,
+  CpsFrame,
   ParentFrame,
+  ContinuationId,
+  CpsStackSize,
+  LaunchIdX,
+  LaunchIdY,
+  LaunchIdZ,
   PhaseGeneration,
   Depth,
   Ready,

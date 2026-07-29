@@ -32,6 +32,10 @@ inline std::optional<bool> parse_bool(const char *str) {
     return parse_bool(std::string(str));
 }
 
+static bool spike_device_io_log_enabled() {
+  return parse_bool(std::getenv("VENTUS_SPIKE_DEVICE_IO_LOG")).value_or(false);
+}
+
 
 struct kernel_info{
     std::unordered_map<int, bool> blk_list;
@@ -332,7 +336,8 @@ int spike_device::free_local_mem(uint64_t paddr) {
 
 int spike_device::copy_to_dev(uint64_t vaddr, uint64_t size,const void *data){
   uint64_t i=0;
-  fprintf(stderr, "to copy to 0x%lx with %ld bytes\n",vaddr,size);
+  if (spike_device_io_log_enabled())
+    fprintf(stderr, "to copy to 0x%lx with %ld bytes\n",vaddr,size);
   for (i=0; i<buffer.size(); ++i)
     if(vaddr>=buffer[i].base && vaddr<buffer[i].base +buffer[i].size){
       if( vaddr+size > buffer[i].base +buffer[i].size)
@@ -346,7 +351,8 @@ int spike_device::copy_to_dev(uint64_t vaddr, uint64_t size,const void *data){
 
 int spike_device::copy_from_dev(uint64_t vaddr, uint64_t size, void *data){
   uint64_t i=0;
-  fprintf(stderr, "to copy from 0x%lx with %ld bytes\n",vaddr,size);
+  if (spike_device_io_log_enabled())
+    fprintf(stderr, "to copy from 0x%lx with %ld bytes\n",vaddr,size);
   for (i=0; i<buffer.size(); ++i)
     if(vaddr>=buffer[i].base && vaddr<buffer[i].base +buffer[i].size){
       if( vaddr+size > buffer[i].base +buffer[i].size)

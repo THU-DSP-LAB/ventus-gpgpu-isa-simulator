@@ -18,9 +18,7 @@
 
 #define VI_GPGPU_ELEMENT_SKIP() \
   if (GPGPU_ENABLE) { \
-    uint64_t mask = P.gpgpu_unit.simt_stack.get_mask(); \
-    bool skip = ((mask >> i) & 0x1) == 0; \
-    if (skip) { \
+    if (!P.gpgpu_unit.simt_stack.lane_active(i)) { \
       continue; \
     } \
   }
@@ -2307,9 +2305,7 @@ reg_t index[P.VU.vlmax]; \
 
 #define VV_BRANCK_LOOP_SKIP() \
   if (GPGPU_ENABLE) { \
-    uint64_t mask = P.gpgpu_unit.simt_stack.get_mask(); \
-    bool skip = ((mask >> i) & 0x1) == 0; \
-    if(skip) { \
+    if (!P.gpgpu_unit.simt_stack.lane_active(i)) { \
       continue; \
     } \
   }
@@ -2328,12 +2324,12 @@ reg_t index[P.VU.vlmax]; \
   uint64_t else_mask = 0; \
   for (reg_t i = P.VU.vstart->read(); i < vl; ++i) { \
     VV_BRANCK_LOOP_SKIP(); \
-    uint64_t mmask = UINT16_C(1) << i; \
+    uint64_t mmask = UINT64_C(1) << i; \
     uint64_t res = 0;
 
 
 #define VV_LOOP_BRANCH_END \
-    else_mask = (else_mask & ~mmask) | (((res) << i) & mmask); \
+    else_mask = (else_mask & ~mmask) | ((res) ? mmask : 0); \
   } \
   P.VU.vstart->write(0); \
   uint64_t if_mask = ~else_mask & r_mask;

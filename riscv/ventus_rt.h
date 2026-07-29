@@ -22,9 +22,12 @@ class mmu_t;
 namespace ventus_rt {
 
 constexpr reg_t lanes = 32;
+/* Legacy PDS slots and global RTcore worker locals have distinct bounds. */
 constexpr reg_t rt_pds_base_bytes = 4096;
 constexpr reg_t rt_region_size_bytes = 384;
-constexpr reg_t rt_total_size_bytes = rt_pds_base_bytes + rt_region_size_bytes;
+constexpr reg_t rt_pds_total_size_bytes =
+    rt_pds_base_bytes + rt_region_size_bytes;
+constexpr reg_t rt_worker_local_size_bytes = rt_region_size_bytes;
 
 constexpr reg_t slot_status = 0;
 constexpr reg_t slot_accel_lo = 1;
@@ -323,22 +326,24 @@ inline bool intersect_triangle(const Ray &ray, const Triangle &tri, Hit &hit)
   const Vec3 e2 = sub(tri.v2, tri.v0);
   const Vec3 p = cross(ray.direction, e2);
   const float det = dot(e1, p);
-  if (std::fabs(det) < eps)
+  if (!std::isfinite(det) || std::fabs(det) < eps)
     return false;
 
   const float inv_det = 1.0f / det;
   const Vec3 tvec = sub(ray.origin, tri.v0);
   const float u = dot(tvec, p) * inv_det;
-  if (u < 0.0f || u > 1.0f)
+  if (!std::isfinite(u) || u < 0.0f || u > 1.0f)
     return false;
 
   const Vec3 q = cross(tvec, e1);
   const float v = dot(ray.direction, q) * inv_det;
-  if (v < 0.0f || u + v > 1.0f)
+  if (!std::isfinite(v) || v < 0.0f || u + v > 1.0f)
     return false;
 
   const float t = dot(e2, q) * inv_det;
-  if (t < ray.tmin || t > ray.tmax || t >= hit.t)
+  /* A NaN bypasses ordinary ordered comparisons.  Treat it as a miss and
+   * keep the upper interval exclusive, matching the committed-hit rule. */
+  if (!std::isfinite(t) || t < ray.tmin || t >= ray.tmax || t >= hit.t)
     return false;
 
   hit.valid = true;
@@ -1659,7 +1664,7 @@ inline uint32_t traverse(Memory &mem, reg_t slot)
         bit_cast_f32(load_word(mem, slot, candidate_hit_record_base,
                                hit_record_hit_t));
     const Ray ray = load_ray(mem, slot);
-    if (hit_t >= ray.tmin && hit_t <= current_tmax(mem, slot))
+    if (hit_t >= ray.tmin && hit_t < current_tmax(mem, slot))
       commit_candidate_hit(mem, slot);
   }
 
@@ -1778,7 +1783,7 @@ inline void commit_private_candidate(Memory &mem, reg_t slot)
                                              candidate_hit_record_base,
                                              hit_record_hit_t));
   const Ray ray = load_ray(mem, slot);
-  if (hit_t >= ray.tmin && hit_t <= current_tmax(mem, slot)) {
+  if (hit_t >= ray.tmin && hit_t < current_tmax(mem, slot)) {
     copy_hit_record(mem, slot, committed_hit_record_base,
                     candidate_hit_record_base);
     store_word(mem, slot, 0, slot_hit_t, bit_cast_u32(hit_t));
@@ -1787,6 +1792,15 @@ inline void commit_private_candidate(Memory &mem, reg_t slot)
                          hit_record_sbt_index));
     store_word(mem, slot, 0, slot_status, rt_status_hit);
   }
+}
+
+template <typename Memory>
+inline bool private_candidate_is_before_tmax(Memory &mem, reg_t slot,
+                                             float hit_t)
+{
+  const Ray ray = load_ray(mem, slot);
+  return std::isfinite(hit_t) && hit_t >= ray.tmin &&
+         hit_t < current_tmax(mem, slot);
 }
 
 template <typename Memory>
@@ -1859,6 +1873,8 @@ inline uint32_t trace_private_aabb_list(Memory &mem, reg_t slot,
         load_aabb(mem, ctx.scene.primitive_addr + i * ctx.scene.primitive_stride);
     float hit_t = 0.0f;
     if (!intersect_aabb(ray, aabb, hit_t))
+      continue;
+    if (!private_candidate_is_before_tmax(mem, slot, hit_t))
       continue;
     return pause_private_candidate(mem, slot, ctx.scene,
                                    hit_from_aabb(aabb, hit_t),
@@ -2088,14 +2104,14 @@ struct HybridMemory {
 
   uint32_t load32(reg_t addr)
   {
-    if (addr < rt_total_size_bytes)
+    if (addr < rt_pds_total_size_bytes)
       return slot.load32(addr);
     return raw.load32(addr);
   }
 
   void store32(reg_t addr, uint32_t value)
   {
-    if (addr < rt_total_size_bytes) {
+    if (addr < rt_pds_total_size_bytes) {
       slot.store32(addr, value);
       return;
     }

@@ -1145,7 +1145,7 @@ void processor_t::gpgpu_unit_t::reset(processor_t *const proc)
 void processor_t::gpgpu_unit_t::simt_stack_t::pop_join()
 {
   npc = _stack.back().else_pc;
-  mask = _stack.back().else_mask;
+  mask = _stack.back().else_mask & live_mask;
   _stack.pop_back();
   /*//else不用執行，if下來直接匯合點
   if(_stack.back().pair == 1){
@@ -1175,9 +1175,15 @@ int count_ones(uint64_t n){
   return count;
 }
 void processor_t::gpgpu_unit_t::simt_stack_t::push_branch
-    (reg_t r_pc,reg_t if_pc, uint64_t if_mask, 
+    (reg_t r_pc,reg_t if_pc, uint64_t if_mask,
                      uint64_t r_mask, reg_t else_pc, uint64_t else_mask)
 {
+  /* The vector branch is unpredicated, but it still only observes the
+   * currently executing SIMT lanes.  Clamp every saved/restored path to the
+   * launch-live mask so a join cannot revive a compact-dispatch tail lane. */
+  r_mask &= live_mask;
+  if_mask &= r_mask;
+  else_mask &= r_mask;
   if(all_zero(else_mask)){
     npc = if_pc;
     mask = if_mask & width_mask;
@@ -1285,7 +1291,7 @@ void processor_t::gpgpu_unit_t::init_warp(uint64_t _numw, uint64_t _numt, uint64
   clprintf->write(_clprintf);
 
   // init simt-stack
-  simt_stack.init_mask(_num_active_thread);
+  simt_stack.init_mask(_numt, _num_active_thread);
   
   // vector csr init、
   int lanes = _numt;
