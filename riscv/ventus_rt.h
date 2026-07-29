@@ -170,6 +170,18 @@ constexpr uint32_t instance_world_to_object = 0x50;
 constexpr uint32_t ray_flag_force_opaque = 1u << 0;
 constexpr uint32_t ray_flag_force_non_opaque = 1u << 1;
 constexpr uint32_t ray_flag_terminate_on_first_hit = 1u << 2;
+constexpr uint32_t ray_flag_cull_back_facing_triangles = 1u << 4;
+constexpr uint32_t ray_flag_cull_front_facing_triangles = 1u << 5;
+constexpr uint32_t ray_flag_cull_opaque = 1u << 6;
+constexpr uint32_t ray_flag_cull_non_opaque = 1u << 7;
+
+constexpr uint32_t instance_flag_triangle_facing_cull_disable = 1u << 0;
+constexpr uint32_t instance_flag_triangle_flip_facing = 1u << 1;
+constexpr uint32_t instance_flag_force_opaque = 1u << 2;
+constexpr uint32_t instance_flag_force_non_opaque = 1u << 3;
+
+constexpr uint32_t triangle_hit_kind_front_face = 0xfe;
+constexpr uint32_t triangle_hit_kind_back_face = 0xff;
 
 constexpr reg_t continuation_state_flags = 0;
 constexpr reg_t continuation_stack_count = 1;
@@ -265,6 +277,7 @@ struct Triangle {
   uint32_t instance_sbt_record_offset = 0;
   uint32_t hit_kind = 0xfe;
   uint32_t opaque = 1;
+  uint32_t instance_geometry_flags = 0;
   uint64_t primitive_addr = 0;
   uint64_t instance_addr = 0;
 };
@@ -279,6 +292,7 @@ struct ProceduralAabb {
   uint32_t instance_sbt_record_offset = 0;
   uint32_t hit_kind = 0xff;
   uint32_t opaque = 0;
+  uint32_t instance_geometry_flags = 0;
   uint64_t primitive_addr = 0;
   uint64_t instance_addr = 0;
 };
@@ -302,6 +316,63 @@ struct Ray {
   uint32_t sbt_offset = 0;
   uint32_t sbt_stride = 0;
 };
+
+inline bool resolve_candidate_opacity(const Ray &ray,
+                                      uint32_t instance_geometry_flags,
+                                      bool geometry_opaque)
+{
+  if (ray.flags & ray_flag_force_non_opaque)
+    return false;
+  if (ray.flags & ray_flag_force_opaque)
+    return true;
+  if (instance_geometry_flags & instance_flag_force_non_opaque)
+    return false;
+  if (instance_geometry_flags & instance_flag_force_opaque)
+    return true;
+  return geometry_opaque;
+}
+
+inline bool candidate_opacity_is_culled(const Ray &ray, bool opaque)
+{
+  return opaque ? (ray.flags & ray_flag_cull_opaque) != 0
+                : (ray.flags & ray_flag_cull_non_opaque) != 0;
+}
+
+inline bool prepare_triangle_candidate(const Ray &ray, Hit &candidate)
+{
+  const uint32_t instance_flags = candidate.tri.instance_geometry_flags;
+  if (instance_flags & instance_flag_triangle_flip_facing)
+    candidate.front_face = !candidate.front_face;
+  candidate.tri.hit_kind = candidate.front_face
+                               ? triangle_hit_kind_front_face
+                               : triangle_hit_kind_back_face;
+
+  if (!(instance_flags & instance_flag_triangle_facing_cull_disable)) {
+    if (candidate.front_face &&
+        (ray.flags & ray_flag_cull_front_facing_triangles))
+      return false;
+    if (!candidate.front_face &&
+        (ray.flags & ray_flag_cull_back_facing_triangles))
+      return false;
+  }
+
+  candidate.tri.opaque =
+      resolve_candidate_opacity(ray, instance_flags,
+                                candidate.tri.opaque != 0)
+          ? 1
+          : 0;
+  return !candidate_opacity_is_culled(ray, candidate.tri.opaque != 0);
+}
+
+inline bool prepare_aabb_candidate(const Ray &ray, Hit &candidate)
+{
+  candidate.tri.opaque =
+      resolve_candidate_opacity(ray, candidate.tri.instance_geometry_flags,
+                                candidate.tri.opaque != 0)
+          ? 1
+          : 0;
+  return !candidate_opacity_is_culled(ray, candidate.tri.opaque != 0);
+}
 
 struct Scene {
   uint64_t primitive_addr = 0;
@@ -508,6 +579,7 @@ inline Hit hit_from_aabb(const ProceduralAabb &aabb, float hit_t)
   hit.tri.instance_sbt_record_offset = aabb.instance_sbt_record_offset;
   hit.tri.hit_kind = aabb.hit_kind;
   hit.tri.opaque = aabb.opaque;
+  hit.tri.instance_geometry_flags = aabb.instance_geometry_flags;
   hit.tri.primitive_addr = aabb.primitive_addr;
   hit.tri.instance_addr = aabb.instance_addr;
   return hit;
@@ -974,6 +1046,9 @@ inline Triangle load_vtas_triangle(Memory &mem, uint64_t as_base,
   tri.instance_sbt_record_offset = instance_sbt_offset;
   tri.hit_kind = 0xfe;
   tri.opaque = mem.load32(addr + triangle_flags) & 0x1;
+  if (instance_addr)
+    tri.instance_geometry_flags =
+        mem.load32(instance_addr + instance_flags);
   tri.primitive_addr = load_u64(mem, addr + triangle_primitive_addr_lo);
   tri.instance_addr = instance_addr;
   return tri;
@@ -998,6 +1073,9 @@ inline ProceduralAabb load_vtas_aabb(Memory &mem, uint64_t as_base,
   aabb.instance_sbt_record_offset = instance_sbt_offset;
   aabb.hit_kind = mem.load32(addr + aabb_hit_kind);
   aabb.opaque = mem.load32(addr + aabb_flags) & 0x1;
+  if (instance_addr)
+    aabb.instance_geometry_flags =
+        mem.load32(instance_addr + instance_flags);
   aabb.primitive_addr = load_u64(mem, addr + aabb_primitive_addr_lo);
   aabb.instance_addr = instance_addr;
   return aabb;
@@ -1911,13 +1989,11 @@ inline uint32_t trace_private_triangle_list(Memory &mem, reg_t slot,
         load_triangle(mem, ctx.scene.primitive_addr + i * ctx.scene.primitive_stride);
     Hit candidate;
     candidate.t = ray.tmax;
-    if (!intersect_triangle(ray, tri, candidate))
+    if (!intersect_triangle(ray, tri, candidate) ||
+        !prepare_triangle_candidate(ray, candidate))
       continue;
 
-    const bool force_opaque = (ray.flags & ray_flag_force_opaque) != 0;
-    const bool force_non_opaque = (ray.flags & ray_flag_force_non_opaque) != 0;
-    const bool opaque = force_opaque || (!force_non_opaque && tri.opaque != 0);
-    if (!opaque)
+    if (!candidate.tri.opaque)
       return pause_private_candidate(mem, slot, ctx.scene, candidate,
                                      traversal_candidate_non_opaque_triangle);
 
@@ -1945,8 +2021,10 @@ inline uint32_t trace_private_aabb_list(Memory &mem, reg_t slot,
       continue;
     if (!private_candidate_is_before_tmax(mem, slot, hit_t))
       continue;
-    return pause_private_candidate(mem, slot, ctx.scene,
-                                   hit_from_aabb(aabb, hit_t),
+    Hit candidate = hit_from_aabb(aabb, hit_t);
+    if (!prepare_aabb_candidate(ray, candidate))
+      continue;
+    return pause_private_candidate(mem, slot, ctx.scene, candidate,
                                    traversal_candidate_procedural_aabb);
   }
   return finish_private_traversal(mem, slot, key, private_state);
@@ -2016,8 +2094,10 @@ inline uint32_t trace_private_vtas(Memory &mem, reg_t slot, uint64_t key,
       if (!intersect_aabb(entry.ray, aabb, hit_t) ||
           !private_candidate_is_before_tmax(mem, slot, hit_t))
         continue;
-      return pause_private_candidate(mem, slot, ctx.scene,
-                                     hit_from_aabb(aabb, hit_t),
+      Hit candidate = hit_from_aabb(aabb, hit_t);
+      if (!prepare_aabb_candidate(entry.ray, candidate))
+        continue;
+      return pause_private_candidate(mem, slot, ctx.scene, candidate,
                                      traversal_candidate_procedural_aabb);
     }
 
@@ -2030,12 +2110,10 @@ inline uint32_t trace_private_vtas(Memory &mem, reg_t slot, uint64_t key,
                                              entry.ray.sbt_stride);
     Hit candidate;
     candidate.t = entry.ray.tmax;
-    if (!intersect_triangle(entry.ray, tri, candidate))
+    if (!intersect_triangle(entry.ray, tri, candidate) ||
+        !prepare_triangle_candidate(entry.ray, candidate))
       continue;
-    const bool force_opaque = (entry.ray.flags & ray_flag_force_opaque) != 0;
-    const bool force_non_opaque = (entry.ray.flags & ray_flag_force_non_opaque) != 0;
-    const bool opaque = force_opaque || (!force_non_opaque && tri.opaque != 0);
-    if (!opaque)
+    if (!candidate.tri.opaque)
       return pause_private_candidate(mem, slot, ctx.scene, candidate,
                                      traversal_candidate_non_opaque_triangle);
     commit_hit(mem, slot, ctx.scene, candidate);
