@@ -148,6 +148,16 @@ constexpr uint32_t triangle_flags = 0x30;
 constexpr uint32_t triangle_instance_id = 0x34;
 constexpr uint32_t triangle_primitive_addr_lo = 0x38;
 
+constexpr uint32_t aabb_min = 0x00;
+constexpr uint32_t aabb_max = 0x0c;
+constexpr uint32_t aabb_primitive_id = 0x18;
+constexpr uint32_t aabb_geometry_id = 0x1c;
+constexpr uint32_t aabb_sbt_record_offset = 0x20;
+constexpr uint32_t aabb_hit_kind = 0x24;
+constexpr uint32_t aabb_flags = 0x28;
+constexpr uint32_t aabb_primitive_addr_lo = 0x30;
+constexpr uint32_t aabb_instance_addr_lo = 0x38;
+
 constexpr uint32_t instance_blas_addr_lo = 0x00;
 constexpr uint32_t instance_custom_index = 0x08;
 constexpr uint32_t instance_mask = 0x0c;
@@ -268,6 +278,7 @@ struct ProceduralAabb {
   uint32_t sbt_index = 0;
   uint32_t instance_sbt_record_offset = 0;
   uint32_t hit_kind = 0xff;
+  uint32_t opaque = 0;
   uint64_t primitive_addr = 0;
   uint64_t instance_addr = 0;
 };
@@ -494,8 +505,9 @@ inline Hit hit_from_aabb(const ProceduralAabb &aabb, float hit_t)
   hit.tri.instance_id = aabb.instance_id;
   hit.tri.geometry_id = aabb.geometry_id;
   hit.tri.sbt_index = aabb.sbt_index;
+  hit.tri.instance_sbt_record_offset = aabb.instance_sbt_record_offset;
   hit.tri.hit_kind = aabb.hit_kind;
-  hit.tri.opaque = 0;
+  hit.tri.opaque = aabb.opaque;
   hit.tri.primitive_addr = aabb.primitive_addr;
   hit.tri.instance_addr = aabb.instance_addr;
   return hit;
@@ -955,6 +967,28 @@ inline Triangle load_vtas_triangle(Memory &mem, uint64_t as_base,
   tri.primitive_addr = load_u64(mem, addr + triangle_primitive_addr_lo);
   tri.instance_addr = instance_addr;
   return tri;
+}
+
+template <typename Memory>
+inline ProceduralAabb load_vtas_aabb(Memory &mem, uint64_t as_base,
+                                     uint32_t node_ref, uint32_t instance_id,
+                                     uint32_t instance_sbt_offset,
+                                     uint64_t instance_addr)
+{
+  const reg_t addr = as_base + node_ref_offset(node_ref);
+  ProceduralAabb aabb;
+  aabb.min = load_vec3(mem, addr + aabb_min);
+  aabb.max = load_vec3(mem, addr + aabb_max);
+  aabb.primitive_id = mem.load32(addr + aabb_primitive_id);
+  aabb.instance_id = instance_id;
+  aabb.geometry_id = mem.load32(addr + aabb_geometry_id);
+  aabb.sbt_index = mem.load32(addr + aabb_sbt_record_offset);
+  aabb.instance_sbt_record_offset = instance_sbt_offset;
+  aabb.hit_kind = mem.load32(addr + aabb_hit_kind);
+  aabb.opaque = mem.load32(addr + aabb_flags) & 0x1;
+  aabb.primitive_addr = load_u64(mem, addr + aabb_primitive_addr_lo);
+  aabb.instance_addr = instance_addr;
+  return aabb;
 }
 
 template <typename Memory>
@@ -1938,6 +1972,19 @@ inline uint32_t trace_private_vtas(Memory &mem, reg_t slot, uint64_t key)
                            mem.load32(node_addr + instance_sbt_record_offset),
                            node_addr});
       continue;
+    }
+
+    if (type == node_aabb) {
+      const ProceduralAabb aabb = load_vtas_aabb(
+          mem, entry.as_base, entry.node_ref, entry.instance_id,
+          entry.instance_sbt_offset, entry.instance_addr);
+      float hit_t = 0.0f;
+      if (!intersect_aabb(entry.ray, aabb, hit_t) ||
+          !private_candidate_is_before_tmax(mem, slot, hit_t))
+        continue;
+      return pause_private_candidate(mem, slot, ctx.scene,
+                                     hit_from_aabb(aabb, hit_t),
+                                     traversal_candidate_procedural_aabb);
     }
 
     if (type != node_triangle)

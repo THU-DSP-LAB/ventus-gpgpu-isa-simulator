@@ -2332,7 +2332,13 @@ reg_t index[P.VU.vlmax]; \
     else_mask = (else_mask & ~mmask) | ((res) ? mmask : 0); \
   } \
   P.VU.vstart->write(0); \
-  uint64_t if_mask = ~else_mask & r_mask;
+  uint64_t if_mask = ~else_mask & r_mask; \
+  const char *debug_branch_pc = std::getenv("VENTUS_SPIKE_DEBUG_BRANCH_PC"); \
+  if (debug_branch_pc && \
+      static_cast<uint32_t>(STATE.pc) == std::strtoul(debug_branch_pc, nullptr, 0)) \
+    std::fprintf(stderr, "ventus: vector-branch pc=0x%lx if=0x%lx target=0x%lx target_mask=0x%lx\\n", \
+                 (unsigned long)STATE.pc, (unsigned long)if_mask, \
+                 (unsigned long)else_pc, (unsigned long)else_mask);
 
 #define VV_BRANCH_SS_SET_PC_MASK \
   P.gpgpu_unit.simt_stack.push_branch(P.get_csr(CSR_RPC),if_pc, if_mask, r_mask, else_pc, else_mask); \

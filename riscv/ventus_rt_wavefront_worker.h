@@ -145,6 +145,23 @@ public:
     return true;
   }
 
+  /* An intersection shader reports a new procedural candidate in the global
+   * completion plane.  Rebind that candidate to the same ray_ref-owned
+   * traversal context before any-hit decides whether RTcore may commit it. */
+  bool replace_candidate(uint32_t ray_ref,
+                         const std::array<uint32_t, kHitRecordWordCount> &hit,
+                         const std::array<uint32_t, kHitAttributeWordCount> &attrs)
+  {
+    CompletionRecord *record = find(ray_ref);
+    if (!record || record->state != CompletionState::Candidate)
+      return false;
+    record->candidate_status = ventus_rt::traversal_candidate_non_opaque_triangle;
+    record->candidate_hit = hit;
+    record->candidate_attributes = attrs;
+    record->action = CompletionAction::None;
+    return true;
+  }
+
 private:
   std::unordered_map<uint32_t, CompletionRecord> records_;
 };
@@ -447,7 +464,7 @@ struct ResumeDispatchRequest {
 /* C++ mirror of the field-major completion plane in vt_rt_global_abi.h. */
 enum class CompletionField : uint32_t {
   Status = 0,
-  /* v8 exposes the canonical committed record contiguously. */
+  /* v9 exposes the canonical committed record contiguously. */
   CommittedHitBase,
   HitAttributeAddrLo = 1 + kHitRecordWordCount,
   HitAttributeAddrHi,
@@ -460,6 +477,15 @@ enum class CompletionField : uint32_t {
   LaunchIdZ,
   CallbackGroup,
   Ready,
+  /* Keep the terminal ABI stable and append the paused candidate planes.
+   * Candidate and committed records share ray_ref indexing but never storage. */
+  CandidateKind,
+  CandidateHitBase,
+  CandidateHitAttributeAddrLo = 32 + kHitRecordWordCount,
+  CandidateHitAttributeAddrHi,
+  CandidateControlBase,
+  CandidateControlLast = CandidateControlBase +
+      ventus_rt::control_skip_closest_hit,
   Count,
 };
 
@@ -475,6 +501,8 @@ struct CompletionPlaneLayout {
   /* Two u32 hit attributes per ray, at a caller-owned global stride. */
   uint64_t hit_attribute_base_address = 0;
   uint32_t hit_attribute_stride_bytes = 0;
+  uint64_t candidate_hit_attribute_base_address = 0;
+  uint32_t candidate_hit_attribute_stride_bytes = 0;
   uint64_t miss_sbt_base_address = 0;
   uint64_t miss_sbt_stride_bytes = 0;
   uint64_t hit_sbt_base_address = 0;
@@ -502,11 +530,9 @@ constexpr uint32_t kShaderGroupHandleSize = 32;
 
 template <typename Memory>
 static inline bool
-resolve_terminal_callback_group(Memory &memory,
-                                const CompletionPlaneLayout &layout,
-                                const TraversalDispatchResult &result,
-                                CompletionRecord &completion,
-                                uint32_t *group)
+resolve_callback_group(Memory &memory, const CompletionPlaneLayout &layout,
+                       const TraversalDispatchResult &result,
+                       CompletionRecord &completion, uint32_t *group)
 {
   if (!group)
     return false;
@@ -522,18 +548,22 @@ resolve_terminal_callback_group(Memory &memory,
     return true;
   }
 
-  if (result.target != TraversalDispatchTarget::ClosestHit)
+  const bool candidate =
+      result.target == TraversalDispatchTarget::AnyHitCandidate ||
+      result.target == TraversalDispatchTarget::IntersectionCandidate;
+  if (result.target != TraversalDispatchTarget::ClosestHit && !candidate)
     return false;
   if (!layout.hit_sbt_base_address || !layout.hit_sbt_stride_bytes)
     return false;
-  const uint32_t sbt_index =
-    completion.committed_hit[ventus_rt::hit_record_sbt_index];
+  std::array<uint32_t, kHitRecordWordCount> &hit = candidate
+      ? completion.candidate_hit : completion.committed_hit;
+  const uint32_t sbt_index = hit[ventus_rt::hit_record_sbt_index];
   const uint64_t shader_record = layout.hit_sbt_base_address +
     (uint64_t)sbt_index * layout.hit_sbt_stride_bytes +
     kShaderGroupHandleSize;
-  completion.committed_hit[ventus_rt::hit_record_shader_record_ptr_lo] =
+  hit[ventus_rt::hit_record_shader_record_ptr_lo] =
     uint32_t(shader_record);
-  completion.committed_hit[ventus_rt::hit_record_shader_record_ptr_hi] =
+  hit[ventus_rt::hit_record_shader_record_ptr_hi] =
     uint32_t(shader_record >> 32);
   *group = memory.load_u32(shader_record - kShaderGroupHandleSize +
                            kShaderGroupHandleIndexOffset);
@@ -548,19 +578,23 @@ write_global_completion(Memory &memory, const CompletionPlaneLayout &layout,
 {
   if (!layout.base_address || !layout.capacity || result.ray_ref >= layout.capacity)
     return false;
+  const bool candidate =
+      result.target == TraversalDispatchTarget::AnyHitCandidate ||
+      result.target == TraversalDispatchTarget::IntersectionCandidate;
   if (result.target != TraversalDispatchTarget::Miss &&
-      result.target != TraversalDispatchTarget::ClosestHit)
+      result.target != TraversalDispatchTarget::ClosestHit && !candidate)
     return false;
 
   CompletionRecord *completion = completion_arena.find(result.ray_ref);
   if (!completion)
     return false;
-  if (!resolve_terminal_callback_group(memory, layout, result, *completion,
-                                       &completion->metadata.callback_group))
+  if (!resolve_callback_group(memory, layout, result, *completion,
+                              &completion->metadata.callback_group))
     return false;
 
   uint64_t hit_attribute_address = 0;
-  if (result.target == TraversalDispatchTarget::ClosestHit) {
+  uint64_t candidate_hit_attribute_address = 0;
+  if (result.target == TraversalDispatchTarget::ClosestHit || candidate) {
     if (!layout.hit_attribute_base_address ||
         layout.hit_attribute_stride_bytes <
             kHitAttributeWordCount * sizeof(uint32_t))
@@ -568,10 +602,22 @@ write_global_completion(Memory &memory, const CompletionPlaneLayout &layout,
     hit_attribute_address = layout.hit_attribute_base_address +
                             (uint64_t)result.ray_ref *
                                 layout.hit_attribute_stride_bytes;
-    memory.store_u32(hit_attribute_address,
-                     completion->committed_attributes[0]);
+    memory.store_u32(hit_attribute_address, completion->committed_attributes[0]);
     memory.store_u32(hit_attribute_address + sizeof(uint32_t),
                      completion->committed_attributes[1]);
+  }
+  if (candidate) {
+    if (!layout.candidate_hit_attribute_base_address ||
+        layout.candidate_hit_attribute_stride_bytes <
+            kHitAttributeWordCount * sizeof(uint32_t))
+      return false;
+    candidate_hit_attribute_address =
+        layout.candidate_hit_attribute_base_address +
+        (uint64_t)result.ray_ref * layout.candidate_hit_attribute_stride_bytes;
+    memory.store_u32(candidate_hit_attribute_address,
+                     completion->candidate_attributes[0]);
+    memory.store_u32(candidate_hit_attribute_address + sizeof(uint32_t),
+                     completion->candidate_attributes[1]);
   }
 
   const auto store = [&](CompletionField field, uint32_t value) {
@@ -583,7 +629,9 @@ write_global_completion(Memory &memory, const CompletionPlaneLayout &layout,
   store(CompletionField::Ready, 0);
   store(CompletionField::Status, result.target == TraversalDispatchTarget::Miss
                                       ? kCompletionStatusMiss
-                                      : kCompletionStatusHit);
+                                      : result.target == TraversalDispatchTarget::ClosestHit
+                                            ? kCompletionStatusHit
+                                            : result.traversal_status);
   for (uint32_t word = 0; word < kHitRecordWordCount; ++word) {
     store(static_cast<CompletionField>(
               static_cast<uint32_t>(CompletionField::CommittedHitBase) + word),
@@ -592,6 +640,22 @@ write_global_completion(Memory &memory, const CompletionPlaneLayout &layout,
   store(CompletionField::HitAttributeAddrLo, uint32_t(hit_attribute_address));
   store(CompletionField::HitAttributeAddrHi,
         uint32_t(hit_attribute_address >> 32));
+  store(CompletionField::CandidateKind,
+        candidate ? result.traversal_status : 0);
+  for (uint32_t word = 0; word < kHitRecordWordCount; ++word) {
+    store(static_cast<CompletionField>(
+              static_cast<uint32_t>(CompletionField::CandidateHitBase) + word),
+          completion->candidate_hit[word]);
+  }
+  store(CompletionField::CandidateHitAttributeAddrLo,
+        uint32_t(candidate_hit_attribute_address));
+  store(CompletionField::CandidateHitAttributeAddrHi,
+        uint32_t(candidate_hit_attribute_address >> 32));
+  for (uint32_t word = ventus_rt::control_done;
+       word <= ventus_rt::control_skip_closest_hit; ++word)
+    store(static_cast<CompletionField>(
+              static_cast<uint32_t>(CompletionField::CandidateControlBase) + word),
+          candidate && word == ventus_rt::control_accept_hit ? 1 : 0);
   store(CompletionField::PayloadAddrLo, uint32_t(metadata.payload_address));
   store(CompletionField::PayloadAddrHi,
         uint32_t(metadata.payload_address >> 32));
@@ -612,7 +676,9 @@ make_resume_dispatch_request(const TraversalDispatchResult &result,
                              ResumeDispatchRequest *request)
 {
   if (!request || (result.target != TraversalDispatchTarget::Miss &&
-                   result.target != TraversalDispatchTarget::ClosestHit))
+                   result.target != TraversalDispatchTarget::ClosestHit &&
+                   result.target != TraversalDispatchTarget::AnyHitCandidate &&
+                   result.target != TraversalDispatchTarget::IntersectionCandidate))
     return false;
   const CompletionRecord *completion = completion_arena.find(result.ray_ref);
   if (!completion)

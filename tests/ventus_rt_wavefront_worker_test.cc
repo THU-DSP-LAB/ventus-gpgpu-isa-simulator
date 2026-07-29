@@ -153,6 +153,16 @@ static void check_candidate_actions(TestMemory &memory, uint64_t candidate_accel
          record->metadata.launch_id_x == 4 && record->metadata.launch_id_y == 5 &&
          record->metadata.launch_id_z == 6);
   assert(completion.find(accept.ray_ref)->state == CompletionState::Candidate);
+  /* reportIntersectionEXT replaces the provisional candidate before any-hit
+   * accepts it.  RTcore must commit report_t, not its paused candidate t. */
+  record = completion.find(accept.ray_ref);
+  std::array<uint32_t, kHitRecordWordCount> reported_hit = record->candidate_hit;
+  std::array<uint32_t, kHitAttributeWordCount> reported_attributes = {{
+      bit_cast_u32(0.2f), bit_cast_u32(0.3f)}};
+  reported_hit[hit_record_hit_t] = bit_cast_u32(4.0f);
+  reported_hit[hit_record_hit_kind] = 3;
+  assert(completion.replace_candidate(accept.ray_ref, reported_hit,
+                                      reported_attributes));
   assert(completion.set_action(accept.ray_ref, CompletionAction::AcceptContinue));
   result = resume_global_traversal_subset(memory, {accept.ray_ref}, completion)
                .front();
@@ -160,6 +170,7 @@ static void check_candidate_actions(TestMemory &memory, uint64_t candidate_accel
   record = completion.find(accept.ray_ref);
   assert(record->state == CompletionState::CompleteHit);
   assert(record->committed_hit[hit_record_primitive_id] == 77);
+  assert(record->committed_hit[hit_record_hit_t] == bit_cast_u32(4.0f));
   assert(record->committed_attributes[0] ==
          record->committed_hit[hit_record_barycentrics_x]);
 
@@ -194,6 +205,77 @@ static void check_non_finite_triangle_is_miss(TestMemory &memory)
   const CompletionRecord *completion_record = completion.find(record.ray_ref);
   assert(completion_record &&
          completion_record->state == CompletionState::CompleteMiss);
+}
+
+static void
+write_identity_transform(TestMemory &memory, uint64_t address)
+{
+  for (uint32_t row = 0; row < 3; row++) {
+    for (uint32_t column = 0; column < 4; column++) {
+      memory.store_u32(address + 4 * (row * 4 + column),
+                       bit_cast_u32(row == column ? 1.0f : 0.0f));
+    }
+  }
+}
+
+static void check_vtas_aabb_candidate(TestMemory &memory)
+{
+  constexpr uint64_t tlas = 0x60000;
+  constexpr uint64_t blas = 0x61000;
+  constexpr uint64_t instance = tlas + as_header_size;
+  constexpr uint64_t aabb = blas + as_header_size;
+  constexpr uint32_t primitive_id = 19;
+
+  memory.store_u32(tlas + as_header_magic, as_magic);
+  memory.store_u32(tlas + as_header_version, as_version);
+  memory.store_u32(tlas + as_header_type, as_type_tlas);
+  memory.store_u32(tlas + as_header_root_node_ref,
+                   uint32_t(instance - tlas) | node_instance);
+  memory.store_u32(instance + instance_blas_addr_lo, uint32_t(blas));
+  memory.store_u32(instance + instance_mask, 0xff);
+  memory.store_u32(instance + instance_sbt_record_offset, 5);
+  memory.store_u32(instance + instance_instance_id, 13);
+  write_identity_transform(memory, instance + instance_object_to_world);
+  write_identity_transform(memory, instance + instance_world_to_object);
+
+  memory.store_u32(blas + as_header_magic, as_magic);
+  memory.store_u32(blas + as_header_version, as_version);
+  memory.store_u32(blas + as_header_type, as_type_blas);
+  memory.store_u32(blas + as_header_root_node_ref,
+                   uint32_t(aabb - blas) | node_aabb);
+  write_vec3(memory, aabb + aabb_min, -1.0f, -1.0f, 4.0f);
+  write_vec3(memory, aabb + aabb_max, 1.0f, 1.0f, 6.0f);
+  memory.store_u32(aabb + aabb_primitive_id, primitive_id);
+  memory.store_u32(aabb + aabb_geometry_id, 3);
+  memory.store_u32(aabb + aabb_sbt_record_offset, 7);
+  memory.store_u32(aabb + aabb_flags, 1);
+  memory.store_u32(aabb + aabb_primitive_addr_lo, 0x70000);
+
+  CompletionArena<TestMemory> completion;
+  const IndexedFieldMajorRecord record = {
+      .ray_ref = 123, .record = make_trace_record(tlas)};
+  TraversalDispatchResult result =
+      run_global_traversal_record(memory, record, completion);
+  assert(result.target == TraversalDispatchTarget::IntersectionCandidate);
+  CompletionRecord *candidate = completion.find(record.ray_ref);
+  assert(candidate && candidate->state == CompletionState::Candidate);
+  assert(candidate->candidate_hit[hit_record_primitive_id] == primitive_id);
+  assert(candidate->candidate_hit[hit_record_instance_id] == 13);
+  assert(candidate->candidate_hit[hit_record_sbt_index] == 14);
+  assert(candidate->candidate_hit[hit_record_instance_sbt_record_offset] == 5);
+  assert(candidate->candidate_hit[hit_record_opaque] == 1);
+
+  std::array<uint32_t, kHitRecordWordCount> report = candidate->candidate_hit;
+  report[hit_record_hit_t] = bit_cast_u32(4.5f);
+  report[hit_record_hit_kind] = 0;
+  assert(completion.replace_candidate(record.ray_ref, report, {}));
+  assert(completion.set_action(record.ray_ref,
+                               CompletionAction::AcceptContinue));
+  result = resume_global_traversal_record(memory, record.ray_ref, completion);
+  assert(result.target == TraversalDispatchTarget::ClosestHit);
+  const CompletionRecord *completed = completion.find(record.ray_ref);
+  assert(completed && completed->state == CompletionState::CompleteHit);
+  assert(completed->committed_hit[hit_record_hit_t] == bit_cast_u32(4.5f));
 }
 
 static void check_global_consumer_facade(TestMemory &memory,
@@ -329,9 +411,39 @@ int main()
   const CompletionRecord *candidate = completion.find(2);
   assert(candidate && candidate->state == CompletionState::Candidate);
   assert(candidate->candidate_hit[hit_record_primitive_id] == 77);
+  const CompletionPlaneLayout candidate_layout = {
+      .base_address = 0xc0000,
+      .capacity = 8,
+      .hit_attribute_base_address = 0xd0000,
+      .hit_attribute_stride_bytes = 32,
+      .candidate_hit_attribute_base_address = 0xe0000,
+      .candidate_hit_attribute_stride_bytes = 32,
+      .hit_sbt_base_address = 0x50000,
+      .hit_sbt_stride_bytes = 96,
+  };
+  assert(write_global_completion(memory, candidate_layout, results[2],
+                                 completion));
+  const auto candidate_field = [&](CompletionField field) {
+    return memory.load_u32(completion_field_address(candidate_layout, field, 2));
+  };
+  assert(candidate_field(CompletionField::Status) ==
+         traversal_candidate_non_opaque_triangle);
+  assert(candidate_field(CompletionField::CandidateKind) ==
+         traversal_candidate_non_opaque_triangle);
+  assert(candidate_field(static_cast<CompletionField>(
+             static_cast<uint32_t>(CompletionField::CandidateHitBase) +
+             hit_record_primitive_id)) == 77);
+  assert(candidate_field(CompletionField::CandidateHitAttributeAddrLo) ==
+         0xe0000 + 2 * 32);
+  assert(candidate_field(static_cast<CompletionField>(
+             static_cast<uint32_t>(CompletionField::CandidateControlBase) +
+             control_accept_hit)) == 1);
+  assert(candidate_field(CompletionField::Ready) == 1);
+
   assert(queue.consume_head() == 3);
   check_candidate_actions(memory, candidate_accel);
   check_non_finite_triangle_is_miss(memory);
+  check_vtas_aabb_candidate(memory);
   check_global_consumer_facade(memory, hit_accel);
   return 0;
 }
