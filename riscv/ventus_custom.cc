@@ -194,7 +194,11 @@ bool ventus_exec_amo_w_if_warp(processor_t *p, insn_t insn,
     const uint32_t rhs = p->VU.elt<uint32_t>(2, vs2_num, lane);
     const uint32_t previous =
         p->get_mmu()->amo_uint32(address, [rhs, op](uint32_t lhs) {
-          return op == VentusAmoWOp::Add ? lhs + rhs : lhs | rhs;
+          if (op == VentusAmoWOp::Add)
+            return lhs + rhs;
+          if (op == VentusAmoWOp::And)
+            return lhs & rhs;
+          return lhs | rhs;
         });
     p->VU.elt<uint32_t>(0, vd_num, lane, true) = previous;
   }

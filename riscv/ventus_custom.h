@@ -8,6 +8,7 @@
 
 enum class VentusAmoWOp {
   Add,
+  And,
   Or,
 };
 

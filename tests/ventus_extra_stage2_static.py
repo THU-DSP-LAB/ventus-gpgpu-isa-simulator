@@ -55,7 +55,11 @@ def main() -> int:
            if (ROOT / "riscv" / "ventus_rtcore_model.h").exists() else "")
     )
     sim = read("riscv/sim.h") + read("riscv/sim.cc")
-    amo = read("riscv/insns/amoadd_w.h") + read("riscv/insns/amoor_w.h")
+    amo = (
+        read("riscv/insns/amoadd_w.h")
+        + read("riscv/insns/amoand_w.h")
+        + read("riscv/insns/amoor_w.h")
+    )
 
     require("0x0a ? 4" in decode or "0x0a ||" in decode,
             "insn_length does not force opcode 0x0a to 32 bits", failures)
@@ -210,8 +214,9 @@ def main() -> int:
     ]:
         require(symbol in custom,
                 f"Ventus VGPR AMO execution path missing: {symbol}", failures)
-    require("VentusAmoWOp::Add" in amo and "VentusAmoWOp::Or" in amo,
-            "amoadd.w/amoor.w do not dispatch the Ventus VGPR path", failures)
+    require(all(f"VentusAmoWOp::{op}" in amo for op in ("Add", "And", "Or")),
+            "amoadd.w/amoand.w/amoor.w do not dispatch the Ventus VGPR path",
+            failures)
     require("WRITE_RD(sext32(MMU.amo_uint32" in amo,
             "standard scalar AMO fallback was removed", failures)
 
