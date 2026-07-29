@@ -335,33 +335,54 @@ int spike_device::free_local_mem(uint64_t paddr) {
 }
 
 int spike_device::copy_to_dev(uint64_t vaddr, uint64_t size,const void *data){
-  uint64_t i=0;
+  if (data == nullptr || size == 0)
+    return -1;
   if (spike_device_io_log_enabled())
     fprintf(stderr, "to copy to 0x%lx with %ld bytes\n",vaddr,size);
-  for (i=0; i<buffer.size(); ++i)
-    if(vaddr>=buffer[i].base && vaddr<buffer[i].base +buffer[i].size){
-      if( vaddr+size > buffer[i].base +buffer[i].size)
-        fprintf(stderr,"cannot copy to %#lx with size %lx\n",vaddr,size);
-      buffer_data[i].second->store(vaddr-buffer_data[i].first,size,(const uint8_t*)data);
-      break;  
-    } 
-  if(i==buffer.size()) fprintf(stderr,"vaddr do not fit buffer allocated.");  
-  return 0;
+  for (size_t i = 0; i < buffer.size(); ++i) {
+    if (vaddr < buffer[i].base)
+      continue;
+    const uint64_t offset = vaddr - buffer[i].base;
+    if (offset >= buffer[i].size)
+      continue;
+    if (size > buffer[i].size - offset || i >= buffer_data.size() ||
+        buffer_data[i].second == nullptr) {
+      if (spike_device_io_log_enabled())
+        fprintf(stderr, "cannot copy to %#lx with size %lx\n", vaddr, size);
+      return -1;
+    }
+    buffer_data[i].second->store(offset, size,
+                                 static_cast<const uint8_t *>(data));
+    return 0;
+  }
+  if (spike_device_io_log_enabled())
+    fprintf(stderr, "vaddr does not fit an allocated buffer\n");
+  return -1;
 }
 
 int spike_device::copy_from_dev(uint64_t vaddr, uint64_t size, void *data){
-  uint64_t i=0;
+  if (data == nullptr || size == 0)
+    return -1;
   if (spike_device_io_log_enabled())
     fprintf(stderr, "to copy from 0x%lx with %ld bytes\n",vaddr,size);
-  for (i=0; i<buffer.size(); ++i)
-    if(vaddr>=buffer[i].base && vaddr<buffer[i].base +buffer[i].size){
-      if( vaddr+size > buffer[i].base +buffer[i].size)
-        fprintf(stderr,"cannot copy to %#lx with size %lx\n",vaddr,size);
-      buffer_data[i].second->load(vaddr-buffer_data[i].first,size,(uint8_t*)data);
-      break;  
-    } 
-  if(i==buffer.size()) fprintf(stderr,"vaddr do not fit buffer allocated.");  
-  return 0;
+  for (size_t i = 0; i < buffer.size(); ++i) {
+    if (vaddr < buffer[i].base)
+      continue;
+    const uint64_t offset = vaddr - buffer[i].base;
+    if (offset >= buffer[i].size)
+      continue;
+    if (size > buffer[i].size - offset || i >= buffer_data.size() ||
+        buffer_data[i].second == nullptr) {
+      if (spike_device_io_log_enabled())
+        fprintf(stderr, "cannot copy from %#lx with size %lx\n", vaddr, size);
+      return -1;
+    }
+    buffer_data[i].second->load(offset, size, static_cast<uint8_t *>(data));
+    return 0;
+  }
+  if (spike_device_io_log_enabled())
+    fprintf(stderr, "vaddr does not fit an allocated buffer\n");
+  return -1;
 }
 
 int spike_device::set_filename(const char* filename,const char* logname){
