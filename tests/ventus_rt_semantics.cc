@@ -10,6 +10,13 @@ using namespace ventus_rt;
 
 struct TestMemory {
   std::unordered_map<reg_t, uint32_t> words;
+  uint64_t context_id = next_context_id++;
+  static uint64_t next_context_id;
+
+  uint64_t rt_context_key(reg_t slot) const
+  {
+    return (context_id << 32) ^ slot;
+  }
 
   uint32_t load32(reg_t addr)
   {
@@ -22,6 +29,8 @@ struct TestMemory {
     words[addr] = value;
   }
 };
+
+uint64_t TestMemory::next_context_id = 1;
 
 static void store_slot(TestMemory &mem, reg_t slot, reg_t base, reg_t word,
                        uint32_t value)
@@ -271,6 +280,36 @@ static void check_closest_hit_wins()
                    hit_record_primitive_id) == 2);
 }
 
+static void check_candidate_replaces_farther_opaque_hit()
+{
+  TestMemory mem;
+  constexpr reg_t slot = 0;
+  constexpr reg_t accel = 0x13200;
+  constexpr reg_t tris = 0x13300;
+
+  /* The opaque hit is committed while traversing.  A nearer non-opaque
+   * candidate must replace it only after the callback accepts it. */
+  write_scene(mem, accel, tris, 2);
+  write_triangle(mem, tris, 7.0f, 41, 0, 1);
+  write_triangle(mem, tris + 80, 3.0f, 42, 0, 0);
+  write_ray(mem, slot, accel);
+
+  assert(traverse(mem, slot) == traversal_candidate_non_opaque_triangle);
+  assert(load_slot(mem, slot, committed_hit_record_base,
+                   hit_record_primitive_id) == 41);
+  assert(load_slot(mem, slot, candidate_hit_record_base,
+                   hit_record_primitive_id) == 42);
+
+  store_slot(mem, slot, control_base, control_accept_hit, 1);
+  assert(traverse(mem, slot) == traversal_complete_hit);
+  assert(load_slot(mem, slot, committed_hit_record_base,
+                   hit_record_primitive_id) == 42);
+  assert(std::fabs(bit_cast_f32(load_slot(mem, slot,
+                                          committed_hit_record_base,
+                                          hit_record_hit_t)) -
+                   3.0f) < 0.001f);
+}
+
 static void check_non_opaque_candidate_accept_and_ignore()
 {
   {
@@ -327,6 +366,7 @@ static void check_non_opaque_candidate_accept_and_ignore()
     assert(traverse(mem, slot) == traversal_candidate_non_opaque_triangle);
     assert(load_slot(mem, slot, candidate_hit_record_base,
                      hit_record_primitive_id) == 10);
+    release(mem, slot);
   }
 
   {
@@ -358,7 +398,13 @@ static void check_terminate_and_release()
 {
   TestMemory mem;
   constexpr reg_t slot = 0;
+  constexpr reg_t accel = 0x22000;
+  constexpr reg_t tris = 0x23000;
 
+  write_scene(mem, accel, tris, 1);
+  write_triangle(mem, tris, 2.0f, 31, 0, 0);
+  write_ray(mem, slot, accel);
+  assert(traverse(mem, slot) == traversal_candidate_non_opaque_triangle);
   store_slot(mem, slot, control_base, control_terminate_ray, 1);
   assert(traverse(mem, slot) == traversal_terminated);
   assert(load_slot(mem, slot, control_base, control_done) == 1);
@@ -453,15 +499,41 @@ static void check_pds_formula()
   assert(mem.load32(physical) == 0xabcdef01);
 }
 
+static void check_rt_private_context_abi()
+{
+  TestMemory mem;
+  constexpr reg_t slot = 0;
+  constexpr reg_t accel = 0x24000;
+  constexpr reg_t tris = 0x25000;
+
+  write_scene(mem, accel, tris, 1);
+  write_triangle(mem, tris, 2.0f, 41, 0, 0);
+  write_ray(mem, slot, accel);
+  assert(traverse(mem, slot) == traversal_candidate_non_opaque_triangle);
+  store_slot(mem, slot, control_base, control_ignore_hit, 1);
+  assert(traverse(mem, slot) == traversal_complete_miss);
+
+  assert(rt_region_size_bytes == 384);
+  assert(cps_header_base == 96);
+  assert(control_base == 112);
+  assert(candidate_hit_record_base == 144);
+  assert(committed_hit_record_base == 224);
+  assert(hit_attrib_base == 304);
+  for (const auto &word : mem.words)
+    assert(word.first < rt_region_size_bytes || word.first >= accel);
+}
+
 int main()
 {
   check_opaque_hit();
   check_miss();
   check_closest_hit_wins();
+  check_candidate_replaces_farther_opaque_hit();
   check_non_opaque_candidate_accept_and_ignore();
   check_terminate_and_release();
   check_procedural_candidate_report_accept();
   check_vtas_tlas_blas_triangle_hit();
   check_pds_formula();
+  check_rt_private_context_abi();
   return 0;
 }

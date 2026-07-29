@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <unordered_map>
 #include <vector>
 
 #ifndef VENTUS_RT_STANDALONE
@@ -22,7 +23,7 @@ namespace ventus_rt {
 
 constexpr reg_t lanes = 32;
 constexpr reg_t rt_pds_base_bytes = 4096;
-constexpr reg_t rt_region_size_bytes = 1008;
+constexpr reg_t rt_region_size_bytes = 384;
 constexpr reg_t rt_total_size_bytes = rt_pds_base_bytes + rt_region_size_bytes;
 
 constexpr reg_t slot_status = 0;
@@ -49,7 +50,13 @@ constexpr reg_t slot_launch_id_x = 20;
 constexpr reg_t slot_launch_id_y = 21;
 constexpr reg_t slot_launch_id_z = 22;
 
-constexpr reg_t control_base = 96;
+constexpr reg_t cps_header_base = 96;
+constexpr reg_t cps_frame_base = 0;
+constexpr reg_t cps_active_level = 1;
+constexpr reg_t cps_fragment_id = 2;
+constexpr reg_t cps_flags = 3;
+
+constexpr reg_t control_base = 112;
 constexpr reg_t control_done = 0;
 constexpr reg_t control_incomplete = 1;
 constexpr reg_t control_accept_hit = 2;
@@ -57,10 +64,9 @@ constexpr reg_t control_ignore_hit = 3;
 constexpr reg_t control_terminate_ray = 4;
 constexpr reg_t control_skip_closest_hit = 5;
 
-constexpr reg_t committed_hit_record_base = 208;
-constexpr reg_t candidate_hit_record_base = 128;
-constexpr reg_t hit_attrib_base = 288;
-constexpr reg_t continuation_base = 368;
+constexpr reg_t committed_hit_record_base = 224;
+constexpr reg_t candidate_hit_record_base = 144;
+constexpr reg_t hit_attrib_base = 304;
 constexpr reg_t hit_record_status = 0;
 constexpr reg_t hit_record_hit_t = 1;
 constexpr reg_t hit_record_sbt_index = 2;
@@ -604,6 +610,7 @@ inline float current_tmax(Memory &mem, reg_t slot)
   return bit_cast_f32(load_word(mem, slot, 0, slot_tmax));
 }
 
+#if 0 /* Superseded v1 PDS-resident traversal continuation. */
 template <typename Memory>
 inline void clear_continuation(Memory &mem, reg_t slot)
 {
@@ -896,6 +903,7 @@ inline bool pop_continuation_entry(Memory &mem, reg_t slot, uint32_t &count,
   store_word(mem, slot, continuation_base, continuation_stack_count, count);
   return true;
 }
+#endif
 
 
 inline uint32_t node_ref_type(uint32_t ref)
@@ -989,10 +997,10 @@ struct ChildHit {
 /*
  * Legacy one-shot tracing path.
  *
- * Current vt.rt.traverse execution enters traverse() and dispatches to the
- * *_cont functions below.  Those continuation paths persist traversal state in
- * scratch so that any-hit/intersection callbacks can accept, ignore, terminate,
- * and then resume traversal.
+ * Current vt.rt.traverse execution uses the private-RTcore context model below.
+ * It keeps paused traversal state out of the shader-visible scratch ABI so an
+ * any-hit/intersection callback can accept, ignore, or terminate before the
+ * same walk resumes.
  *
  * The functions in this disabled block predate that continuation model.  They
  * either traverse to completion with a local stack or pause at a candidate
@@ -1407,6 +1415,7 @@ inline uint32_t trace_aabb_list(Memory &mem, reg_t slot, const Ray &ray,
 }
 #endif
 
+#if 0 /* Superseded v1 PDS-resident traversal paths. */
 template <typename Memory>
 inline uint32_t trace_triangle_list_cont(Memory &mem, reg_t slot,
                                          const Ray &ray, const Scene &scene)
@@ -1703,6 +1712,330 @@ inline void release(Memory &mem, reg_t slot)
   clear_control(mem, slot);
   clear_continuation(mem, slot);
 }
+#endif
+
+struct TraversalEntry {
+  uint64_t as_base = 0;
+  uint32_t node_ref = invalid_node_ref;
+  Ray ray;
+  uint32_t instance_id = 0;
+  uint32_t instance_sbt_offset = 0;
+  uint64_t instance_addr = 0;
+};
+
+template <typename Memory>
+inline void commit_hit(Memory &mem, reg_t slot, const Scene &scene,
+                       const Hit &hit)
+{
+  write_hit_record(mem, slot, committed_hit_record_base, scene, hit,
+                   rt_status_hit);
+  write_hit_attrib(mem, slot, hit);
+  store_word(mem, slot, 0, slot_hit_t, bit_cast_u32(hit.t));
+  store_word(mem, slot, 0, slot_sbt_index,
+             hit.tri.instance_sbt_record_offset + hit.tri.sbt_index +
+                 load_word(mem, slot, 0, slot_sbt_offset));
+  store_word(mem, slot, 0, slot_status, rt_status_hit);
+}
+
+enum class RtPrivateTraversalKind : uint8_t {
+  triangle_list,
+  aabb_list,
+  vtas,
+};
+
+struct RtPrivateContext {
+  RtPrivateTraversalKind kind;
+  Ray ray;
+  Scene scene;
+  uint32_t next_primitive = 0;
+  std::vector<TraversalEntry> stack;
+};
+
+template <typename Memory>
+inline auto rt_context_key(Memory &mem, reg_t slot, int)
+    -> decltype(mem.rt_context_key(slot))
+{
+  return mem.rt_context_key(slot);
+}
+
+template <typename Memory>
+inline uint64_t rt_context_key(Memory &mem, reg_t slot, long)
+{
+  return uint64_t(reinterpret_cast<uintptr_t>(&mem)) ^ (uint64_t(slot) << 1);
+}
+
+template <typename Memory>
+inline std::unordered_map<uint64_t, RtPrivateContext> &rt_private_contexts()
+{
+  static std::unordered_map<uint64_t, RtPrivateContext> contexts;
+  return contexts;
+}
+
+template <typename Memory>
+inline void commit_private_candidate(Memory &mem, reg_t slot)
+{
+  const float hit_t = bit_cast_f32(load_word(mem, slot,
+                                             candidate_hit_record_base,
+                                             hit_record_hit_t));
+  const Ray ray = load_ray(mem, slot);
+  if (hit_t >= ray.tmin && hit_t <= current_tmax(mem, slot)) {
+    copy_hit_record(mem, slot, committed_hit_record_base,
+                    candidate_hit_record_base);
+    store_word(mem, slot, 0, slot_hit_t, bit_cast_u32(hit_t));
+    store_word(mem, slot, 0, slot_sbt_index,
+               load_word(mem, slot, candidate_hit_record_base,
+                         hit_record_sbt_index));
+    store_word(mem, slot, 0, slot_status, rt_status_hit);
+  }
+}
+
+template <typename Memory>
+inline uint32_t finish_private_traversal(Memory &mem, reg_t slot,
+                                         uint64_t key)
+{
+  store_word(mem, slot, control_base, control_done, 1);
+  const bool hit = committed_hit_valid(mem, slot);
+  store_word(mem, slot, 0, slot_status, hit ? rt_status_hit : rt_status_miss);
+  if (!hit)
+    store_word(mem, slot, committed_hit_record_base, hit_record_status, 0);
+  rt_private_contexts<Memory>().erase(key);
+  return hit ? traversal_complete_hit : traversal_complete_miss;
+}
+
+template <typename Memory>
+inline uint32_t pause_private_candidate(Memory &mem, reg_t slot,
+                                        const Scene &scene,
+                                        const Hit &candidate,
+                                        uint32_t status)
+{
+  write_hit_record(mem, slot, candidate_hit_record_base, scene, candidate,
+                   rt_status_hit);
+  write_hit_attrib(mem, slot, candidate);
+  store_word(mem, slot, control_base, control_incomplete, 1);
+  store_word(mem, slot, 0, slot_status, rt_status_hit);
+  return status;
+}
+
+template <typename Memory>
+inline uint32_t trace_private_triangle_list(Memory &mem, reg_t slot,
+                                            uint64_t key)
+{
+  RtPrivateContext &ctx = rt_private_contexts<Memory>().at(key);
+  for (uint32_t i = ctx.next_primitive; i < ctx.scene.primitive_count; ++i) {
+    ctx.next_primitive = i + 1;
+    Ray ray = ctx.ray;
+    ray.tmax = current_tmax(mem, slot);
+    const Triangle tri =
+        load_triangle(mem, ctx.scene.primitive_addr + i * ctx.scene.primitive_stride);
+    Hit candidate;
+    candidate.t = ray.tmax;
+    if (!intersect_triangle(ray, tri, candidate))
+      continue;
+
+    const bool force_opaque = (ray.flags & ray_flag_force_opaque) != 0;
+    const bool force_non_opaque = (ray.flags & ray_flag_force_non_opaque) != 0;
+    const bool opaque = force_opaque || (!force_non_opaque && tri.opaque != 0);
+    if (!opaque)
+      return pause_private_candidate(mem, slot, ctx.scene, candidate,
+                                     traversal_candidate_non_opaque_triangle);
+
+    commit_hit(mem, slot, ctx.scene, candidate);
+    if (ray.flags & ray_flag_terminate_on_first_hit)
+      return finish_private_traversal(mem, slot, key);
+  }
+  return finish_private_traversal(mem, slot, key);
+}
+
+template <typename Memory>
+inline uint32_t trace_private_aabb_list(Memory &mem, reg_t slot,
+                                        uint64_t key)
+{
+  RtPrivateContext &ctx = rt_private_contexts<Memory>().at(key);
+  for (uint32_t i = ctx.next_primitive; i < ctx.scene.primitive_count; ++i) {
+    ctx.next_primitive = i + 1;
+    Ray ray = ctx.ray;
+    ray.tmax = current_tmax(mem, slot);
+    const ProceduralAabb aabb =
+        load_aabb(mem, ctx.scene.primitive_addr + i * ctx.scene.primitive_stride);
+    float hit_t = 0.0f;
+    if (!intersect_aabb(ray, aabb, hit_t))
+      continue;
+    return pause_private_candidate(mem, slot, ctx.scene,
+                                   hit_from_aabb(aabb, hit_t),
+                                   traversal_candidate_procedural_aabb);
+  }
+  return finish_private_traversal(mem, slot, key);
+}
+
+template <typename Memory>
+inline uint32_t trace_private_vtas(Memory &mem, reg_t slot, uint64_t key)
+{
+  RtPrivateContext &ctx = rt_private_contexts<Memory>().at(key);
+  while (!ctx.stack.empty()) {
+    TraversalEntry entry = ctx.stack.back();
+    ctx.stack.pop_back();
+    if (entry.node_ref == invalid_node_ref)
+      continue;
+
+    entry.ray.tmax = current_tmax(mem, slot);
+    const uint32_t type = node_ref_type(entry.node_ref);
+    const reg_t node_addr = entry.as_base + node_ref_offset(entry.node_ref);
+
+    if (type == node_box4) {
+      ChildHit hits[4];
+      uint32_t hit_count = 0;
+      for (uint32_t i = 0; i < 4; ++i) {
+        const uint32_t child = mem.load32(node_addr + box4_child_ref + i * 4);
+        if (child == invalid_node_ref)
+          continue;
+        float t_near = 0.0f;
+        if (intersect_box4_child(mem, entry.as_base, entry.node_ref, i,
+                                 entry.ray, t_near))
+          hits[hit_count++] = {child, t_near};
+      }
+      std::sort(hits, hits + hit_count,
+                [](const ChildHit &a, const ChildHit &b) {
+                  return a.t_near < b.t_near;
+                });
+      for (uint32_t i = hit_count; i > 0; --i)
+        ctx.stack.push_back({entry.as_base, hits[i - 1].ref, entry.ray,
+                             entry.instance_id, entry.instance_sbt_offset,
+                             entry.instance_addr});
+      continue;
+    }
+
+    if (type == node_instance) {
+      const uint32_t mask = mem.load32(node_addr + instance_mask);
+      if ((entry.ray.cull_mask & mask) == 0)
+        continue;
+      const uint64_t blas = load_u64(mem, node_addr + instance_blas_addr_lo);
+      if (!blas || mem.load32(blas + as_header_magic) != as_magic ||
+          mem.load32(blas + as_header_type) != as_type_blas)
+        continue;
+      Ray object_ray = entry.ray;
+      object_ray.origin = transform_instance_point(
+          mem, node_addr + instance_world_to_object, entry.ray.origin);
+      object_ray.direction = transform_instance_vector(
+          mem, node_addr + instance_world_to_object, entry.ray.direction);
+      ctx.stack.push_back({blas, load_node_ref(mem, blas), object_ray,
+                           mem.load32(node_addr + instance_instance_id),
+                           mem.load32(node_addr + instance_sbt_record_offset),
+                           node_addr});
+      continue;
+    }
+
+    if (type != node_triangle)
+      continue;
+    const Triangle tri = load_vtas_triangle(mem, entry.as_base, entry.node_ref,
+                                             entry.instance_id,
+                                             entry.instance_sbt_offset,
+                                             entry.instance_addr);
+    Hit candidate;
+    candidate.t = entry.ray.tmax;
+    if (!intersect_triangle(entry.ray, tri, candidate))
+      continue;
+    const bool force_opaque = (entry.ray.flags & ray_flag_force_opaque) != 0;
+    const bool force_non_opaque = (entry.ray.flags & ray_flag_force_non_opaque) != 0;
+    const bool opaque = force_opaque || (!force_non_opaque && tri.opaque != 0);
+    if (!opaque)
+      return pause_private_candidate(mem, slot, ctx.scene, candidate,
+                                     traversal_candidate_non_opaque_triangle);
+    commit_hit(mem, slot, ctx.scene, candidate);
+    if (entry.ray.flags & ray_flag_terminate_on_first_hit)
+      return finish_private_traversal(mem, slot, key);
+  }
+  return finish_private_traversal(mem, slot, key);
+}
+
+template <typename Memory>
+inline uint32_t traverse(Memory &mem, reg_t slot)
+{
+  const uint64_t key = rt_context_key(mem, slot, 0);
+  std::unordered_map<uint64_t, RtPrivateContext> &contexts =
+      rt_private_contexts<Memory>();
+  auto it = contexts.find(key);
+  if (it != contexts.end()) {
+    const bool accept = load_word(mem, slot, control_base, control_accept_hit) != 0;
+    const bool terminate = load_word(mem, slot, control_base,
+                                     control_terminate_ray) != 0;
+    if (accept)
+      commit_private_candidate(mem, slot);
+    if (terminate) {
+      clear_control(mem, slot);
+      store_word(mem, slot, control_base, control_done, 1);
+      store_word(mem, slot, 0, slot_status, rt_status_done);
+      contexts.erase(it);
+      return traversal_terminated;
+    }
+    store_word(mem, slot, candidate_hit_record_base, hit_record_status, 0);
+    clear_control(mem, slot);
+    switch (it->second.kind) {
+    case RtPrivateTraversalKind::triangle_list:
+      return trace_private_triangle_list(mem, slot, key);
+    case RtPrivateTraversalKind::aabb_list:
+      return trace_private_aabb_list(mem, slot, key);
+    case RtPrivateTraversalKind::vtas:
+      return trace_private_vtas(mem, slot, key);
+    }
+  }
+
+  clear_control(mem, slot);
+  store_word(mem, slot, candidate_hit_record_base, hit_record_status, 0);
+  store_word(mem, slot, committed_hit_record_base, hit_record_status, 0);
+  const Ray ray = load_ray(mem, slot);
+  const uint64_t accel_addr = load_accel_addr(mem, slot);
+  if (accel_addr == 0)
+    return finish_private_traversal(mem, slot, key);
+
+  if (mem.load32(accel_addr + 0) == as_magic) {
+    if ((mem.load32(accel_addr + as_header_version) & 0xffffu) != as_version ||
+        mem.load32(accel_addr + as_header_type) != as_type_tlas)
+      return finish_private_traversal(mem, slot, key);
+    RtPrivateContext ctx = {};
+    ctx.kind = RtPrivateTraversalKind::vtas;
+    ctx.ray = ray;
+    ctx.scene.hit_sbt_base = 0;
+    ctx.scene.shader_group_handle_size = 32;
+    ctx.stack.push_back({accel_addr, load_node_ref(mem, accel_addr), ray, 0, 0, 0});
+    contexts.emplace(key, std::move(ctx));
+    return trace_private_vtas(mem, slot, key);
+  }
+
+  Scene scene;
+  const uint32_t magic = mem.load32(accel_addr + 0);
+  const uint32_t version = mem.load32(accel_addr + 4);
+  const uint32_t geometry_type = mem.load32(accel_addr + 8);
+  scene.primitive_count = mem.load32(accel_addr + 12);
+  scene.primitive_addr = load_u64(mem, accel_addr + 16);
+  scene.primitive_stride = mem.load32(accel_addr + 24);
+  scene.hit_sbt_base = load_u64(mem, accel_addr + 28);
+  scene.shader_group_handle_size = mem.load32(accel_addr + 36);
+  if (magic != bvh_magic || version != bvh_version ||
+      scene.primitive_count == 0 || scene.primitive_addr == 0 ||
+      scene.primitive_stride == 0)
+    return finish_private_traversal(mem, slot, key);
+
+  RtPrivateContext ctx = {};
+  ctx.ray = ray;
+  ctx.scene = scene;
+  ctx.kind = geometry_type == geometry_triangle_list
+                 ? RtPrivateTraversalKind::triangle_list
+                 : RtPrivateTraversalKind::aabb_list;
+  if (geometry_type != geometry_triangle_list &&
+      geometry_type != geometry_procedural_aabb_list)
+    return finish_private_traversal(mem, slot, key);
+  contexts.emplace(key, std::move(ctx));
+  return geometry_type == geometry_triangle_list
+             ? trace_private_triangle_list(mem, slot, key)
+             : trace_private_aabb_list(mem, slot, key);
+}
+
+template <typename Memory>
+inline void release(Memory &mem, reg_t slot)
+{
+  rt_private_contexts<Memory>().erase(rt_context_key(mem, slot, 0));
+  clear_control(mem, slot);
+}
 
 #ifndef VENTUS_RT_STANDALONE
 struct SpikePdsMemory {
@@ -1747,6 +2080,11 @@ struct RawMemory {
 struct HybridMemory {
   SpikePdsMemory slot;
   RawMemory raw;
+
+  uint64_t rt_context_key(reg_t logical_slot) const
+  {
+    return slot.pds_addr(logical_slot);
+  }
 
   uint32_t load32(reg_t addr)
   {
