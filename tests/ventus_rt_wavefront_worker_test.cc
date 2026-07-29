@@ -84,7 +84,7 @@ static void write_trace_mailbox(TestMemory &memory, uint64_t mailbox,
   field(TraceField::TlasAddrHi, uint32_t(accel >> 32));
   field(TraceField::CullMask, 0xff);
   field(TraceField::SbtOffset, 2);
-  field(TraceField::SbtStride, 96);
+  field(TraceField::SbtStride, 3);
   field(TraceField::DirectionZ, bit_cast_u32(1.0f));
   field(TraceField::Tmax, bit_cast_u32(100.0f));
   field(TraceField::PhaseGeneration, generation);
@@ -102,7 +102,7 @@ static FieldMajorRecord make_trace_record(uint64_t accel)
   field(TraceField::TlasAddrHi, uint32_t(accel >> 32));
   field(TraceField::CullMask, 0xff);
   field(TraceField::SbtOffset, 2);
-  field(TraceField::SbtStride, 96);
+  field(TraceField::SbtStride, 3);
   field(TraceField::DirectionZ, bit_cast_u32(1.0f));
   field(TraceField::Tmax, bit_cast_u32(100.0f));
   field(TraceField::PayloadLo, 0x23456000);

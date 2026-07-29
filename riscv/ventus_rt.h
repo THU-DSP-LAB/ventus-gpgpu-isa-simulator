@@ -625,24 +625,19 @@ inline void clear_control(Memory &mem, reg_t slot)
 
 template <typename Memory>
 inline void write_hit_record(Memory &mem, reg_t slot, reg_t base,
-                             const Scene &scene, const Hit &hit,
+                             const Scene &, const Hit &hit,
                              uint32_t status)
 {
   const uint32_t sbt_index =
       hit.tri.instance_sbt_record_offset + hit.tri.sbt_index +
       load_word(mem, slot, 0, slot_sbt_offset);
-  const uint64_t shader_record_ptr =
-      scene.hit_sbt_base +
-      uint64_t(sbt_index) * uint64_t(load_word(mem, slot, 0, slot_sbt_stride)) +
-      scene.shader_group_handle_size;
 
   store_word(mem, slot, base, hit_record_status, status);
   store_word(mem, slot, base, hit_record_hit_t, bit_cast_u32(hit.t));
   store_word(mem, slot, base, hit_record_sbt_index, sbt_index);
-  store_word(mem, slot, base, hit_record_shader_record_ptr_lo,
-             uint32_t(shader_record_ptr));
-  store_word(mem, slot, base, hit_record_shader_record_ptr_hi,
-             uint32_t(shader_record_ptr >> 32));
+  /* Compiler/global-consumer code owns SBT region byte addressing. */
+  store_word(mem, slot, base, hit_record_shader_record_ptr_lo, 0);
+  store_word(mem, slot, base, hit_record_shader_record_ptr_hi, 0);
   store_word(mem, slot, base, hit_record_primitive_id, hit.tri.primitive_id);
   store_word(mem, slot, base, hit_record_instance_id, hit.tri.instance_id);
   store_word(mem, slot, base, hit_record_geometry_id, hit.tri.geometry_id);

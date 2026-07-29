@@ -439,9 +439,9 @@ static void check_opaque_hit()
   assert(load_slot(mem, slot, committed_hit_record_base,
                    hit_record_sbt_index) == 6);
   assert(load_slot(mem, slot, committed_hit_record_base,
-                   hit_record_shader_record_ptr_lo) == 0x10000260);
+                   hit_record_shader_record_ptr_lo) == 0);
   assert(load_slot(mem, slot, committed_hit_record_base,
-                   hit_record_shader_record_ptr_hi) == 1);
+                   hit_record_shader_record_ptr_hi) == 0);
   assert(std::fabs(bit_cast_f32(load_slot(mem, slot, committed_hit_record_base,
                                           hit_record_hit_t)) -
                    5.0f) < 0.001f);
