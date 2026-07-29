@@ -260,8 +260,9 @@ static void check_vtas_aabb_candidate(TestMemory &memory)
 
   CompletionArena<TestMemory> completion;
   RtCoreModel rtcore_model;
-  const IndexedFieldMajorRecord record = {
+  IndexedFieldMajorRecord record = {
       .ray_ref = 123, .record = make_trace_record(tlas)};
+  record.record.fields[static_cast<uint32_t>(TraceField::SbtStride)] = 3;
   TraversalDispatchResult result =
       run_global_traversal_record(memory, record, completion, rtcore_model);
   assert(result.target == TraversalDispatchTarget::IntersectionCandidate);
@@ -269,7 +270,7 @@ static void check_vtas_aabb_candidate(TestMemory &memory)
   assert(candidate && candidate->state == CompletionState::Candidate);
   assert(candidate->candidate_hit[hit_record_primitive_id] == primitive_id);
   assert(candidate->candidate_hit[hit_record_instance_id] == 13);
-  assert(candidate->candidate_hit[hit_record_sbt_index] == 14);
+  assert(candidate->candidate_hit[hit_record_sbt_index] == 16);
   assert(candidate->candidate_hit[hit_record_instance_sbt_record_offset] == 5);
   assert(candidate->candidate_hit[hit_record_opaque] == 1);
 
@@ -282,9 +283,21 @@ static void check_vtas_aabb_candidate(TestMemory &memory)
   result = resume_global_traversal_record(
       memory, record.ray_ref, completion, rtcore_model);
   assert(result.target == TraversalDispatchTarget::ClosestHit);
-  const CompletionRecord *completed = completion.find(record.ray_ref);
+  CompletionRecord *completed = completion.find(record.ray_ref);
   assert(completed && completed->state == CompletionState::CompleteHit);
   assert(completed->committed_hit[hit_record_hit_t] == bit_cast_u32(4.5f));
+
+  constexpr uint64_t hit_sbt = 0x90000;
+  constexpr uint64_t hit_sbt_stride = 32;
+  memory.store_u32(hit_sbt + 16 * hit_sbt_stride + 4, 41);
+  const CompletionPlaneLayout layout = {
+      .hit_sbt_base_address = hit_sbt,
+      .hit_sbt_stride_bytes = hit_sbt_stride,
+  };
+  uint32_t callback_group = 0;
+  assert(resolve_callback_group(memory, layout, result, *completed,
+                                &callback_group));
+  assert(callback_group == 41);
 }
 
 static void check_global_consumer_facade(TestMemory &memory,

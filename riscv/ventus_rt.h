@@ -939,6 +939,14 @@ inline Vec3 load_vec3_indexed(Memory &mem, reg_t addr, uint32_t index)
   return load_vec3(mem, addr + reg_t(index) * 12);
 }
 
+inline uint32_t
+vtas_geometry_sbt_contribution(uint32_t geometry_id,
+                               uint32_t sbt_record_stride)
+{
+  /* This contribution is trace-time state and cannot be baked into the AS. */
+  return geometry_id * sbt_record_stride;
+}
+
 template <typename Memory>
 inline uint32_t load_node_ref(Memory &mem, uint64_t as_base)
 {
@@ -950,7 +958,8 @@ inline Triangle load_vtas_triangle(Memory &mem, uint64_t as_base,
                                    uint32_t node_ref,
                                    uint32_t instance_id,
                                    uint32_t instance_sbt_offset,
-                                   uint64_t instance_addr)
+                                   uint64_t instance_addr,
+                                   uint32_t sbt_record_stride)
 {
   const reg_t addr = as_base + node_ref_offset(node_ref);
   Triangle tri;
@@ -960,7 +969,8 @@ inline Triangle load_vtas_triangle(Memory &mem, uint64_t as_base,
   tri.primitive_id = mem.load32(addr + triangle_primitive_id);
   tri.instance_id = instance_id;
   tri.geometry_id = mem.load32(addr + triangle_geometry_id);
-  tri.sbt_index = mem.load32(addr + triangle_sbt_record_offset);
+  tri.sbt_index =
+      vtas_geometry_sbt_contribution(tri.geometry_id, sbt_record_stride);
   tri.instance_sbt_record_offset = instance_sbt_offset;
   tri.hit_kind = 0xfe;
   tri.opaque = mem.load32(addr + triangle_flags) & 0x1;
@@ -973,7 +983,8 @@ template <typename Memory>
 inline ProceduralAabb load_vtas_aabb(Memory &mem, uint64_t as_base,
                                      uint32_t node_ref, uint32_t instance_id,
                                      uint32_t instance_sbt_offset,
-                                     uint64_t instance_addr)
+                                     uint64_t instance_addr,
+                                     uint32_t sbt_record_stride)
 {
   const reg_t addr = as_base + node_ref_offset(node_ref);
   ProceduralAabb aabb;
@@ -982,7 +993,8 @@ inline ProceduralAabb load_vtas_aabb(Memory &mem, uint64_t as_base,
   aabb.primitive_id = mem.load32(addr + aabb_primitive_id);
   aabb.instance_id = instance_id;
   aabb.geometry_id = mem.load32(addr + aabb_geometry_id);
-  aabb.sbt_index = mem.load32(addr + aabb_sbt_record_offset);
+  aabb.sbt_index =
+      vtas_geometry_sbt_contribution(aabb.geometry_id, sbt_record_stride);
   aabb.instance_sbt_record_offset = instance_sbt_offset;
   aabb.hit_kind = mem.load32(addr + aabb_hit_kind);
   aabb.opaque = mem.load32(addr + aabb_flags) & 0x1;
@@ -1108,7 +1120,8 @@ inline void brute_trace_blas_node(Memory &mem, uint64_t blas_base,
 
   counters.triangles++;
   const Triangle tri = load_vtas_triangle(mem, blas_base, node_ref, instance_id,
-                                          instance_sbt_offset, instance_addr);
+                                          instance_sbt_offset, instance_addr,
+                                          ray.sbt_stride);
   Hit candidate = closest;
   if (intersect_triangle(ray, tri, candidate)) {
     counters.triangle_hits++;
@@ -1305,7 +1318,8 @@ inline uint32_t trace_vtas(Memory &mem, reg_t slot, const Ray &ray,
       Triangle tri = load_vtas_triangle(mem, entry.as_base, entry.node_ref,
                                         entry.instance_id,
                                         entry.instance_sbt_offset,
-                                        entry.instance_addr);
+                                        entry.instance_addr,
+                                        entry.ray.sbt_stride);
       Hit candidate = closest;
       if (!intersect_triangle(entry.ray, tri, candidate))
         continue;
@@ -1663,7 +1677,8 @@ inline uint32_t trace_vtas_cont(Memory &mem, reg_t slot, const Ray &ray,
     Triangle tri = load_vtas_triangle(mem, entry.as_base, entry.node_ref,
                                       entry.instance_id,
                                       entry.instance_sbt_offset,
-                                      entry.instance_addr);
+                                      entry.instance_addr,
+                                      entry.ray.sbt_stride);
     Hit candidate;
     candidate.t = current_tmax(mem, slot);
     if (!intersect_triangle(entry.ray, tri, candidate))
@@ -1995,7 +2010,8 @@ inline uint32_t trace_private_vtas(Memory &mem, reg_t slot, uint64_t key,
     if (type == node_aabb) {
       const ProceduralAabb aabb = load_vtas_aabb(
           mem, entry.as_base, entry.node_ref, entry.instance_id,
-          entry.instance_sbt_offset, entry.instance_addr);
+          entry.instance_sbt_offset, entry.instance_addr,
+          entry.ray.sbt_stride);
       float hit_t = 0.0f;
       if (!intersect_aabb(entry.ray, aabb, hit_t) ||
           !private_candidate_is_before_tmax(mem, slot, hit_t))
@@ -2010,7 +2026,8 @@ inline uint32_t trace_private_vtas(Memory &mem, reg_t slot, uint64_t key,
     const Triangle tri = load_vtas_triangle(mem, entry.as_base, entry.node_ref,
                                              entry.instance_id,
                                              entry.instance_sbt_offset,
-                                             entry.instance_addr);
+                                             entry.instance_addr,
+                                             entry.ray.sbt_stride);
     Hit candidate;
     candidate.t = entry.ray.tmax;
     if (!intersect_triangle(entry.ray, tri, candidate))

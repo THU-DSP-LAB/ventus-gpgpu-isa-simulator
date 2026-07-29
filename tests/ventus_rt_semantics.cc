@@ -195,6 +195,7 @@ static void check_vtas_tlas_blas_triangle_hit()
                     make_node_ref(0x50, node_triangle));
   write_vtas_triangle(mem, blas_triangle, 5.0f, 77, 2, 1);
   write_ray(mem, slot, tlas);
+  store_slot(mem, slot, 0, slot_sbt_stride, 3);
 
   assert(traverse(mem, slot) == traversal_complete_hit);
   assert(load_slot(mem, slot, committed_hit_record_base,
@@ -204,7 +205,7 @@ static void check_vtas_tlas_blas_triangle_hit()
   assert(load_slot(mem, slot, committed_hit_record_base,
                    hit_record_geometry_id) == 5);
   assert(load_slot(mem, slot, committed_hit_record_base,
-                   hit_record_sbt_index) == 8);
+                   hit_record_sbt_index) == 21);
   assert(std::fabs(bit_cast_f32(load_slot(mem, slot, committed_hit_record_base,
                                           hit_record_hit_t)) -
                    5.0f) < 0.001f);
