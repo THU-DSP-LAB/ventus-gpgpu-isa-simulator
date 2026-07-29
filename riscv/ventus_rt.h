@@ -174,6 +174,8 @@ constexpr uint32_t ray_flag_cull_back_facing_triangles = 1u << 4;
 constexpr uint32_t ray_flag_cull_front_facing_triangles = 1u << 5;
 constexpr uint32_t ray_flag_cull_opaque = 1u << 6;
 constexpr uint32_t ray_flag_cull_non_opaque = 1u << 7;
+constexpr uint32_t ray_flag_skip_triangles = 1u << 8;
+constexpr uint32_t ray_flag_skip_aabbs = 1u << 9;
 
 constexpr uint32_t instance_flag_triangle_facing_cull_disable = 1u << 0;
 constexpr uint32_t instance_flag_triangle_flip_facing = 1u << 1;
@@ -340,6 +342,9 @@ inline bool candidate_opacity_is_culled(const Ray &ray, bool opaque)
 
 inline bool prepare_triangle_candidate(const Ray &ray, Hit &candidate)
 {
+  if (ray.flags & ray_flag_skip_triangles)
+    return false;
+
   const uint32_t instance_flags = candidate.tri.instance_geometry_flags;
   if (instance_flags & instance_flag_triangle_flip_facing)
     candidate.front_face = !candidate.front_face;
@@ -366,6 +371,9 @@ inline bool prepare_triangle_candidate(const Ray &ray, Hit &candidate)
 
 inline bool prepare_aabb_candidate(const Ray &ray, Hit &candidate)
 {
+  if (ray.flags & ray_flag_skip_aabbs)
+    return false;
+
   candidate.tri.opaque =
       resolve_candidate_opacity(ray, candidate.tri.instance_geometry_flags,
                                 candidate.tri.opaque != 0)

@@ -422,6 +422,57 @@ static void check_effective_opacity_culling()
   }
 }
 
+static void check_primitive_type_culling()
+{
+  constexpr reg_t slot = 0;
+
+  {
+    TestMemory mem;
+    constexpr reg_t accel = 0x43000;
+    constexpr reg_t tris = 0x44000;
+    write_scene(mem, accel, tris, 1);
+    write_triangle(mem, tris, 5.0f, 42, 0, 1);
+    write_ray(mem, slot, accel);
+    store_slot(mem, slot, 0, slot_flags, ray_flag_skip_triangles);
+
+    assert(traverse(mem, slot) == traversal_complete_miss);
+  }
+
+  {
+    TestMemory mem;
+    constexpr reg_t accel = 0x45000;
+    constexpr reg_t aabbs = 0x46000;
+    write_aabb_scene(mem, accel, aabbs, 1);
+    write_aabb(mem, aabbs, 17, 0);
+    write_ray(mem, slot, accel);
+    store_slot(mem, slot, 0, slot_flags, ray_flag_skip_aabbs);
+
+    assert(traverse(mem, slot) == traversal_complete_miss);
+  }
+
+  {
+    TestMemory mem;
+    constexpr reg_t tlas = 0x47000;
+    constexpr reg_t blas = 0x48000;
+    write_vtas_triangle_scene(mem, tlas, blas, 1, 0);
+    write_ray(mem, slot, tlas);
+    store_slot(mem, slot, 0, slot_flags, ray_flag_skip_triangles);
+
+    assert(traverse(mem, slot) == traversal_complete_miss);
+  }
+
+  {
+    TestMemory mem;
+    constexpr reg_t tlas = 0x49000;
+    constexpr reg_t blas = 0x4a000;
+    write_vtas_aabb_scene(mem, tlas, blas, 1, 0);
+    write_ray(mem, slot, tlas);
+    store_slot(mem, slot, 0, slot_flags, ray_flag_skip_aabbs);
+
+    assert(traverse(mem, slot) == traversal_complete_miss);
+  }
+}
+
 static void check_opaque_hit()
 {
   TestMemory mem;
@@ -790,6 +841,7 @@ int main()
   check_vtas_tlas_blas_triangle_hit();
   check_triangle_facing_culling();
   check_effective_opacity_culling();
+  check_primitive_type_culling();
   check_pds_formula();
   check_rt_private_context_abi();
   check_rtcore_model_owns_private_state();
