@@ -38,6 +38,7 @@ typedef struct meta_data {
     uint64_t num_thread_local[3];
     uint64_t threadIdxOffset[3];
     const char* kernel_name;
+    uint64_t pdsResidentWgCount;
 } meta_data;
 
 /*struct meta_data{  // 这个metadata是供驱动使用的，而不是给硬件的
