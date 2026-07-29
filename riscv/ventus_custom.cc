@@ -2,7 +2,10 @@
 
 #include "trap.h"
 #include <array>
+#include <cinttypes>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 
 namespace {
 
@@ -12,6 +15,70 @@ constexpr float VENTUS_CUSTOM_LMUL = 1.0f;
 bool lane_active(processor_t *p, reg_t lane)
 {
   return ((p->gpgpu_unit.simt_stack.get_mask() >> lane) & 0x1) != 0;
+}
+
+bool debug_mma_enabled()
+{
+  const char *env = std::getenv("VENTUS_DEBUG_MMA");
+  return env && env[0] && env[0] != '0';
+}
+
+const char *mma_shape_name(VentusMMAShape shape)
+{
+  switch (shape) {
+  case VentusMMAShape::M8N8K16:
+    return "m8n8k16";
+  case VentusMMAShape::M16N8K16:
+    return "m16n8k16";
+  case VentusMMAShape::M8N16K16:
+    return "m8n16k16";
+  case VentusMMAShape::M16N16K16:
+    return "m16n16k16";
+  case VentusMMAShape::M8N8K8:
+    return "m8n8k8";
+  case VentusMMAShape::M16N8K8:
+    return "m16n8k8";
+  case VentusMMAShape::M8N16K8:
+    return "m8n16k8";
+  case VentusMMAShape::M16N16K8:
+    return "m16n16k8";
+  }
+  return "unknown";
+}
+
+const char *mma_input_type_name(VentusMMAInputType type)
+{
+  switch (type) {
+  case VentusMMAInputType::TF32:
+    return "tf32";
+  case VentusMMAInputType::FP16:
+    return "fp16";
+  case VentusMMAInputType::BF16:
+    return "bf16";
+  }
+  return "unknown";
+}
+
+const char *mma_output_type_name(VentusMMAOutputType type)
+{
+  switch (type) {
+  case VentusMMAOutputType::FP16:
+    return "fp16";
+  case VentusMMAOutputType::FP32:
+    return "fp32";
+  }
+  return "unknown";
+}
+
+void print_mma_options(const ventus_mma::Options &options)
+{
+  std::fprintf(stderr,
+               " shape=%s ab=%s cd=%s a_col=%u b_row=%u",
+               mma_shape_name(options.shape),
+               mma_input_type_name(options.ab_type),
+               mma_output_type_name(options.cd_type),
+               options.a_column_layout ? 1u : 0u,
+               options.b_row_layout ? 1u : 0u);
 }
 
 void require_ventus_custom_state(processor_t *p, insn_t insn)
@@ -38,7 +105,15 @@ void require_ventus_mma_state(processor_t *p, insn_t insn)
 
   try {
     ventus_mma::check_full_warp_state(state);
-  } catch (const std::exception&) {
+  } catch (const std::exception &e) {
+    if (debug_mma_enabled()) {
+      std::fprintf(stderr,
+                   "[VENTUS_DEBUG_MMA] state rejected bits=0x%08" PRIx64
+                   " vl=%u vstart=%u mask=0x%08" PRIx64
+                   " e32_lanes=%u reason=%s\n",
+                   uint64_t(insn.bits()), state.vl, state.vstart,
+                   state.active_mask, state.e32_lanes_per_vreg, e.what());
+    }
     throw trap_illegal_instruction(insn.bits());
   }
 }
@@ -120,12 +195,37 @@ void ventus_exec_sfu(processor_t *p, insn_t insn, VentusSFUOp op,
 
 void ventus_exec_mma(processor_t *p, insn_t insn)
 {
+  static bool printed_mma_entry = false;
+  if (!printed_mma_entry) {
+    printed_mma_entry = true;
+    std::fprintf(stderr,
+                 "[VENTUS_DEBUG_MMA] unconditional enter bits=0x%08" PRIx64
+                 " rd=%lu rs1=%lu rs2=%lu\n",
+                 uint64_t(insn.bits()), insn.rd(), insn.rs1(), insn.rs2());
+  }
+
+  if (debug_mma_enabled()) {
+    std::fprintf(stderr,
+                 "[VENTUS_DEBUG_MMA] enter bits=0x%08" PRIx64
+                 " rd=%lu rs1=%lu rs2=%lu ext_rd=%u ext_rs1=%u ext_rs2=%u\n",
+                 uint64_t(insn.bits()), insn.rd(), insn.rs1(), insn.rs2(),
+                 p->ext_rd(), p->ext_rs1(), p->ext_rs2());
+  }
+
   require_ventus_mma_state(p, insn);
 
   ventus_mma::Options options{};
   try {
     options = ventus_mma::decode_mma_options(insn.bits());
-  } catch (const std::exception&) {
+  } catch (const std::exception &e) {
+    if (debug_mma_enabled()) {
+      std::fprintf(stderr,
+                   "[VENTUS_DEBUG_MMA] decode rejected bits=0x%08" PRIx64
+                   " rd=%lu rs1=%lu rs2=%lu ext_rd=%u ext_rs1=%u ext_rs2=%u"
+                   " reason=%s\n",
+                   uint64_t(insn.bits()), insn.rd(), insn.rs1(), insn.rs2(),
+                   p->ext_rd(), p->ext_rs1(), p->ext_rs2(), e.what());
+    }
     throw trap_illegal_instruction(insn.bits());
   }
 
@@ -137,7 +237,15 @@ void ventus_exec_mma(processor_t *p, insn_t insn)
   try {
     ventus_mma::check_register_bounds(rd_base, rs1_base, rs2_base, options);
     shape_info = ventus_mma::get_shape_info(options.shape);
-  } catch (const std::exception&) {
+  } catch (const std::exception &e) {
+    if (debug_mma_enabled()) {
+      std::fprintf(stderr,
+                   "[VENTUS_DEBUG_MMA] register/options rejected bits=0x%08"
+                   PRIx64 " rd=%u rs1=%u rs2=%u",
+                   uint64_t(insn.bits()), rd_base, rs1_base, rs2_base);
+      print_mma_options(options);
+      std::fprintf(stderr, " reason=%s\n", e.what());
+    }
     throw trap_illegal_instruction(insn.bits());
   }
 
@@ -160,7 +268,15 @@ void ventus_exec_mma(processor_t *p, insn_t insn)
   try {
     ventus_mma::execute_mma_register_file(regs, rd_base, rs1_base, rs2_base,
                                           options);
-  } catch (const std::exception&) {
+  } catch (const std::exception &e) {
+    if (debug_mma_enabled()) {
+      std::fprintf(stderr,
+                   "[VENTUS_DEBUG_MMA] execute rejected bits=0x%08" PRIx64
+                   " rd=%u rs1=%u rs2=%u",
+                   uint64_t(insn.bits()), rd_base, rs1_base, rs2_base);
+      print_mma_options(options);
+      std::fprintf(stderr, " reason=%s\n", e.what());
+    }
     throw trap_illegal_instruction(insn.bits());
   }
 
