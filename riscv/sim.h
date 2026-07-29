@@ -86,7 +86,7 @@ public:
       current_proc= current_proc==0?reach_end.size()-1:current_proc-1;
   }
   void append_reach_end() override{reach_end.push_back(0);current_proc=0;}
-  void finish_kernel() override{stop();}
+  void finish_kernel() override{finish_with_code(1);}
 
 private:
   warp_schedule_t w;
