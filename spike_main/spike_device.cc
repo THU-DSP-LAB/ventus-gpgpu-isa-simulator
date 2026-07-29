@@ -620,7 +620,6 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   char arg_gpgpu[512];
   char arg_start_pc[32];;
   char arg_logfilename[256];
-  snprintf(arg_logfilename, sizeof(arg_logfilename), "--log=%s", logfilename);
   snprintf(arg_num_core, sizeof(arg_num_core), "-p%ld", num_processor);
   snprintf(arg_gpgpu, sizeof(arg_gpgpu), "numw:%ld,numt:%ld,numwg:%ld,numres:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx,knlbase:0x%lx,currwgid:%lx,gsx:%ld,gsy:%ld,gsz:%ld,lsx:%ld,lsy:%ld,lsz:%ld,gox:%ld,goy:%ld,goz:%ld,dim:%ld",\
         num_warp,num_thread,num_workgroup,resident_workgroup_capacity,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase,knlbase,currwgid,gsx,gsy,gsz,lsx,lsy,lsz,gox,goy,goz,work_dim_64);
@@ -631,12 +630,17 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   snprintf(arg_start_pc, sizeof(arg_start_pc), "--pc=0x%lx", start_pc);
   char arg_log[16];
   char arg_commitlog[16];
-  if (parse_bool(std::getenv("VENTUS_SPIKE_LOG")).value_or(true)) {
+  const bool instruction_log_enabled =
+      parse_bool(std::getenv("VENTUS_SPIKE_LOG")).value_or(true);
+  if (instruction_log_enabled) {
       snprintf(arg_log, sizeof(arg_log), "-l");
       snprintf(arg_commitlog, sizeof(arg_commitlog), "--log-commits");
+      snprintf(arg_logfilename, sizeof(arg_logfilename), "--log=%s",
+               logfilename);
   } else {
       snprintf(arg_log, sizeof(arg_log), "--dummy-option");
       snprintf(arg_commitlog, sizeof(arg_commitlog), "--dummy-option");
+      snprintf(arg_logfilename, sizeof(arg_logfilename), "--dummy-option");
   }
   //strcat(arg_mem_scope,temp);
   //--------------------------------------------------num_core-------------------pc------mem_scope   //mem_scope is unused now.
@@ -657,7 +661,12 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   argv[2] = arg_commitlog;
   argv[3]=arg_num_core;
   argv[12]=arg_logfilename;
-  fprintf(stderr, "src file is %s, run log is written to %s\n",srcfilename,logfilename);
+  if (instruction_log_enabled)
+    fprintf(stderr, "src file is %s, run log is written to %s\n",
+            srcfilename, logfilename);
+  else
+    fprintf(stderr, "src file is %s, instruction log is disabled\n",
+            srcfilename);
   argv[13]=srcfilename;
   argv[9]=arg_vlen_elen;
   argv[7]=arg_mem_scope;
