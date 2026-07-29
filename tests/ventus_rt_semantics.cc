@@ -1,5 +1,5 @@
 #define VENTUS_RT_STANDALONE
-#include "ventus_rt.h"
+#include "ventus_rtcore_model.h"
 
 #include <cassert>
 #include <cmath>
@@ -523,6 +523,49 @@ static void check_rt_private_context_abi()
     assert(word.first < rt_region_size_bytes || word.first >= accel);
 }
 
+static void check_rtcore_model_owns_private_state()
+{
+  TestMemory mem;
+  constexpr reg_t slot0 = 0;
+  constexpr reg_t slot2 = 0x1000;
+  constexpr reg_t accel = 0x28000;
+  constexpr reg_t tris = 0x29000;
+
+  write_scene(mem, accel, tris, 1);
+  write_triangle(mem, tris, 2.0f, 51, 0, 0);
+  write_ray(mem, slot0, accel);
+  write_ray(mem, slot2, accel);
+
+  RtCoreModel model;
+  assert(model.executeTraverse(mem, slot0) ==
+         traversal_candidate_non_opaque_triangle);
+  assert(model.executeTraverse(mem, slot2) ==
+         traversal_candidate_non_opaque_triangle);
+
+  RtCoreDebugSnapshot snapshot = model.debugSnapshot();
+  assert(snapshot.traverse_command_count == 2);
+  assert(snapshot.private_context_count == 2);
+
+  model.executeRelease(mem, slot0);
+  model.executeRelease(mem, slot2);
+  snapshot = model.debugSnapshot();
+  assert(snapshot.release_command_count == 2);
+  assert(snapshot.private_context_count == 0);
+
+  write_ray(mem, slot0, accel);
+  assert(model.executeTraverse(mem, slot0) ==
+         traversal_candidate_non_opaque_triangle);
+  snapshot = model.debugSnapshot();
+  assert(snapshot.private_context_count == 1);
+
+  const uint64_t generation = snapshot.sm_generation;
+  model.resetSm();
+  snapshot = model.debugSnapshot();
+  assert(snapshot.sm_generation == generation + 1);
+  assert(snapshot.traverse_command_count == 0);
+  assert(snapshot.release_command_count == 0);
+}
+
 int main()
 {
   check_opaque_hit();
@@ -535,5 +578,6 @@ int main()
   check_vtas_tlas_blas_triangle_hit();
   check_pds_formula();
   check_rt_private_context_abi();
+  check_rtcore_model_owns_private_state();
   return 0;
 }

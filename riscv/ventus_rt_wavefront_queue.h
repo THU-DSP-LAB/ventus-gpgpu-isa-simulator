@@ -417,9 +417,10 @@ private:
 };
 
 /*
- * Handler-facing RT_ENQUEUE adapter.  lane_mailbox_addresses is the i32 VGPR
- * source widened to host addresses; the caller supplies only active lanes in
- * active_mask.  It has no PDS/current-slot operand.
+ * Reference adapter for the compiler's enqueue pseudo expansion.
+ * lane_mailbox_addresses is the i32 VGPR source widened to host addresses;
+ * the caller supplies only active lanes in active_mask.  This is not a Spike
+ * ISA handler and has no PDS/current-slot operand.
  */
 template <typename Memory>
 LevelQueueResult submit_rt_enqueue(

@@ -26,8 +26,6 @@ RT = [
      "ventus_exec_rt_traverse(p, insn);", "add_ventus_rt_traverse_insn"),
     ("vt_rt_release", "vt.rt.release", "0xe200100a", "0xfe00707f",
      "ventus_exec_rt_release(p, insn);", "add_ventus_rt_release_insn"),
-    ("vt_rt_enqueue", "vt.rt.enqueue", "0xe200200a", "0xfe00707f",
-     "ventus_exec_rt_enqueue(p, insn);", "add_ventus_rt_enqueue_insn"),
 ]
 
 
@@ -53,12 +51,18 @@ def main() -> int:
            if (ROOT / "riscv" / "ventus_mma.h").exists() else "")
         + ((ROOT / "riscv" / "ventus_rt.h").read_text(encoding="utf-8")
            if (ROOT / "riscv" / "ventus_rt.h").exists() else "")
+        + ((ROOT / "riscv" / "ventus_rtcore_model.h").read_text(encoding="utf-8")
+           if (ROOT / "riscv" / "ventus_rtcore_model.h").exists() else "")
     )
+    sim = read("riscv/sim.h") + read("riscv/sim.cc")
+    amo = read("riscv/insns/amoadd_w.h") + read("riscv/insns/amoor_w.h")
 
     require("0x0a ? 4" in decode or "0x0a ||" in decode,
             "insn_length does not force opcode 0x0a to 32 bits", failures)
     require("ventus_mma.h" in riscv_mk, "ventus_mma.h missing from riscv headers", failures)
     require("ventus_rt.h" in riscv_mk, "ventus_rt.h missing from riscv headers", failures)
+    require("ventus_rtcore_model.h" in riscv_mk,
+            "ventus_rtcore_model.h missing from riscv headers", failures)
     require("tests/ventus_rt_semantics.cc" in "\n".join(
             str(path.relative_to(ROOT)) for path in (ROOT / "tests").glob("*")),
             "ventus_rt_semantics.cc missing", failures)
@@ -68,12 +72,20 @@ def main() -> int:
             "ventus_exec_rt_traverse declaration/definition missing", failures)
     require("void ventus_exec_rt_release(processor_t *p, insn_t insn)" in custom,
             "ventus_exec_rt_release declaration/definition missing", failures)
-    require("void ventus_exec_rt_enqueue(processor_t *p, insn_t insn)" in custom,
-            "ventus_exec_rt_enqueue declaration/definition missing", failures)
-    require("const uint32_t mailbox_addr = p->VU.elt<uint32_t>(2, vs2_num, lane);" in custom,
-            "ventus_exec_rt_enqueue does not read per-lane mailbox addresses", failures)
-    require("GlobalLevelQueueRegistry<GlobalRTQueueMemory>" in custom,
-            "ventus_exec_rt_enqueue does not submit through the global queue ABI", failures)
+    hard_enqueue_sources = encoding + riscv_mk + disasm + custom
+    for symbol in [
+        "MATCH_VT_RT_ENQUEUE",
+        "DECLARE_INSN(vt_rt_enqueue",
+        "vt_rt_enqueue \\",
+        "vt.rt.enqueue",
+        "ventus_exec_rt_enqueue",
+        "add_ventus_rt_enqueue_insn",
+    ]:
+        require(symbol not in hard_enqueue_sources,
+                f"enqueue pseudo leaked into hard ISA wiring: {symbol}",
+                failures)
+    require(not (ROOT / "riscv/insns/vt_rt_enqueue.h").exists(),
+            "enqueue pseudo has a Spike instruction body", failures)
 
     for insn, disasm_name, match, mask in MMA:
         macro = insn.upper()
@@ -164,10 +176,44 @@ def main() -> int:
         "trace_triangle_list",
         "trace_aabb_list",
         "make_hybrid_memory",
-        "ventus_rt::traverse(mem, slot)",
-        "ventus_rt::release(mem, slot)",
+        "model->executeTraverse(",
+        "model->executeRelease(",
+        "class RtCoreModel",
+        "RtPrivateState private_state_",
     ]:
         require(symbol in custom, f"local RT model symbol missing: {symbol}", failures)
+
+    for symbol in [
+        "ventus_rt::RtCoreModel rtcore_model",
+        "get_rtcore_model() override",
+        "rtcore_model.resetSm()",
+    ]:
+        require(symbol in sim, f"SM-owned RT model symbol missing: {symbol}", failures)
+
+    for symbol in [
+        "rt_private_contexts<",
+        "rt_abi_tag",
+        "slot_abi_tag",
+        "require_rt_abi_tag",
+    ]:
+        require(symbol not in custom,
+                f"rejected local compatibility state leaked into remote ABI: {symbol}",
+                failures)
+
+    for symbol in [
+        "ventus_exec_amo_w_if_warp",
+        "p->get_csr(CSR_NUMT) == 0",
+        "p->VU.elt<uint32_t>(1, vs1_num, lane)",
+        "p->VU.elt<uint32_t>(2, vs2_num, lane)",
+        "p->get_mmu()->amo_uint32",
+        "p->VU.elt<uint32_t>(0, vd_num, lane, true)",
+    ]:
+        require(symbol in custom,
+                f"Ventus VGPR AMO execution path missing: {symbol}", failures)
+    require("VentusAmoWOp::Add" in amo and "VentusAmoWOp::Or" in amo,
+            "amoadd.w/amoor.w do not dispatch the Ventus VGPR path", failures)
+    require("WRITE_RD(sext32(MMU.amo_uint32" in amo,
+            "standard scalar AMO fallback was removed", failures)
 
     if failures:
         for failure in failures:

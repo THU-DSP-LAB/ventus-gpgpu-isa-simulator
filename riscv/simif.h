@@ -5,6 +5,10 @@
 
 #include "decode.h"
 
+namespace ventus_rt {
+class RtCoreModel;
+}
+
 // this is the interface to the simulator used by the processors and memory
 class simif_t
 {
@@ -22,6 +26,11 @@ public:
   virtual void modify_reach_end() = 0;
   virtual void append_reach_end() = 0;
   virtual void finish_kernel() = 0;
+
+  // Functional Ventus currently maps one sim_t execution partition to SM0.
+  // Future multi-SM bindings may return the model selected by an explicit SM
+  // identity without changing the instruction/model boundary.
+  virtual ventus_rt::RtCoreModel* get_rtcore_model() { return nullptr; }
 
 };
 

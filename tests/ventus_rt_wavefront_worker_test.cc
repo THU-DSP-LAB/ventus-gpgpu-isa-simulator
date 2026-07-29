@@ -121,10 +121,11 @@ static FieldMajorRecord make_trace_record(uint64_t accel)
 static void check_candidate_actions(TestMemory &memory, uint64_t candidate_accel)
 {
   CompletionArena<TestMemory> completion;
+  RtCoreModel rtcore_model;
   const IndexedFieldMajorRecord candidate = {
       .ray_ref = 10, .record = make_trace_record(candidate_accel)};
   TraversalDispatchResult result =
-      run_global_traversal_record(memory, candidate, completion);
+      run_global_traversal_record(memory, candidate, completion, rtcore_model);
   assert(result.target == TraversalDispatchTarget::AnyHitCandidate);
   CompletionRecord *record = completion.find(candidate.ray_ref);
   assert(record && record->state == CompletionState::Candidate);
@@ -139,11 +140,13 @@ static void check_candidate_actions(TestMemory &memory, uint64_t candidate_accel
 
   const IndexedFieldMajorRecord accept = {
       .ray_ref = 11, .record = make_trace_record(candidate_accel)};
-  result = run_global_traversal_record(memory, accept, completion);
+  result =
+      run_global_traversal_record(memory, accept, completion, rtcore_model);
   assert(result.target == TraversalDispatchTarget::AnyHitCandidate);
   assert(completion.set_action(candidate.ray_ref, CompletionAction::Ignore));
   const std::vector<TraversalDispatchResult> ignored =
-      resume_global_traversal_subset(memory, {candidate.ray_ref}, completion);
+      resume_global_traversal_subset(memory, {candidate.ray_ref}, completion,
+                                     rtcore_model);
   assert(ignored.size() == 1);
   result = ignored.front();
   assert(result.target == TraversalDispatchTarget::Miss);
@@ -164,7 +167,8 @@ static void check_candidate_actions(TestMemory &memory, uint64_t candidate_accel
   assert(completion.replace_candidate(accept.ray_ref, reported_hit,
                                       reported_attributes));
   assert(completion.set_action(accept.ray_ref, CompletionAction::AcceptContinue));
-  result = resume_global_traversal_subset(memory, {accept.ray_ref}, completion)
+  result = resume_global_traversal_subset(
+               memory, {accept.ray_ref}, completion, rtcore_model)
                .front();
   assert(result.target == TraversalDispatchTarget::ClosestHit);
   record = completion.find(accept.ray_ref);
@@ -176,11 +180,13 @@ static void check_candidate_actions(TestMemory &memory, uint64_t candidate_accel
 
   const IndexedFieldMajorRecord terminate = {
       .ray_ref = 12, .record = make_trace_record(candidate_accel)};
-  result = run_global_traversal_record(memory, terminate, completion);
+  result =
+      run_global_traversal_record(memory, terminate, completion, rtcore_model);
   assert(result.target == TraversalDispatchTarget::AnyHitCandidate);
   assert(completion.set_action(terminate.ray_ref,
                                CompletionAction::AcceptTerminate));
-  result = resume_global_traversal_record(memory, terminate.ray_ref, completion);
+  result = resume_global_traversal_record(
+      memory, terminate.ray_ref, completion, rtcore_model);
   assert(result.traversal_status == traversal_complete_hit);
   assert(result.target == TraversalDispatchTarget::ClosestHit);
   record = completion.find(terminate.ray_ref);
@@ -197,10 +203,11 @@ static void check_non_finite_triangle_is_miss(TestMemory &memory)
                  /* opaque */ 1);
 
   CompletionArena<TestMemory> completion;
+  RtCoreModel rtcore_model;
   const IndexedFieldMajorRecord record = {
       .ray_ref = 99, .record = make_trace_record(accel)};
   const TraversalDispatchResult result =
-      run_global_traversal_record(memory, record, completion);
+      run_global_traversal_record(memory, record, completion, rtcore_model);
   assert(result.target == TraversalDispatchTarget::Miss);
   const CompletionRecord *completion_record = completion.find(record.ray_ref);
   assert(completion_record &&
@@ -252,10 +259,11 @@ static void check_vtas_aabb_candidate(TestMemory &memory)
   memory.store_u32(aabb + aabb_primitive_addr_lo, 0x70000);
 
   CompletionArena<TestMemory> completion;
+  RtCoreModel rtcore_model;
   const IndexedFieldMajorRecord record = {
       .ray_ref = 123, .record = make_trace_record(tlas)};
   TraversalDispatchResult result =
-      run_global_traversal_record(memory, record, completion);
+      run_global_traversal_record(memory, record, completion, rtcore_model);
   assert(result.target == TraversalDispatchTarget::IntersectionCandidate);
   CompletionRecord *candidate = completion.find(record.ray_ref);
   assert(candidate && candidate->state == CompletionState::Candidate);
@@ -271,7 +279,8 @@ static void check_vtas_aabb_candidate(TestMemory &memory)
   assert(completion.replace_candidate(record.ray_ref, report, {}));
   assert(completion.set_action(record.ray_ref,
                                CompletionAction::AcceptContinue));
-  result = resume_global_traversal_record(memory, record.ray_ref, completion);
+  result = resume_global_traversal_record(
+      memory, record.ray_ref, completion, rtcore_model);
   assert(result.target == TraversalDispatchTarget::ClosestHit);
   const CompletionRecord *completed = completion.find(record.ray_ref);
   assert(completed && completed->state == CompletionState::CompleteHit);
@@ -301,7 +310,8 @@ static void check_global_consumer_facade(TestMemory &memory,
   assert(submit_rt_enqueue(producer, {mailbox}, 0x1, generation) ==
          LevelQueueResult::Accepted);
 
-  GlobalWavefrontConsumer<TestMemory> consumer(memory);
+  RtCoreModel rtcore_model;
+  GlobalWavefrontConsumer<TestMemory> consumer(memory, rtcore_model);
   const std::vector<TraversalDispatchResult> results =
       consumer.consume_producer_phase(queue_base, /* max batch */ 1);
   assert(results.size() == 1);
@@ -375,6 +385,7 @@ int main()
   GlobalLevelQueue<TestMemory> queue(memory, queue_base, /* capacity */ 8,
                                      generation);
   CompletionArena<TestMemory> completion;
+  RtCoreModel rtcore_model;
   std::vector<uint64_t> mailboxes = {mailbox_base, mailbox_base + 0x100,
                                      mailbox_base + 0x200};
   write_trace_mailbox(memory, mailboxes[0], queue_base, generation, hit_accel);
@@ -386,11 +397,12 @@ int main()
          LevelQueueResult::Accepted);
   assert(queue.reserve_tail() == 3);
   /* A worker cannot dequeue before the producer level is sealed. */
-  assert(dispatch_global_traversal_batch(queue, 32, completion).empty());
+  assert(dispatch_global_traversal_batch(queue, 32, completion,
+                                         rtcore_model).empty());
   assert(queue.seal_producer_phase());
 
   const std::vector<TraversalDispatchResult> results =
-      dispatch_global_traversal_batch(queue, 32, completion);
+      dispatch_global_traversal_batch(queue, 32, completion, rtcore_model);
   assert(results.size() == 3);
   assert(results[0].ray_ref == 0);
   assert(results[0].traversal_status == traversal_complete_hit);

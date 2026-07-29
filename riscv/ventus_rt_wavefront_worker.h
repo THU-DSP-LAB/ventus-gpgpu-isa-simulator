@@ -10,7 +10,7 @@
 #ifndef RISCV_VENTUS_RT_WAVEFRONT_WORKER_H
 #define RISCV_VENTUS_RT_WAVEFRONT_WORKER_H
 
-#include "ventus_rt.h"
+#include "ventus_rtcore_model.h"
 #include "ventus_rt_wavefront_queue.h"
 
 #include <array>
@@ -356,7 +356,8 @@ template <typename Memory>
 static inline TraversalDispatchResult
 run_global_traversal_record(Memory &global_memory,
                             const IndexedFieldMajorRecord &entry,
-                            CompletionArena<Memory> &completion_arena)
+                            CompletionArena<Memory> &completion_arena,
+                            ventus_rt::RtCoreModel &rtcore_model)
 {
   using namespace ventus_rt;
   CompletionRecord &completion = completion_arena.begin(entry.ray_ref,
@@ -364,7 +365,8 @@ run_global_traversal_record(Memory &global_memory,
   WorkerLocalMemory<Memory> local_memory(global_memory,
                                           uint64_t(entry.ray_ref) + 1);
   restore_completion_slot(local_memory, completion);
-  const uint32_t status = traverse(local_memory, /* temporary slot */ 0);
+  const uint32_t status =
+      rtcore_model.executeTraverse(local_memory, /* temporary slot */ 0);
   snapshot_completion_slot(local_memory, completion, status);
   return route_completion<Memory>(entry.ray_ref, status, completion);
 }
@@ -372,7 +374,8 @@ run_global_traversal_record(Memory &global_memory,
 template <typename Memory>
 static inline TraversalDispatchResult
 resume_global_traversal_record(Memory &global_memory, uint32_t ray_ref,
-                               CompletionArena<Memory> &completion_arena)
+                               CompletionArena<Memory> &completion_arena,
+                               ventus_rt::RtCoreModel &rtcore_model)
 {
   using namespace ventus_rt;
   CompletionRecord *completion = completion_arena.find(ray_ref);
@@ -397,7 +400,8 @@ resume_global_traversal_record(Memory &global_memory, uint32_t ray_ref,
     break;
   }
   completion->action = CompletionAction::None;
-  const uint32_t status = traverse(local_memory, /* temporary slot */ 0);
+  const uint32_t status =
+      rtcore_model.executeTraverse(local_memory, /* temporary slot */ 0);
   snapshot_completion_slot(local_memory, *completion, status);
   return route_completion<Memory>(ray_ref, status, *completion);
 }
@@ -410,13 +414,15 @@ template <typename Memory>
 static inline std::vector<TraversalDispatchResult>
 resume_global_traversal_subset(Memory &global_memory,
                                const std::vector<uint32_t> &active_ray_refs,
-                               CompletionArena<Memory> &completion_arena)
+                               CompletionArena<Memory> &completion_arena,
+                               ventus_rt::RtCoreModel &rtcore_model)
 {
   std::vector<TraversalDispatchResult> results;
   results.reserve(active_ray_refs.size());
   for (uint32_t ray_ref : active_ray_refs)
     results.push_back(
-        resume_global_traversal_record(global_memory, ray_ref, completion_arena));
+        resume_global_traversal_record(global_memory, ray_ref,
+                                       completion_arena, rtcore_model));
   return results;
 }
 
@@ -429,7 +435,8 @@ template <typename Memory>
 static inline std::vector<TraversalDispatchResult>
 dispatch_global_traversal_batch(GlobalLevelQueue<Memory> &queue,
                                 uint32_t max_rays,
-                                CompletionArena<Memory> &completion_arena)
+                                CompletionArena<Memory> &completion_arena,
+                                ventus_rt::RtCoreModel &rtcore_model)
 {
   std::vector<TraversalDispatchResult> results;
   const std::vector<IndexedFieldMajorRecord> batch =
@@ -437,7 +444,8 @@ dispatch_global_traversal_batch(GlobalLevelQueue<Memory> &queue,
   results.reserve(batch.size());
   for (const IndexedFieldMajorRecord &entry : batch)
     results.push_back(run_global_traversal_record(queue.memory_for_worker(),
-                                                   entry, completion_arena));
+                                                   entry, completion_arena,
+                                                   rtcore_model));
   return results;
 }
 
@@ -702,14 +710,16 @@ make_resume_dispatch_request(const TraversalDispatchResult &result,
 /*
  * A host/bridge calls consume_producer_phase() only after the raygen producer
  * has halted all waves in its level.  Queue sealing is intentionally here,
- * not in vt.rt.enqueue: a doorbell admits sparse records but cannot know that
- * other producer waves have finished.  The caller supplies the executable
- * stage dispatch and the continuation_id -> resume-entry mapping.
+ * not in the enqueue pseudo expansion: a doorbell admits sparse records but
+ * cannot know that other producer waves have finished. The caller supplies
+ * the executable stage dispatch and continuation_id -> resume-entry mapping.
  */
 template <typename Memory>
 class GlobalWavefrontConsumer {
 public:
-  explicit GlobalWavefrontConsumer(Memory &memory) : memory_(memory) {}
+  GlobalWavefrontConsumer(Memory &memory,
+                          ventus_rt::RtCoreModel &rtcore_model)
+      : memory_(memory), rtcore_model_(rtcore_model) {}
 
   std::vector<TraversalDispatchResult>
   consume_producer_phase(uint64_t queue_base, uint32_t max_batch_rays)
@@ -723,7 +733,8 @@ public:
     const uint32_t batch_size = max_batch_rays ? max_batch_rays : queue.capacity();
     while (true) {
       std::vector<TraversalDispatchResult> batch =
-          dispatch_global_traversal_batch(queue, batch_size, completion_);
+          dispatch_global_traversal_batch(queue, batch_size, completion_,
+                                          rtcore_model_);
       if (batch.empty())
         break;
       results.insert(results.end(), batch.begin(), batch.end());
@@ -734,7 +745,8 @@ public:
   std::vector<TraversalDispatchResult>
   resume_candidate_subset(const std::vector<uint32_t> &active_ray_refs)
   {
-    return resume_global_traversal_subset(memory_, active_ray_refs, completion_);
+    return resume_global_traversal_subset(memory_, active_ray_refs, completion_,
+                                          rtcore_model_);
   }
 
   std::vector<ResumeDispatchRequest>
@@ -755,6 +767,7 @@ public:
 
 private:
   Memory &memory_;
+  ventus_rt::RtCoreModel &rtcore_model_;
   CompletionArena<Memory> completion_;
 };
 

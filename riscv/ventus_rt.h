@@ -1033,6 +1033,19 @@ struct ChildHit {
   float t_near = 0.0f;
 };
 
+inline void sort_child_hits(ChildHit (&hits)[4], uint32_t hit_count)
+{
+  for (uint32_t i = 1; i < hit_count; ++i) {
+    const ChildHit hit = hits[i];
+    uint32_t j = i;
+    while (j > 0 && hit.t_near < hits[j - 1].t_near) {
+      hits[j] = hits[j - 1];
+      --j;
+    }
+    hits[j] = hit;
+  }
+}
+
 /*
  * Legacy one-shot tracing path.
  *
@@ -1255,8 +1268,7 @@ inline uint32_t trace_vtas(Memory &mem, reg_t slot, const Ray &ray,
           hits[hit_count++] = {child, t_near};
         }
       }
-      std::sort(hits, hits + hit_count,
-                [](const ChildHit &a, const ChildHit &b) { return a.t_near < b.t_near; });
+      sort_child_hits(hits, hit_count);
       for (uint32_t i = hit_count; i > 0; i--)
         stack.push_back({entry.as_base, hits[i - 1].ref, entry.ray,
                          entry.instance_id, entry.instance_sbt_offset,
@@ -1598,10 +1610,7 @@ inline uint32_t trace_vtas_cont(Memory &mem, reg_t slot, const Ray &ray,
           hits[hit_count++] = {child, t_near};
       }
 
-      std::sort(hits, hits + hit_count,
-                [](const ChildHit &a, const ChildHit &b) {
-                  return a.t_near < b.t_near;
-                });
+      sort_child_hits(hits, hit_count);
       for (uint32_t i = hit_count; i > 0; i--) {
         TraversalEntry child = {entry.as_base, hits[i - 1].ref, entry.ray,
                                 entry.instance_id,
@@ -1803,12 +1812,20 @@ inline uint64_t rt_context_key(Memory &mem, reg_t slot, long)
   return uint64_t(reinterpret_cast<uintptr_t>(&mem)) ^ (uint64_t(slot) << 1);
 }
 
-template <typename Memory>
-inline std::unordered_map<uint64_t, RtPrivateContext> &rt_private_contexts()
-{
-  static std::unordered_map<uint64_t, RtPrivateContext> contexts;
-  return contexts;
-}
+class RtPrivateState {
+public:
+  using ContextMap = std::unordered_map<uint64_t, RtPrivateContext>;
+
+  ContextMap &contexts() { return contexts_; }
+  const ContextMap &contexts() const { return contexts_; }
+  size_t context_count() const { return contexts_.size(); }
+  void reset() { contexts_.clear(); }
+
+private:
+  // Production ownership is one RtCoreModel instance per logical SM.  The
+  // standalone two-argument helpers below exist only for header-level tests.
+  ContextMap contexts_;
+};
 
 template <typename Memory>
 inline void commit_private_candidate(Memory &mem, reg_t slot)
@@ -1839,14 +1856,15 @@ inline bool private_candidate_is_before_tmax(Memory &mem, reg_t slot,
 
 template <typename Memory>
 inline uint32_t finish_private_traversal(Memory &mem, reg_t slot,
-                                         uint64_t key)
+                                         uint64_t key,
+                                         RtPrivateState &private_state)
 {
   store_word(mem, slot, control_base, control_done, 1);
   const bool hit = committed_hit_valid(mem, slot);
   store_word(mem, slot, 0, slot_status, hit ? rt_status_hit : rt_status_miss);
   if (!hit)
     store_word(mem, slot, committed_hit_record_base, hit_record_status, 0);
-  rt_private_contexts<Memory>().erase(key);
+  private_state.contexts().erase(key);
   return hit ? traversal_complete_hit : traversal_complete_miss;
 }
 
@@ -1866,9 +1884,10 @@ inline uint32_t pause_private_candidate(Memory &mem, reg_t slot,
 
 template <typename Memory>
 inline uint32_t trace_private_triangle_list(Memory &mem, reg_t slot,
-                                            uint64_t key)
+                                            uint64_t key,
+                                            RtPrivateState &private_state)
 {
-  RtPrivateContext &ctx = rt_private_contexts<Memory>().at(key);
+  RtPrivateContext &ctx = private_state.contexts().at(key);
   for (uint32_t i = ctx.next_primitive; i < ctx.scene.primitive_count; ++i) {
     ctx.next_primitive = i + 1;
     Ray ray = ctx.ray;
@@ -1889,16 +1908,17 @@ inline uint32_t trace_private_triangle_list(Memory &mem, reg_t slot,
 
     commit_hit(mem, slot, ctx.scene, candidate);
     if (ray.flags & ray_flag_terminate_on_first_hit)
-      return finish_private_traversal(mem, slot, key);
+      return finish_private_traversal(mem, slot, key, private_state);
   }
-  return finish_private_traversal(mem, slot, key);
+  return finish_private_traversal(mem, slot, key, private_state);
 }
 
 template <typename Memory>
 inline uint32_t trace_private_aabb_list(Memory &mem, reg_t slot,
-                                        uint64_t key)
+                                        uint64_t key,
+                                        RtPrivateState &private_state)
 {
-  RtPrivateContext &ctx = rt_private_contexts<Memory>().at(key);
+  RtPrivateContext &ctx = private_state.contexts().at(key);
   for (uint32_t i = ctx.next_primitive; i < ctx.scene.primitive_count; ++i) {
     ctx.next_primitive = i + 1;
     Ray ray = ctx.ray;
@@ -1914,13 +1934,14 @@ inline uint32_t trace_private_aabb_list(Memory &mem, reg_t slot,
                                    hit_from_aabb(aabb, hit_t),
                                    traversal_candidate_procedural_aabb);
   }
-  return finish_private_traversal(mem, slot, key);
+  return finish_private_traversal(mem, slot, key, private_state);
 }
 
 template <typename Memory>
-inline uint32_t trace_private_vtas(Memory &mem, reg_t slot, uint64_t key)
+inline uint32_t trace_private_vtas(Memory &mem, reg_t slot, uint64_t key,
+                                   RtPrivateState &private_state)
 {
-  RtPrivateContext &ctx = rt_private_contexts<Memory>().at(key);
+  RtPrivateContext &ctx = private_state.contexts().at(key);
   while (!ctx.stack.empty()) {
     TraversalEntry entry = ctx.stack.back();
     ctx.stack.pop_back();
@@ -1943,10 +1964,7 @@ inline uint32_t trace_private_vtas(Memory &mem, reg_t slot, uint64_t key)
                                  entry.ray, t_near))
           hits[hit_count++] = {child, t_near};
       }
-      std::sort(hits, hits + hit_count,
-                [](const ChildHit &a, const ChildHit &b) {
-                  return a.t_near < b.t_near;
-                });
+      sort_child_hits(hits, hit_count);
       for (uint32_t i = hit_count; i > 0; --i)
         ctx.stack.push_back({entry.as_base, hits[i - 1].ref, entry.ray,
                              entry.instance_id, entry.instance_sbt_offset,
@@ -2005,17 +2023,18 @@ inline uint32_t trace_private_vtas(Memory &mem, reg_t slot, uint64_t key)
                                      traversal_candidate_non_opaque_triangle);
     commit_hit(mem, slot, ctx.scene, candidate);
     if (entry.ray.flags & ray_flag_terminate_on_first_hit)
-      return finish_private_traversal(mem, slot, key);
+      return finish_private_traversal(mem, slot, key, private_state);
   }
-  return finish_private_traversal(mem, slot, key);
+  return finish_private_traversal(mem, slot, key, private_state);
 }
 
 template <typename Memory>
-inline uint32_t traverse(Memory &mem, reg_t slot)
+inline uint32_t traverse(Memory &mem, reg_t slot,
+                         RtPrivateState &private_state)
 {
   const uint64_t key = rt_context_key(mem, slot, 0);
   std::unordered_map<uint64_t, RtPrivateContext> &contexts =
-      rt_private_contexts<Memory>();
+      private_state.contexts();
   auto it = contexts.find(key);
   if (it != contexts.end()) {
     const bool accept = load_word(mem, slot, control_base, control_accept_hit) != 0;
@@ -2034,11 +2053,11 @@ inline uint32_t traverse(Memory &mem, reg_t slot)
     clear_control(mem, slot);
     switch (it->second.kind) {
     case RtPrivateTraversalKind::triangle_list:
-      return trace_private_triangle_list(mem, slot, key);
+      return trace_private_triangle_list(mem, slot, key, private_state);
     case RtPrivateTraversalKind::aabb_list:
-      return trace_private_aabb_list(mem, slot, key);
+      return trace_private_aabb_list(mem, slot, key, private_state);
     case RtPrivateTraversalKind::vtas:
-      return trace_private_vtas(mem, slot, key);
+      return trace_private_vtas(mem, slot, key, private_state);
     }
   }
 
@@ -2048,12 +2067,12 @@ inline uint32_t traverse(Memory &mem, reg_t slot)
   const Ray ray = load_ray(mem, slot);
   const uint64_t accel_addr = load_accel_addr(mem, slot);
   if (accel_addr == 0)
-    return finish_private_traversal(mem, slot, key);
+    return finish_private_traversal(mem, slot, key, private_state);
 
   if (mem.load32(accel_addr + 0) == as_magic) {
     if ((mem.load32(accel_addr + as_header_version) & 0xffffu) != as_version ||
         mem.load32(accel_addr + as_header_type) != as_type_tlas)
-      return finish_private_traversal(mem, slot, key);
+      return finish_private_traversal(mem, slot, key, private_state);
     RtPrivateContext ctx = {};
     ctx.kind = RtPrivateTraversalKind::vtas;
     ctx.ray = ray;
@@ -2061,7 +2080,7 @@ inline uint32_t traverse(Memory &mem, reg_t slot)
     ctx.scene.shader_group_handle_size = 32;
     ctx.stack.push_back({accel_addr, load_node_ref(mem, accel_addr), ray, 0, 0, 0});
     contexts.emplace(key, std::move(ctx));
-    return trace_private_vtas(mem, slot, key);
+    return trace_private_vtas(mem, slot, key, private_state);
   }
 
   Scene scene;
@@ -2076,7 +2095,7 @@ inline uint32_t traverse(Memory &mem, reg_t slot)
   if (magic != bvh_magic || version != bvh_version ||
       scene.primitive_count == 0 || scene.primitive_addr == 0 ||
       scene.primitive_stride == 0)
-    return finish_private_traversal(mem, slot, key);
+    return finish_private_traversal(mem, slot, key, private_state);
 
   RtPrivateContext ctx = {};
   ctx.ray = ray;
@@ -2086,19 +2105,40 @@ inline uint32_t traverse(Memory &mem, reg_t slot)
                  : RtPrivateTraversalKind::aabb_list;
   if (geometry_type != geometry_triangle_list &&
       geometry_type != geometry_procedural_aabb_list)
-    return finish_private_traversal(mem, slot, key);
+    return finish_private_traversal(mem, slot, key, private_state);
   contexts.emplace(key, std::move(ctx));
   return geometry_type == geometry_triangle_list
-             ? trace_private_triangle_list(mem, slot, key)
-             : trace_private_aabb_list(mem, slot, key);
+             ? trace_private_triangle_list(mem, slot, key, private_state)
+             : trace_private_aabb_list(mem, slot, key, private_state);
+}
+
+template <typename Memory>
+inline void release(Memory &mem, reg_t slot, RtPrivateState &private_state)
+{
+  private_state.contexts().erase(rt_context_key(mem, slot, 0));
+  clear_control(mem, slot);
+}
+
+#ifdef VENTUS_RT_STANDALONE
+template <typename Memory>
+inline RtPrivateState &standalone_rt_private_state()
+{
+  static RtPrivateState private_state;
+  return private_state;
+}
+
+template <typename Memory>
+inline uint32_t traverse(Memory &mem, reg_t slot)
+{
+  return traverse(mem, slot, standalone_rt_private_state<Memory>());
 }
 
 template <typename Memory>
 inline void release(Memory &mem, reg_t slot)
 {
-  rt_private_contexts<Memory>().erase(rt_context_key(mem, slot, 0));
-  clear_control(mem, slot);
+  release(mem, slot, standalone_rt_private_state<Memory>());
 }
+#endif
 
 #ifndef VENTUS_RT_STANDALONE
 struct SpikePdsMemory {
