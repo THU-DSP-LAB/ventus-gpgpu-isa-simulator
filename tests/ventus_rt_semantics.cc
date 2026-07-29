@@ -161,6 +161,13 @@ static void write_vtas_instance(TestMemory &mem, reg_t addr, reg_t blas,
   mem.store32(addr + instance_mask, 0xff);
   mem.store32(addr + instance_sbt_record_offset, instance_sbt_offset);
   mem.store32(addr + instance_instance_id, instance_id);
+  for (uint32_t row = 0; row < 3; ++row) {
+    for (uint32_t col = 0; col < 4; ++col) {
+      const float value = row == col ? 1.0f : 0.0f;
+      mem.store32(addr + instance_world_to_object + (row * 4 + col) * 4,
+                  bit_cast_u32(value));
+    }
+  }
 }
 
 static void check_vtas_tlas_blas_triangle_hit()
@@ -301,6 +308,50 @@ static void check_non_opaque_candidate_accept_and_ignore()
     store_slot(mem, slot, control_base, control_ignore_hit, 1);
     assert(traverse(mem, slot) == traversal_complete_miss);
   }
+
+  {
+    TestMemory mem;
+    constexpr reg_t slot = 0;
+    constexpr reg_t accel = 0x18000;
+    constexpr reg_t tris = 0x19000;
+
+    write_scene(mem, accel, tris, 2);
+    write_triangle(mem, tris, 2.0f, 9, 1, 0);
+    write_triangle(mem, tris + 80, 3.0f, 10, 2, 0);
+    write_ray(mem, slot, accel);
+
+    assert(traverse(mem, slot) == traversal_candidate_non_opaque_triangle);
+    assert(load_slot(mem, slot, candidate_hit_record_base,
+                     hit_record_primitive_id) == 9);
+    store_slot(mem, slot, control_base, control_ignore_hit, 1);
+    assert(traverse(mem, slot) == traversal_candidate_non_opaque_triangle);
+    assert(load_slot(mem, slot, candidate_hit_record_base,
+                     hit_record_primitive_id) == 10);
+  }
+
+  {
+    TestMemory mem;
+    constexpr reg_t slot = 0;
+    constexpr reg_t accel = 0x1c000;
+    constexpr reg_t tris = 0x1d000;
+
+    write_scene(mem, accel, tris, 2);
+    write_triangle(mem, tris, 7.0f, 11, 1, 0);
+    write_triangle(mem, tris + 80, 3.0f, 12, 2, 0);
+    write_ray(mem, slot, accel);
+
+    assert(traverse(mem, slot) == traversal_candidate_non_opaque_triangle);
+    assert(load_slot(mem, slot, candidate_hit_record_base,
+                     hit_record_primitive_id) == 11);
+    store_slot(mem, slot, control_base, control_accept_hit, 1);
+    assert(traverse(mem, slot) == traversal_candidate_non_opaque_triangle);
+    assert(load_slot(mem, slot, candidate_hit_record_base,
+                     hit_record_primitive_id) == 12);
+    store_slot(mem, slot, control_base, control_accept_hit, 1);
+    assert(traverse(mem, slot) == traversal_complete_hit);
+    assert(load_slot(mem, slot, committed_hit_record_base,
+                     hit_record_primitive_id) == 12);
+  }
 }
 
 static void check_terminate_and_release()
@@ -323,40 +374,62 @@ static void check_terminate_and_release()
 
 static void check_procedural_candidate_report_accept()
 {
-  TestMemory mem;
-  constexpr reg_t slot = 0;
-  constexpr reg_t accel = 0x1a000;
-  constexpr reg_t aabbs = 0x1b000;
+  {
+    TestMemory mem;
+    constexpr reg_t slot = 0;
+    constexpr reg_t accel = 0x1a000;
+    constexpr reg_t aabbs = 0x1b000;
 
-  write_aabb_scene(mem, accel, aabbs, 1);
-  write_aabb(mem, aabbs, 17, 3);
-  write_ray(mem, slot, accel);
+    write_aabb_scene(mem, accel, aabbs, 1);
+    write_aabb(mem, aabbs, 17, 3);
+    write_ray(mem, slot, accel);
 
-  assert(traverse(mem, slot) == traversal_candidate_procedural_aabb);
-  assert(load_slot(mem, slot, candidate_hit_record_base,
-                   hit_record_primitive_id) == 17);
-  assert(load_slot(mem, slot, candidate_hit_record_base,
-                   hit_record_need_software_opacity_test) == 1);
+    assert(traverse(mem, slot) == traversal_candidate_procedural_aabb);
+    assert(load_slot(mem, slot, candidate_hit_record_base,
+                     hit_record_primitive_id) == 17);
+    assert(load_slot(mem, slot, candidate_hit_record_base,
+                     hit_record_need_software_opacity_test) == 1);
 
-  store_slot(mem, slot, candidate_hit_record_base, hit_record_status,
-             rt_status_hit);
-  store_slot(mem, slot, candidate_hit_record_base, hit_record_hit_t,
-             bit_cast_u32(2.5f));
-  store_slot(mem, slot, candidate_hit_record_base, hit_record_hit_kind, 0xff);
-  store_slot(mem, slot, candidate_hit_record_base, hit_record_front_face, 0);
-  store_slot(mem, slot, candidate_hit_record_base, hit_record_opaque, 0);
-  store_slot(mem, slot, candidate_hit_record_base,
-             hit_record_need_software_opacity_test, 1);
-  store_slot(mem, slot, control_base, control_accept_hit, 1);
+    store_slot(mem, slot, candidate_hit_record_base, hit_record_status,
+               rt_status_hit);
+    store_slot(mem, slot, candidate_hit_record_base, hit_record_hit_t,
+               bit_cast_u32(2.5f));
+    store_slot(mem, slot, candidate_hit_record_base, hit_record_hit_kind, 0xff);
+    store_slot(mem, slot, candidate_hit_record_base, hit_record_front_face, 0);
+    store_slot(mem, slot, candidate_hit_record_base, hit_record_opaque, 0);
+    store_slot(mem, slot, candidate_hit_record_base,
+               hit_record_need_software_opacity_test, 1);
+    store_slot(mem, slot, control_base, control_accept_hit, 1);
 
-  assert(traverse(mem, slot) == traversal_complete_hit);
-  assert(load_slot(mem, slot, committed_hit_record_base,
-                   hit_record_primitive_id) == 17);
-  assert(load_slot(mem, slot, committed_hit_record_base,
-                   hit_record_hit_kind) == 0xff);
-  assert(std::fabs(bit_cast_f32(load_slot(mem, slot, committed_hit_record_base,
-                                          hit_record_hit_t)) -
-                   2.5f) < 0.001f);
+    assert(traverse(mem, slot) == traversal_complete_hit);
+    assert(load_slot(mem, slot, committed_hit_record_base,
+                     hit_record_primitive_id) == 17);
+    assert(load_slot(mem, slot, committed_hit_record_base,
+                     hit_record_hit_kind) == 0xff);
+    assert(std::fabs(bit_cast_f32(load_slot(mem, slot, committed_hit_record_base,
+                                            hit_record_hit_t)) -
+                     2.5f) < 0.001f);
+  }
+
+  {
+    TestMemory mem;
+    constexpr reg_t slot = 0;
+    constexpr reg_t accel = 0x1e000;
+    constexpr reg_t aabbs = 0x1f000;
+
+    write_aabb_scene(mem, accel, aabbs, 2);
+    write_aabb(mem, aabbs, 21, 3);
+    write_aabb(mem, aabbs + 64, 22, 4);
+    write_ray(mem, slot, accel);
+
+    assert(traverse(mem, slot) == traversal_candidate_procedural_aabb);
+    assert(load_slot(mem, slot, candidate_hit_record_base,
+                     hit_record_primitive_id) == 21);
+    store_slot(mem, slot, control_base, control_ignore_hit, 1);
+    assert(traverse(mem, slot) == traversal_candidate_procedural_aabb);
+    assert(load_slot(mem, slot, candidate_hit_record_base,
+                     hit_record_primitive_id) == 22);
+  }
 }
 
 static void check_pds_formula()
