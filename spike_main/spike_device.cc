@@ -647,8 +647,8 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   //-------------vlen_elen-----------gpgpu-------------------log_file_output
   const char *isa = std::getenv("VENTUS_SPIKE_ISA");
   if (!isa || !isa[0])
-    isa = "rv32gcv_zfh";
-  char strings[][32]={"spike","-l", "--log-commits", " ","--isa", "rv32gcv_zfh", " ","-m0x70000000:0x90000000",\
+    isa = "rv32ima_zfinx_zve32f";
+  char strings[][32]={"spike","-l", "--log-commits", " ","--isa", "rv32ima_zfinx_zve32f", " ","-m0x70000000:0x90000000",\
        "--varch", " ","--gpgpuarch","numw:1,numt:8,numwg:1"," "," "};
 
   char** argv=new char*[argc];

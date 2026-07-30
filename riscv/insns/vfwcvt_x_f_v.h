@@ -5,6 +5,6 @@ VI_VFP_WCVT_FP_TO_INT(
   { vd = f32_to_i64(vs2, softfloat_roundingMode, true); }, // BODY32
   {;},                                                     // CHECK8
   { require_extension(EXT_ZFH); },                         // CHECK16
-  { require_extension('F'); },                             // CHECK32
+  { require(VECTOR_FP32_ENABLED); },                       // CHECK32
   int                                                      // sign
 )

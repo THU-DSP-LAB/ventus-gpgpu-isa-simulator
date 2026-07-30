@@ -2,7 +2,7 @@
 require_vector(true);
 require_fp;
 require((P.VU.vsew == e16 && p->extension_enabled(EXT_ZFH)) ||
-        (P.VU.vsew == e32 && p->extension_enabled('F')) ||
+        (P.VU.vsew == e32 && VECTOR_FP32_ENABLED) ||
         (P.VU.vsew == e64 && p->extension_enabled('D')));
 require(STATE.frm->read() < 0x5);
 
@@ -29,7 +29,10 @@ if (FLEN > sew) {
   vs2_0 = vs2_0 | (UINT64_MAX << sew);
 }
 
-if (FLEN == 64) {
+if (p->extension_enabled(EXT_ZFINX)) {
+  require(sew == e32);
+  WRITE_FRD_F(f32(static_cast<uint32_t>(vs2_0)));
+} else if (FLEN == 64) {
   WRITE_FRD(f64(vs2_0));
 } else {
   WRITE_FRD(f32(vs2_0));

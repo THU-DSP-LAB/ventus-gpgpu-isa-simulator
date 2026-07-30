@@ -505,15 +505,19 @@ static inline bool is_aligned(const unsigned val, const unsigned pos)
   float##width##_t vs1 = P.VU.elt<float##width##_t>(1,rs1_num, i); \
   float##width##_t vs2 = P.VU.elt<float##width##_t>(2,rs2_num, i);
 
-// Ventus implements scalar floating-point values in GPRs (Zfinx).  The rs1
-// field of a vector .vf instruction therefore names an X register, including
-// x0 for +0.0, rather than an F register as it does in the base RVV ABI.
-#define VENTUS_VFP_SCALAR(width, reg_num) \
-  f##width(static_cast<uint##width##_t>(READ_REG(reg_num)))
+#define VECTOR_FP32_ENABLED \
+  (p->extension_enabled('F') || \
+   (p->extension_enabled(EXT_ZFINX) && \
+    p->extension_enabled(EXT_ZVE32F)))
+
+#define VFP_SCALAR(width, reg_num) \
+  (p->extension_enabled(EXT_ZFINX) \
+    ? f##width(static_cast<uint##width##_t>(READ_REG(reg_num))) \
+    : f##width(READ_FREG(reg_num)))
 
 #define VFP_VF_PARAMS(width) \
   float##width##_t &vd = P.VU.elt<float##width##_t>(0,rd_num, i, true); \
-  float##width##_t rs1 = VENTUS_VFP_SCALAR(width, rs1_num); \
+  float##width##_t rs1 = VFP_SCALAR(width, rs1_num); \
   float##width##_t vs2 = P.VU.elt<float##width##_t>(2,rs2_num, i);
 
 #define CVT_FP_TO_FP_PARAMS(from_width, to_width) \
@@ -1714,7 +1718,7 @@ reg_t index[P.VU.vlmax]; \
 #define VI_VFP_COMMON \
   require_fp; \
   require((P.VU.vsew == e16 && p->extension_enabled(EXT_ZFH)) || \
-          (P.VU.vsew == e32 && p->extension_enabled('F')) || \
+          (P.VU.vsew == e32 && VECTOR_FP32_ENABLED) || \
           (P.VU.vsew == e64 && p->extension_enabled('D'))); \
   require_vector(true); \
   require(STATE.frm->read() < 0x5); \
@@ -1897,7 +1901,7 @@ reg_t index[P.VU.vlmax]; \
 #define VI_VFP_VV_LOOP_WIDE_REDUCTION(BODY16, BODY32) \
   VI_CHECK_REDUCTION(true) \
   VI_VFP_COMMON \
-  require((P.VU.vsew == e16 && p->extension_enabled('F')) || \
+  require((P.VU.vsew == e16 && VECTOR_FP32_ENABLED) || \
           (P.VU.vsew == e32 && p->extension_enabled('D'))); \
   bool is_active = false; \
   switch (P.VU.vsew) { \
@@ -2020,7 +2024,7 @@ reg_t index[P.VU.vlmax]; \
     case e16: { \
       float32_t &vd = P.VU.elt<float32_t>(0,rd_num, i, true); \
       float32_t vs2 = f16_to_f32(P.VU.elt<float16_t>(2,rs2_num, i)); \
-      float32_t rs1 = f16_to_f32(VENTUS_VFP_SCALAR(16, rs1_num)); \
+      float32_t rs1 = f16_to_f32(VFP_SCALAR(16, rs1_num)); \
       BODY16; \
       set_fp_exceptions; \
       break; \
@@ -2028,7 +2032,7 @@ reg_t index[P.VU.vlmax]; \
     case e32: { \
       float64_t &vd = P.VU.elt<float64_t>(0,rd_num, i, true); \
       float64_t vs2 = f32_to_f64(P.VU.elt<float32_t>(2,rs2_num, i)); \
-      float64_t rs1 = f32_to_f64(VENTUS_VFP_SCALAR(32, rs1_num)); \
+      float64_t rs1 = f32_to_f64(VFP_SCALAR(32, rs1_num)); \
       BODY32; \
       set_fp_exceptions; \
       break; \
@@ -2074,7 +2078,7 @@ reg_t index[P.VU.vlmax]; \
     case e16: { \
       float32_t &vd = P.VU.elt<float32_t>(0,rd_num, i, true); \
       float32_t vs2 = P.VU.elt<float32_t>(2,rs2_num, i); \
-      float32_t rs1 = f16_to_f32(VENTUS_VFP_SCALAR(16, rs1_num)); \
+      float32_t rs1 = f16_to_f32(VFP_SCALAR(16, rs1_num)); \
       BODY16; \
       set_fp_exceptions; \
       break; \
@@ -2082,7 +2086,7 @@ reg_t index[P.VU.vlmax]; \
     case e32: { \
       float64_t &vd = P.VU.elt<float64_t>(0,rd_num, i, true); \
       float64_t vs2 = P.VU.elt<float64_t>(2,rs2_num, i); \
-      float64_t rs1 = f32_to_f64(VENTUS_VFP_SCALAR(32, rs1_num)); \
+      float64_t rs1 = f32_to_f64(VFP_SCALAR(32, rs1_num)); \
       BODY32; \
       set_fp_exceptions; \
       break; \
@@ -2150,7 +2154,7 @@ reg_t index[P.VU.vlmax]; \
       break; \
     case e32: \
       { VI_VFP_CVT_LOOP(CVT_INT_TO_FP_PARAMS(32, 32, sign), \
-        { p->extension_enabled('F'); }, \
+        { VECTOR_FP32_ENABLED; }, \
         BODY32); } \
       break; \
     case e64: \
@@ -2174,7 +2178,7 @@ reg_t index[P.VU.vlmax]; \
       break; \
     case e32: \
       { VI_VFP_CVT_LOOP(CVT_FP_TO_INT_PARAMS(32, 32, sign), \
-        { p->extension_enabled('F'); }, \
+        { VECTOR_FP32_ENABLED; }, \
         BODY32); } \
       break; \
     case e64: \

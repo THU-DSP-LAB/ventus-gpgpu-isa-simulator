@@ -679,7 +679,10 @@ void workgroup_t::init_sim(
   //strcat(arg_mem_scope,temp);
   //--------------------------------------------------num_core-------------------pc------mem_scope   //mem_scope is unused now.
   //-------------vlen_elen-----------gpgpu-------------------log_file_output
-  char strings[][32]={"spike","-l", "--log-commits", " ","--isa", "rv32gcv_zfh", " ","-m0x70000000:0x90000000",\
+  const char *isa = std::getenv("VENTUS_SPIKE_ISA");
+  if (!isa || !isa[0])
+    isa = "rv32ima_zfinx_zve32f";
+  char strings[][32]={"spike","-l", "--log-commits", " ","--isa", "rv32ima_zfinx_zve32f", " ","-m0x70000000:0x90000000",\
        "--varch", " ","--gpgpuarch","numw:1,numt:8,numwg:1"," "," "};
 
   char** argv=new char*[argc];
@@ -687,6 +690,7 @@ void workgroup_t::init_sim(
     argv[i]=strings[i];
   }
   argv[11]=arg_gpgpu;
+  argv[5]=const_cast<char *>(isa);
   argv[1] = arg_log;;
   argv[2] = arg_commitlog;
   argv[3]=arg_num_core;

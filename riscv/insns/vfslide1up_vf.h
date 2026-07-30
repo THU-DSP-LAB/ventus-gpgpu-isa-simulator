@@ -23,13 +23,16 @@ if (i != 0) {
 } else {
   switch (P.VU.vsew) {
     case e16:
-      P.VU.elt<float16_t>(0,rd_num, 0, true) = f16(FRS1);
+      P.VU.elt<float16_t>(0,rd_num, 0, true) =
+          VFP_SCALAR(16, rs1_num);
       break;
     case e32:
-      P.VU.elt<float32_t>(0,rd_num, 0, true) = f32(FRS1);
+      P.VU.elt<float32_t>(0,rd_num, 0, true) =
+          VFP_SCALAR(32, rs1_num);
       break;
     case e64:
-      P.VU.elt<float64_t>(0,rd_num, 0, true) = f64(FRS1);
+      P.VU.elt<float64_t>(0,rd_num, 0, true) =
+          VFP_SCALAR(64, rs1_num);
       break;
   }
 }

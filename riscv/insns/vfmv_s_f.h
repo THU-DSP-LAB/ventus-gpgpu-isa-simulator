@@ -2,7 +2,7 @@
 require_vector(true);
 require_fp;
 require((P.VU.vsew == e16 && p->extension_enabled(EXT_ZFH)) ||
-        (P.VU.vsew == e32 && p->extension_enabled('F')) ||
+        (P.VU.vsew == e32 && VECTOR_FP32_ENABLED) ||
         (P.VU.vsew == e64 && p->extension_enabled('D')));
 require(STATE.frm->read() < 0x5);
 
@@ -13,16 +13,16 @@ if (vl > 0 && P.VU.vstart->read() < vl) {
 
   switch(P.VU.vsew) {
     case e16:
-      P.VU.elt<uint16_t>(0,rd_num, 0, true) = f16(FRS1).v;
+      P.VU.elt<uint16_t>(0,rd_num, 0, true) =
+          VFP_SCALAR(16, insn.rs1() | p->ext_rs1()).v;
       break;
     case e32:
-      P.VU.elt<uint32_t>(0,rd_num, 0, true) = f32(FRS1).v;
+      P.VU.elt<uint32_t>(0,rd_num, 0, true) =
+          VFP_SCALAR(32, insn.rs1() | p->ext_rs1()).v;
       break;
     case e64:
-      if (FLEN == 64)
-        P.VU.elt<uint64_t>(0,rd_num, 0, true) = f64(FRS1).v;
-      else
-        P.VU.elt<uint64_t>(0,rd_num, 0, true) = f32(FRS1).v;
+      P.VU.elt<uint64_t>(0,rd_num, 0, true) =
+          VFP_SCALAR(64, insn.rs1() | p->ext_rs1()).v;
       break;
   }
 }

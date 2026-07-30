@@ -248,14 +248,29 @@ inline uint32_t f32_into_x(float64_t f) { return static_cast<uint32_t>(f.v);}
 #define RVC_SP READ_REG(X_SP)
 
 // FPU macros
+#define READ_FREG_F(reg) \
+  (p->extension_enabled(EXT_ZFINX) \
+    ? f32(static_cast<uint32_t>(READ_REG(reg))) \
+    : f32(READ_FREG(reg)))
 #define FRS1 READ_FREG(insn.rs1()| p->ext_rs1())
 #define FRS2 READ_FREG(insn.rs2()| p->ext_rs2())
 #define FRS3 READ_FREG(insn.rs3()| p->ext_rs3())
+#define FRS1_F READ_FREG_F(insn.rs1() | p->ext_rs1())
+#define FRS2_F READ_FREG_F(insn.rs2() | p->ext_rs2())
+#define FRS3_F READ_FREG_F(insn.rs3() | p->ext_rs3())
 #define dirty_fp_state  STATE.sstatus->dirty(SSTATUS_FS)
 #define dirty_ext_state STATE.sstatus->dirty(SSTATUS_XS)
 #define dirty_vs_state  STATE.sstatus->dirty(SSTATUS_VS)
 #define DO_WRITE_FREG(reg, value) (STATE.FPR.write(reg, value), dirty_fp_state)
 #define WRITE_FRD(value) WRITE_FREG((insn.rd()| p->ext_rd()), value)
+#define WRITE_FRD_F(value) \
+  do { \
+    const float32_t zfinx_result = (value); \
+    if (p->extension_enabled(EXT_ZFINX)) \
+      WRITE_REG((insn.rd() | p->ext_rd()), sext_xlen(zfinx_result.v)); \
+    else \
+      WRITE_FRD(zfinx_result); \
+  } while (0)
  
 #define SHAMT (insn.i_imm() & 0x3F)
 #define BRANCH_TARGET (pc + insn.sb_imm())
@@ -275,7 +290,9 @@ inline uint32_t f32_into_x(float64_t f) { return static_cast<uint32_t>(f.v);}
 #define require_extension(s) require(p->extension_enabled(s))
 #define require_either_extension(A,B) require(p->extension_enabled(A) || p->extension_enabled(B));
 #define require_impl(s) require(p->supports_impl(s))
-#define require_fp          require(STATE.sstatus->enabled(SSTATUS_FS))
+#define require_fp \
+  require(p->extension_enabled(EXT_ZFINX) || \
+          STATE.sstatus->enabled(SSTATUS_FS))
 #define require_accelerator require(STATE.sstatus->enabled(SSTATUS_XS))
 #define require_vector_vs   require(STATE.sstatus->enabled(SSTATUS_VS))
 #define require_vector(alu) \

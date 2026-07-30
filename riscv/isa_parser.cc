@@ -116,6 +116,17 @@ isa_parser_t::isa_parser_t(const char* str, const char *priv)
       // HINTs encoded in base-ISA instructions are always present.
     } else if (ext_str == "zmmul") {
       extension_table[EXT_ZMMUL] = true;
+    } else if (ext_str == "zfinx") {
+      extension_table[EXT_ZFINX] = true;
+    } else if (ext_str == "zve32x") {
+      extension_table[EXT_ZVE32X] = true;
+      extension_table['V'] = true;
+      max_isa |= 1L << ('v' - 'a');
+    } else if (ext_str == "zve32f") {
+      extension_table[EXT_ZVE32X] = true;
+      extension_table[EXT_ZVE32F] = true;
+      extension_table['V'] = true;
+      max_isa |= 1L << ('v' - 'a');
     } else if (ext_str == "zba") {
       extension_table[EXT_ZBA] = true;
     } else if (ext_str == "zbb") {
@@ -224,6 +235,13 @@ isa_parser_t::isa_parser_t(const char* str, const char *priv)
   if (*p) {
     bad_isa_string(str, ("can't parse: " + std::string(p)).c_str());
   }
+
+  const bool has_f = (max_isa >> ('f' - 'a')) & 1;
+  if (extension_table[EXT_ZFINX] && has_f)
+    bad_isa_string(str, "'Zfinx' conflicts with the F/D/Q register-file extensions");
+  if (extension_table[EXT_ZVE32F] &&
+      !(has_f || extension_table[EXT_ZFINX]))
+    bad_isa_string(str, "'Zve32f' requires either 'F' or 'Zfinx'");
 
   std::string lowercase = strtolower(priv);
   bool user = false, supervisor = false;

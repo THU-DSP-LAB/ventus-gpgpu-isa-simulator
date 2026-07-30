@@ -11,5 +11,5 @@ VI_VFP_NCVT_FP_TO_FP(
   },
   {;},                             // CHECK16
   { require_extension(EXT_ZFH); }, // CHECK32
-  { require_extension('F'); }      // CHECK64
+  { require(VECTOR_FP32_ENABLED); } // CHECK64
 )

@@ -388,8 +388,10 @@ base_status_csr_t::base_status_csr_t(processor_t* const proc, const reg_t addr):
 reg_t base_status_csr_t::compute_sstatus_write_mask() const noexcept {
   // If a configuration has FS bits, they will always be accessible no
   // matter the state of misa.
-  const bool has_fs = proc->extension_enabled('S') || proc->extension_enabled('F')
-              || proc->extension_enabled('V');
+  const bool has_fs = (proc->extension_enabled('S') ||
+                       proc->extension_enabled('F') ||
+                       proc->extension_enabled('V')) &&
+                      !proc->extension_enabled(EXT_ZFINX);
   const bool has_vs = proc->extension_enabled('V');
   return 0
     | (proc->extension_enabled('S') ? (SSTATUS_SIE | SSTATUS_SPIE | SSTATUS_SPP) : 0)
@@ -1176,13 +1178,15 @@ float_csr_t::float_csr_t(processor_t* const proc, const reg_t addr, const reg_t 
 
 void float_csr_t::verify_permissions(insn_t insn, bool write) const {
   masked_csr_t::verify_permissions(insn, write);
-  require_fp;
-  if (!proc->extension_enabled('F'))
+  if (!((proc->extension_enabled('F') &&
+         STATE.sstatus->enabled(SSTATUS_FS)) ||
+        proc->extension_enabled(EXT_ZFINX)))
     throw trap_illegal_instruction(insn.bits());
 }
 
 bool float_csr_t::unlogged_write(const reg_t val) noexcept {
-  dirty_fp_state;
+  if (!proc->extension_enabled(EXT_ZFINX))
+    dirty_fp_state;
   return masked_csr_t::unlogged_write(val);
 }
 
