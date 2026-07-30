@@ -1052,7 +1052,7 @@ inline Triangle load_vtas_triangle(Memory &mem, uint64_t as_base,
   if (instance_addr)
     tri.instance_geometry_flags =
         mem.load32(instance_addr + instance_flags);
-  tri.primitive_addr = load_u64(mem, addr + triangle_primitive_addr_lo);
+  tri.primitive_addr = addr;
   tri.instance_addr = instance_addr;
   return tri;
 }

@@ -225,6 +225,52 @@ write_identity_transform(TestMemory &memory, uint64_t address)
   }
 }
 
+static void check_vtas_triangle_leaf_projection(TestMemory &memory)
+{
+  constexpr uint64_t tlas = 0x62000;
+  constexpr uint64_t blas = 0x63000;
+  constexpr uint64_t instance = tlas + as_header_size;
+  constexpr uint64_t triangle = blas + as_header_size;
+  constexpr uint32_t primitive_id = 23;
+
+  memory.store_u32(tlas + as_header_magic, as_magic);
+  memory.store_u32(tlas + as_header_version, as_version);
+  memory.store_u32(tlas + as_header_type, as_type_tlas);
+  memory.store_u32(tlas + as_header_root_node_ref,
+                   uint32_t(instance - tlas) | node_instance);
+  memory.store_u32(instance + instance_blas_addr_lo, uint32_t(blas));
+  memory.store_u32(instance + instance_mask, 0xff);
+  memory.store_u32(instance + instance_instance_id, 13);
+  write_identity_transform(memory, instance + instance_object_to_world);
+  write_identity_transform(memory, instance + instance_world_to_object);
+
+  memory.store_u32(blas + as_header_magic, as_magic);
+  memory.store_u32(blas + as_header_version, as_version);
+  memory.store_u32(blas + as_header_type, as_type_blas);
+  memory.store_u32(blas + as_header_root_node_ref,
+                   uint32_t(triangle - blas) | node_triangle);
+  write_vec3(memory, triangle + triangle_v0, -1.0f, -1.0f, 5.0f);
+  write_vec3(memory, triangle + triangle_v1, 1.0f, -1.0f, 5.0f);
+  write_vec3(memory, triangle + triangle_v2, 0.0f, 1.0f, 5.0f);
+  memory.store_u32(triangle + triangle_primitive_id, primitive_id);
+  memory.store_u32(triangle + triangle_geometry_id, 2);
+  memory.store_u32(triangle + triangle_flags, 1);
+  memory.store_u32(triangle + triangle_primitive_addr_lo, 0xdeadbeef);
+
+  CompletionArena<TestMemory> completion;
+  RtCoreModel rtcore_model;
+  const IndexedFieldMajorRecord record = {
+      .ray_ref = 122, .record = make_trace_record(tlas)};
+  const TraversalDispatchResult result =
+      run_global_traversal_record(memory, record, completion, rtcore_model);
+  assert(result.target == TraversalDispatchTarget::ClosestHit);
+  const CompletionRecord *completed = completion.find(record.ray_ref);
+  assert(completed && completed->state == CompletionState::CompleteHit);
+  assert(completed->committed_hit[hit_record_primitive_id] == primitive_id);
+  assert(completed->committed_hit[hit_record_primitive_addr_lo] == triangle);
+  assert(completed->committed_hit[hit_record_primitive_addr_hi] == 0);
+}
+
 static void check_vtas_aabb_candidate(TestMemory &memory)
 {
   constexpr uint64_t tlas = 0x60000;
@@ -468,6 +514,7 @@ int main()
   assert(queue.consume_head() == 3);
   check_candidate_actions(memory, candidate_accel);
   check_non_finite_triangle_is_miss(memory);
+  check_vtas_triangle_leaf_projection(memory);
   check_vtas_aabb_candidate(memory);
   check_global_consumer_facade(memory, hit_accel);
   return 0;
