@@ -60,6 +60,7 @@ def main() -> int:
         + read("riscv/insns/amoand_w.h")
         + read("riscv/insns/amoor_w.h")
     )
+    csrrsv = read("riscv/insns/csrrsv.h")
 
     require("0x0a ? 4" in decode or "0x0a ||" in decode,
             "insn_length does not force opcode 0x0a to 32 bits", failures)
@@ -219,6 +220,8 @@ def main() -> int:
             failures)
     require("WRITE_RD(sext32(MMU.amo_uint32" in amo,
             "standard scalar AMO fallback was removed", failures)
+    require("P.gpgpu_unit.simt_stack.lane_active(i)" in csrrsv,
+            "csrr.v must preserve inactive SIMT lane registers", failures)
 
     if failures:
         for failure in failures:

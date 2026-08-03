@@ -11,6 +11,8 @@ vec_csr_t* vcsr = dynamic_cast<vec_csr_t*>(csr_base->second.get());
 reg_t vl = P.VU.vl->read();
 if (vcsr) {
   for(uint32_t i = 0; i < vl; i++) {
+    if (!P.gpgpu_unit.simt_stack.lane_active(i))
+      continue;
     P.VU.elt<uint32_t>(0,vd,i,true) = vcsr->get_lane(i);
   }
 } else {
@@ -20,6 +22,8 @@ if (vcsr) {
    * lane-specific values. */
   const reg_t value = csr_base->second->read();
   for(uint32_t i = 0; i < vl; i++) {
+    if (!P.gpgpu_unit.simt_stack.lane_active(i))
+      continue;
     P.VU.elt<uint32_t>(0,vd,i,true) = value;
   }
 }
