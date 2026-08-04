@@ -435,9 +435,8 @@ int main()
              hit_record_primitive_id)) == 77);
   assert(candidate_field(CompletionField::CandidateHitAttributeAddrLo) ==
          0xe0000 + 2 * 32);
-  assert(candidate_field(static_cast<CompletionField>(
-             static_cast<uint32_t>(CompletionField::CandidateControlBase) +
-             control_accept_hit)) == 1);
+  assert(candidate_field(CompletionField::CandidateControlBase) ==
+         callback_accept);
   assert(candidate_field(CompletionField::Ready) == 1);
 
   assert(queue.consume_head() == 3);

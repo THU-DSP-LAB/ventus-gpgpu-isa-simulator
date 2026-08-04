@@ -146,7 +146,11 @@ INSTALL_EXE   := $(INSTALL) -m 755
 STOW          := @stow@
 
 # Tests
-bintests = $(src_dir)/tests/ebreak.py
+bintests = $(src_dir)/tests/ebreak.py ventus_launch_geometry_test
+
+ventus_launch_geometry_test: $(src_dir)/tests/ventus_launch_geometry_test.cc \
+	$(src_dir)/riscv/ventus_launch_geometry.h
+	$(CXX) -std=c++17 -I$(src_dir)/riscv $< -o $@
 
 #-------------------------------------------------------------------------
 # Include subproject makefile fragments

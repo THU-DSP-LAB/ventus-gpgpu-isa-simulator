@@ -7,6 +7,7 @@
 #include "remote_bitbang.h"
 #include "byteorder.h"
 #include "platform.h"
+#include "ventus_launch_geometry.h"
 #include "libfdt.h"
 #include <fstream>
 #include <map>
@@ -141,25 +142,16 @@ sim_t::sim_t(const cfg_t *cfg, bool halted,
                                log_file.get(), sout_);
 
       procs[i*w.warp_number+j]->gpgpu_unit.set_warp(&workgroups[i]);//workgroups[i]);
-      /* A workgroup at the edge of a global launch may have fewer live
-       * lanes than its local shape.  In particular, compact RT callback
-       * dispatches use ceil(ray_ref_count / 32) workgroups; leaving the tail
-       * warp fully active makes its inactive lanes dereference uninitialised
-       * ray-ref entries.  Derive the SIMT mask from the complete launch, not
-       * just from the nominal local workgroup size. */
-      const uint64_t local_threads =
-          w.local_size_x * w.local_size_y * w.local_size_z;
-      const uint64_t launch_threads = gsx * gsy * gsz;
-      const uint64_t warp_first_thread =
-          workgroup_id * local_threads + j * w.thread_number;
-      const uint64_t num_thread_this_warp =
-          warp_first_thread < launch_threads
-              ? std::min<uint64_t>(w.thread_number,
-                                   launch_threads - warp_first_thread)
-              : 0;
+      /* Edge workgroups are padded independently in every launch dimension.
+       * A flat launch-tail count disables valid later rows and cannot express
+       * non-prefix masks at a two- or three-dimensional edge. */
+      const ventus_launch::Geometry launch_geometry = {
+          gsx, gsy, gsz, lsx, lsy, lsz, gidx, gidy, gidz};
+      const uint64_t live_lane_mask =
+          ventus_launch::live_lane_mask(launch_geometry, j, w.thread_number);
       // 现在一个warp就是一个core
       procs[i*w.warp_number+j]->gpgpu_unit.init_warp(w.warp_number, w.thread_number,
-              j * w.thread_number, workgroup_id, j, pds, lds, knl_base, gidx, gidy, gidz, clprintf,gsx,gsy,gsz,lsx,lsy,lsz,gox,goy,goz,dim, num_thread_this_warp);
+              j * w.thread_number, workgroup_id, j, pds, lds, knl_base, gidx, gidy, gidz, clprintf,gsx,gsy,gsz,lsx,lsy,lsz,gox,goy,goz,dim, live_lane_mask);
       assert(w.thread_number == (procs[i]->VU.get_vlen() / procs[i]->VU.get_elen()));
     }
     

@@ -25,6 +25,7 @@ riscv_hdrs = \
 	encoding.h \
 	ventus_custom_arith.h \
 	ventus_mma.h \
+	ventus_launch_geometry.h \
 	ventus_rt.h \
 	ventus_custom.h \
 	ventus_shuffle.h \

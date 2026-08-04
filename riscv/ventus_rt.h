@@ -22,11 +22,11 @@ class mmu_t;
 namespace ventus_rt {
 
 constexpr reg_t lanes = 32;
-/* Legacy PDS slots and global RTcore worker locals have distinct bounds. */
-constexpr reg_t rt_pds_base_bytes = 4096;
-constexpr reg_t rt_region_size_bytes = 384;
-constexpr reg_t rt_pds_total_size_bytes =
-    rt_pds_base_bytes + rt_region_size_bytes;
+/* Megakernel v3 starts the RTcore-owned fixed header at logical PDS offset
+ * zero.  Payload and compiler private stack are shader-owned and need not be
+ * classified by HybridMemory while traversal executes. */
+constexpr reg_t rt_region_size_bytes = 308;
+constexpr reg_t rt_pds_total_size_bytes = rt_region_size_bytes;
 constexpr reg_t rt_worker_local_size_bytes = rt_region_size_bytes;
 
 constexpr reg_t slot_status = 0;
@@ -60,16 +60,11 @@ constexpr reg_t cps_fragment_id = 2;
 constexpr reg_t cps_flags = 3;
 
 constexpr reg_t control_base = 112;
-constexpr reg_t control_done = 0;
-constexpr reg_t control_incomplete = 1;
-constexpr reg_t control_accept_hit = 2;
-constexpr reg_t control_ignore_hit = 3;
-constexpr reg_t control_terminate_ray = 4;
-constexpr reg_t control_skip_closest_hit = 5;
+constexpr reg_t control_callback = 0;
 
-constexpr reg_t committed_hit_record_base = 224;
-constexpr reg_t candidate_hit_record_base = 144;
-constexpr reg_t hit_attrib_base = 304;
+constexpr reg_t candidate_hit_record_base = 116;
+constexpr reg_t committed_hit_record_base = 196;
+constexpr reg_t hit_attrib_base = 276;
 constexpr reg_t hit_record_status = 0;
 constexpr reg_t hit_record_hit_t = 1;
 constexpr reg_t hit_record_sbt_index = 2;
@@ -90,9 +85,19 @@ constexpr reg_t hit_record_opaque = 16;
 constexpr reg_t hit_record_need_software_opacity_test = 17;
 constexpr reg_t hit_record_instance_sbt_record_offset = 18;
 
-constexpr uint32_t rt_status_hit = 2;
-constexpr uint32_t rt_status_miss = 3;
-constexpr uint32_t rt_status_done = 4;
+/* Slot status is a lifetime handshake, not a traversal result. */
+constexpr uint32_t slot_status_idle = 0;
+constexpr uint32_t slot_status_trace_request = 1;
+constexpr uint32_t slot_status_terminated = 2;
+
+/* The callback writes one final decision before the next traverse resume. */
+constexpr uint32_t callback_pending = 0;
+constexpr uint32_t callback_accept = 1;
+constexpr uint32_t callback_ignore = 2;
+constexpr uint32_t callback_terminate = 3;
+
+/* Hit records have their own local validity marker. */
+constexpr uint32_t hit_record_valid = 1;
 
 constexpr uint32_t traversal_complete_miss = 0;
 constexpr uint32_t traversal_complete_hit = 1;
@@ -547,8 +552,7 @@ inline uint64_t load_accel_addr(Memory &mem, reg_t slot)
 template <typename Memory>
 inline void clear_control(Memory &mem, reg_t slot)
 {
-  for (reg_t word = control_done; word <= control_skip_closest_hit; ++word)
-    store_word(mem, slot, control_base, word, 0);
+  store_word(mem, slot, control_base, control_callback, callback_pending);
 }
 
 template <typename Memory>
@@ -615,7 +619,7 @@ template <typename Memory>
 inline bool committed_hit_valid(Memory &mem, reg_t slot)
 {
   return load_word(mem, slot, committed_hit_record_base, hit_record_status) ==
-         rt_status_hit;
+         hit_record_valid;
 }
 
 template <typename Memory>
@@ -695,13 +699,12 @@ inline void commit_hit(Memory &mem, reg_t slot, const Scene &scene,
                        const Hit &hit)
 {
   write_hit_record(mem, slot, committed_hit_record_base, scene, hit,
-                   rt_status_hit);
+                   hit_record_valid);
   write_hit_attrib(mem, slot, hit);
   store_word(mem, slot, 0, slot_hit_t, bit_cast_u32(hit.t));
   store_word(mem, slot, 0, slot_sbt_index,
              hit.tri.instance_sbt_record_offset + hit.tri.sbt_index +
                  load_word(mem, slot, 0, slot_sbt_offset));
-  store_word(mem, slot, 0, slot_status, rt_status_hit);
 }
 
 template <typename Memory>
@@ -1767,13 +1770,12 @@ inline void commit_hit(Memory &mem, reg_t slot, const Scene &scene,
                        const Hit &hit)
 {
   write_hit_record(mem, slot, committed_hit_record_base, scene, hit,
-                   rt_status_hit);
+                   hit_record_valid);
   write_hit_attrib(mem, slot, hit);
   store_word(mem, slot, 0, slot_hit_t, bit_cast_u32(hit.t));
   store_word(mem, slot, 0, slot_sbt_index,
              hit.tri.instance_sbt_record_offset + hit.tri.sbt_index +
                  load_word(mem, slot, 0, slot_sbt_offset));
-  store_word(mem, slot, 0, slot_status, rt_status_hit);
 }
 
 enum class RtPrivateTraversalKind : uint8_t {
@@ -1824,7 +1826,6 @@ inline void commit_private_candidate(Memory &mem, reg_t slot)
     store_word(mem, slot, 0, slot_sbt_index,
                load_word(mem, slot, candidate_hit_record_base,
                          hit_record_sbt_index));
-    store_word(mem, slot, 0, slot_status, rt_status_hit);
   }
 }
 
@@ -1841,11 +1842,10 @@ template <typename Memory>
 inline uint32_t finish_private_traversal(Memory &mem, reg_t slot,
                                          uint64_t key)
 {
-  store_word(mem, slot, control_base, control_done, 1);
   const bool hit = committed_hit_valid(mem, slot);
-  store_word(mem, slot, 0, slot_status, hit ? rt_status_hit : rt_status_miss);
   if (!hit)
     store_word(mem, slot, committed_hit_record_base, hit_record_status, 0);
+  clear_control(mem, slot);
   rt_private_contexts<Memory>().erase(key);
   return hit ? traversal_complete_hit : traversal_complete_miss;
 }
@@ -1857,10 +1857,9 @@ inline uint32_t pause_private_candidate(Memory &mem, reg_t slot,
                                         uint32_t status)
 {
   write_hit_record(mem, slot, candidate_hit_record_base, scene, candidate,
-                   rt_status_hit);
+                   hit_record_valid);
   write_hit_attrib(mem, slot, candidate);
-  store_word(mem, slot, control_base, control_incomplete, 1);
-  store_word(mem, slot, 0, slot_status, rt_status_hit);
+  clear_control(mem, slot);
   return status;
 }
 
@@ -2018,15 +2017,12 @@ inline uint32_t traverse(Memory &mem, reg_t slot)
       rt_private_contexts<Memory>();
   auto it = contexts.find(key);
   if (it != contexts.end()) {
-    const bool accept = load_word(mem, slot, control_base, control_accept_hit) != 0;
-    const bool terminate = load_word(mem, slot, control_base,
-                                     control_terminate_ray) != 0;
-    if (accept)
+    const uint32_t callback =
+        load_word(mem, slot, control_base, control_callback);
+    if (callback == callback_accept || callback == callback_terminate)
       commit_private_candidate(mem, slot);
-    if (terminate) {
+    if (callback == callback_terminate) {
       clear_control(mem, slot);
-      store_word(mem, slot, control_base, control_done, 1);
-      store_word(mem, slot, 0, slot_status, rt_status_done);
       contexts.erase(it);
       return traversal_terminated;
     }
@@ -2041,6 +2037,9 @@ inline uint32_t traverse(Memory &mem, reg_t slot)
       return trace_private_vtas(mem, slot, key);
     }
   }
+
+  if (load_word(mem, slot, 0, slot_status) != slot_status_trace_request)
+    return traversal_terminated;
 
   clear_control(mem, slot);
   store_word(mem, slot, candidate_hit_record_base, hit_record_status, 0);

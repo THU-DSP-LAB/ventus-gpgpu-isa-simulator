@@ -233,6 +233,7 @@ seed_worker_slot(WorkerLocalMemory<Memory> &memory,
     store_word(memory, /* temporary logical slot */ 0, 0, word, value);
   };
 
+  store_slot(slot_status, slot_status_trace_request);
   store_slot(slot_accel_lo, field(TraceField::TlasAddrLo));
   store_slot(slot_accel_hi, field(TraceField::TlasAddrHi));
   store_slot(slot_flags, field(TraceField::Flags));
@@ -327,7 +328,7 @@ route_completion(uint32_t ray_ref, uint32_t status,
     break;
   case traversal_terminated:
     /* AcceptTerminate commits first; it is a closest-hit result, not a miss. */
-    if (completion.committed_hit[hit_record_status] == rt_status_hit) {
+    if (completion.committed_hit[hit_record_status] == hit_record_valid) {
       completion.state = CompletionState::CompleteHit;
       result.traversal_status = traversal_complete_hit;
       result.target = TraversalDispatchTarget::ClosestHit;
@@ -384,14 +385,16 @@ resume_global_traversal_record(Memory &global_memory, uint32_t ray_ref,
   restore_completion_slot(local_memory, *completion);
   switch (completion->action) {
   case CompletionAction::Ignore:
-    store_word(local_memory, 0, control_base, control_ignore_hit, 1);
+    store_word(local_memory, 0, control_base, control_callback,
+               callback_ignore);
     break;
   case CompletionAction::AcceptContinue:
-    store_word(local_memory, 0, control_base, control_accept_hit, 1);
+    store_word(local_memory, 0, control_base, control_callback,
+               callback_accept);
     break;
   case CompletionAction::AcceptTerminate:
-    store_word(local_memory, 0, control_base, control_accept_hit, 1);
-    store_word(local_memory, 0, control_base, control_terminate_ray, 1);
+    store_word(local_memory, 0, control_base, control_callback,
+               callback_terminate);
     break;
   case CompletionAction::None:
     break;
@@ -484,8 +487,7 @@ enum class CompletionField : uint32_t {
   CandidateHitAttributeAddrLo = 32 + kHitRecordWordCount,
   CandidateHitAttributeAddrHi,
   CandidateControlBase,
-  CandidateControlLast = CandidateControlBase +
-      ventus_rt::control_skip_closest_hit,
+  CandidateControlLast = CandidateControlBase,
   Count,
 };
 
@@ -651,11 +653,8 @@ write_global_completion(Memory &memory, const CompletionPlaneLayout &layout,
         uint32_t(candidate_hit_attribute_address));
   store(CompletionField::CandidateHitAttributeAddrHi,
         uint32_t(candidate_hit_attribute_address >> 32));
-  for (uint32_t word = ventus_rt::control_done;
-       word <= ventus_rt::control_skip_closest_hit; ++word)
-    store(static_cast<CompletionField>(
-              static_cast<uint32_t>(CompletionField::CandidateControlBase) + word),
-          candidate && word == ventus_rt::control_accept_hit ? 1 : 0);
+  store(CompletionField::CandidateControlBase,
+        candidate ? ventus_rt::callback_accept : ventus_rt::callback_pending);
   store(CompletionField::PayloadAddrLo, uint32_t(metadata.payload_address));
   store(CompletionField::PayloadAddrHi,
         uint32_t(metadata.payload_address >> 32));

@@ -625,7 +625,7 @@ public:
       void set_warp(warp_schedule_t* w);
       
 
-      void init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid, uint64_t _wgid, uint64_t _wid,uint64_t _pds, uint64_t _lds,uint64_t _knl,uint64_t _gidx,uint64_t _gidy,uint64_t _gidz, uint64_t _clprintf, uint64_t _gsx, uint64_t _gsy, uint64_t _gsz, uint64_t _lsx, uint64_t _lsy, uint64_t _lsz, uint64_t _gox, uint64_t _goy, uint64_t _goz, uint64_t _dim, uint64_t _num_active_thread);
+      void init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid, uint64_t _wgid, uint64_t _wid,uint64_t _pds, uint64_t _lds,uint64_t _knl,uint64_t _gidx,uint64_t _gidy,uint64_t _gidz, uint64_t _clprintf, uint64_t _gsx, uint64_t _gsy, uint64_t _gsz, uint64_t _lsx, uint64_t _lsy, uint64_t _lsz, uint64_t _gox, uint64_t _goy, uint64_t _goz, uint64_t _dim, uint64_t _live_lane_mask);
 
       struct simt_stack_entry_t
       {
@@ -686,9 +686,16 @@ public:
                          uint32_t active_lane_count) {
             assert(physical_lane_count > 0 && physical_lane_count <= 64);
             assert(active_lane_count <= physical_lane_count);
+            init_mask_bits(physical_lane_count,
+                           low_bits_mask(active_lane_count));
+          }
+          void init_mask_bits(uint32_t physical_lane_count,
+                              uint64_t active_lane_mask) {
+            assert(physical_lane_count > 0 && physical_lane_count <= 64);
             mask_width = physical_lane_count;
             width_mask = low_bits_mask(physical_lane_count);
-            live_mask = low_bits_mask(active_lane_count);
+            assert((active_lane_mask & ~width_mask) == 0);
+            live_mask = active_lane_mask;
             mask = live_mask;
           }
           bool stack_empty(){
