@@ -507,7 +507,9 @@ static inline bool is_aligned(const unsigned val, const unsigned pos)
 
 #define VFP_VF_PARAMS(width) \
   float##width##_t &vd = P.VU.elt<float##width##_t>(0,rd_num, i, true); \
-  float##width##_t rs1 = f##width(READ_FREG(rs1_num)); \
+  /* Ventus vALU scalar FP operands use the GPR/F32 register domain. */ \
+  float##width##_t rs1 = f##width( \
+      static_cast<decltype(f##width(READ_REG(rs1_num)).v)>(READ_REG(rs1_num))); \
   float##width##_t vs2 = P.VU.elt<float##width##_t>(2,rs2_num, i);
 
 #define CVT_FP_TO_FP_PARAMS(from_width, to_width) \
