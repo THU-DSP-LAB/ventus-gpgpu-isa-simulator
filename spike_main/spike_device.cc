@@ -273,38 +273,44 @@ int spike_device::alloc_const_mem(uint64_t size, uint64_t *vaddr) {
 }
 
 int spike_device::alloc_local_mem(uint64_t size, uint64_t *vaddr){
-  uint64_t base;
-  #define PGSHIFT 12
-  const reg_t PGSIZE = 1 << PGSHIFT;
+  static constexpr uint64_t PGSIZE = 1ull << 12;
+  static constexpr uint64_t DVA_UPPER_BOUND = 0x100000000ull;
   if(size <= 0 || vaddr == nullptr )
+    return -1;
+  const uint64_t size0 = size;
+  if (size > UINT64_MAX - (PGSIZE - 1))
+    return -1;
+  size = (size + PGSIZE - 1) & ~(PGSIZE - 1);
+  if (size > DVA_UPPER_BOUND - ARGBASEADDR)
+    return -1;
+
+  uint64_t base = ARGBASEADDR;
+  size_t insert_index = 0;
+  for (; insert_index < buffer.size(); ++insert_index) {
+    if (buffer[insert_index].base < base ||
+        buffer[insert_index].base - base < size) {
+      if (buffer[insert_index].base > UINT64_MAX - buffer[insert_index].size)
         return -1;
-  if(buffer.empty()){
-    base=ARGBASEADDR;
+      base = buffer[insert_index].base + buffer[insert_index].size;
+      continue;
+    }
+    break;
   }
-  else{
-    base=buffer.back().base+buffer.back().size;
-  }
-  
-
-  auto base0 = base, size0 = size;
-  size += base0 % PGSIZE;
-  base -= base0 % PGSIZE;
-  if (size % PGSIZE != 0)
-    size += PGSIZE - size % PGSIZE;
-
-  if (base + size < base)
-    help();
+  if (base >= DVA_UPPER_BOUND || size > DVA_UPPER_BOUND - base)
+    return -1;
 
   if (size != size0) {
     fprintf(stderr, "Warning: the memory at  [0x%lX, 0x%lX] has been realigned\n"
                     "to the %ld KiB page size: [0x%lX, 0x%lX]\n",
-            base0, base0 + size0 - 1, long(PGSIZE / 1024), base, base + size - 1);
+            base, base + size0 - 1, long(PGSIZE / 1024), base, base + size - 1);
   }
 
   fprintf(stderr, "to allocate at 0x%lx with %ld bytes \n",base,size);
 
-  buffer.push_back(mem_cfg_t(reg_t(base),reg_t(size)));  
-  buffer_data.push_back(std::pair(base,new mem_t(size)));
+  buffer.insert(buffer.begin() + insert_index,
+                mem_cfg_t(reg_t(base), reg_t(size)));
+  buffer_data.insert(buffer_data.begin() + insert_index,
+                     std::pair(base, new mem_t(size)));
 
   *vaddr = base;
   return 0;
@@ -320,18 +326,18 @@ int spike_device::free_local_mem(){
 
 // todo: the memory management should be rewrite
 int spike_device::free_local_mem(uint64_t paddr) {
-  for (std::vector<mem_cfg_t>::iterator it = buffer.begin(); it != buffer.end(); it++ )
-    if(it->base == paddr) {
-      it = buffer.erase(it);
-      break;
-    }
-  for (std::vector<std::pair<reg_t, mem_t*>>::iterator it = buffer_data.begin(); it != buffer_data.end(); it++ )
-    if(it->first == paddr) {
-      delete it->second;
-      it = buffer_data.erase(it);
-      break;
-    }
-  return 0;
+  for (size_t i = 0; i < buffer.size(); ++i) {
+    if (buffer[i].base != paddr)
+      continue;
+    if (i >= buffer_data.size() || buffer_data[i].first != paddr ||
+        buffer_data[i].second == nullptr)
+      return -1;
+    delete buffer_data[i].second;
+    buffer.erase(buffer.begin() + i);
+    buffer_data.erase(buffer_data.begin() + i);
+    return 0;
+  }
+  return -1;
 }
 
 int spike_device::copy_to_dev(uint64_t vaddr, uint64_t size,const void *data){
