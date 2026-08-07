@@ -508,7 +508,7 @@ int main()
          0xe0000 + 2 * 32);
   assert(candidate_field(static_cast<CompletionField>(
              static_cast<uint32_t>(CompletionField::CandidateControlBase) +
-             control_accept_hit)) == 1);
+             control_callback_decision)) == callback_accept);
   assert(candidate_field(CompletionField::Ready) == 1);
 
   assert(queue.consume_head() == 3);

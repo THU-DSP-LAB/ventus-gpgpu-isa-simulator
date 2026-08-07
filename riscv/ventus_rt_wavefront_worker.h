@@ -269,9 +269,6 @@ restore_completion_slot(WorkerLocalMemory<Memory> &memory,
     store_word(memory, 0, committed_hit_record_base, word,
                completion.committed_hit[word]);
   }
-  for (uint32_t word = 0; word < kHitAttributeWordCount; ++word)
-    store_word(memory, 0, hit_attrib_base, word,
-               completion.candidate_attributes[word]);
 }
 
 template <typename Memory>
@@ -287,12 +284,10 @@ snapshot_completion_slot(WorkerLocalMemory<Memory> &memory,
         load_word(memory, 0, committed_hit_record_base, word);
   }
   for (uint32_t word = 0; word < kHitAttributeWordCount; ++word) {
-    const uint32_t value = load_word(memory, 0, hit_attrib_base, word);
     if (status == traversal_candidate_non_opaque_triangle ||
         status == traversal_candidate_procedural_aabb)
-      completion.candidate_attributes[word] = value;
-    /* The legacy functional traversal has one transient attribute slot.  The
-     * committed record is authoritative once a later candidate overwrites it. */
+      completion.candidate_attributes[word] =
+          completion.candidate_hit[hit_record_barycentrics_x + word];
     completion.committed_attributes[word] =
         completion.committed_hit[hit_record_barycentrics_x + word];
   }
@@ -327,7 +322,7 @@ route_completion(uint32_t ray_ref, uint32_t status,
     break;
   case traversal_terminated:
     /* AcceptTerminate commits first; it is a closest-hit result, not a miss. */
-    if (completion.committed_hit[hit_record_status] == rt_status_hit) {
+    if (completion.committed_hit[hit_record_status] == hit_record_valid) {
       completion.state = CompletionState::CompleteHit;
       result.traversal_status = traversal_complete_hit;
       result.target = TraversalDispatchTarget::ClosestHit;
@@ -387,14 +382,16 @@ resume_global_traversal_record(Memory &global_memory, uint32_t ray_ref,
   restore_completion_slot(local_memory, *completion);
   switch (completion->action) {
   case CompletionAction::Ignore:
-    store_word(local_memory, 0, control_base, control_ignore_hit, 1);
+    store_word(local_memory, 0, control_base, control_callback_decision,
+               callback_ignore);
     break;
   case CompletionAction::AcceptContinue:
-    store_word(local_memory, 0, control_base, control_accept_hit, 1);
+    store_word(local_memory, 0, control_base, control_callback_decision,
+               callback_accept);
     break;
   case CompletionAction::AcceptTerminate:
-    store_word(local_memory, 0, control_base, control_accept_hit, 1);
-    store_word(local_memory, 0, control_base, control_terminate_ray, 1);
+    store_word(local_memory, 0, control_base, control_callback_decision,
+               callback_terminate);
     break;
   case CompletionAction::None:
     break;
@@ -492,8 +489,9 @@ enum class CompletionField : uint32_t {
   CandidateHitAttributeAddrLo = 32 + kHitRecordWordCount,
   CandidateHitAttributeAddrHi,
   CandidateControlBase,
-  CandidateControlLast = CandidateControlBase +
-      ventus_rt::control_skip_closest_hit,
+  /* The global staged ABI keeps its six-word reserved range for compatibility;
+   * V4 uses only the first word as CALLBACK_DECISION. */
+  CandidateControlLast = CandidateControlBase + 5,
   Count,
 };
 
@@ -659,11 +657,15 @@ write_global_completion(Memory &memory, const CompletionPlaneLayout &layout,
         uint32_t(candidate_hit_attribute_address));
   store(CompletionField::CandidateHitAttributeAddrHi,
         uint32_t(candidate_hit_attribute_address >> 32));
-  for (uint32_t word = ventus_rt::control_done;
-       word <= ventus_rt::control_skip_closest_hit; ++word)
+  for (uint32_t word = 0; word < 6; ++word)
     store(static_cast<CompletionField>(
               static_cast<uint32_t>(CompletionField::CandidateControlBase) + word),
-          candidate && word == ventus_rt::control_accept_hit ? 1 : 0);
+          candidate && word == ventus_rt::control_callback_decision
+             ? (result.traversal_status ==
+                       ventus_rt::traversal_candidate_non_opaque_triangle
+                   ? ventus_rt::callback_accept
+                   : ventus_rt::callback_ignore)
+             : 0);
   store(CompletionField::PayloadAddrLo, uint32_t(metadata.payload_address));
   store(CompletionField::PayloadAddrHi,
         uint32_t(metadata.payload_address >> 32));
