@@ -901,6 +901,12 @@ void disassembler_t::add_instructions(const isa_parser_t* isa)
   DEFINE_VSHUFFLE_TYPE("shuffle.up", shuffle_up);
   DEFINE_VSHUFFLE_TYPE("shuffle.down", shuffle_down);
   DEFINE_VSHUFFLE_TYPE("shuffle.bfly", shuffle_bfly);
+  /* The disassembler searches the reverse registration order.  Register the
+   * RT encodings first so their more-specific opcode wins over overlapping
+   * MMA encodings in commit logs. */
+  add_ventus_rt_traverse_insn(this, "vt.rt.traverse", match_vt_rt_traverse, mask_vt_rt_traverse);
+  add_ventus_rt_release_insn(this, "vt.rt.release", match_vt_rt_release, mask_vt_rt_release);
+  add_ventus_rt_enqueue_insn(this, "vt.rt.enqueue", match_vt_rt_enqueue, mask_vt_rt_enqueue);
   add_ventus_mma_insn(this, "mma.m8n8k16", match_mma_m8n8k16, mask_mma_m8n8k16);
   add_ventus_mma_insn(this, "mma.m16n8k16", match_mma_m16n8k16, mask_mma_m16n8k16);
   add_ventus_mma_insn(this, "mma.m8n16k16", match_mma_m8n16k16, mask_mma_m8n16k16);
@@ -909,9 +915,6 @@ void disassembler_t::add_instructions(const isa_parser_t* isa)
   add_ventus_mma_insn(this, "mma.m16n8k8", match_mma_m16n8k8, mask_mma_m16n8k8);
   add_ventus_mma_insn(this, "mma.m8n16k8", match_mma_m8n16k8, mask_mma_m8n16k8);
   add_ventus_mma_insn(this, "mma.m16n16k8", match_mma_m16n16k8, mask_mma_m16n16k8);
-  add_ventus_rt_traverse_insn(this, "vt.rt.traverse", match_vt_rt_traverse, mask_vt_rt_traverse);
-  add_ventus_rt_release_insn(this, "vt.rt.release", match_vt_rt_release, mask_vt_rt_release);
-  add_ventus_rt_enqueue_insn(this, "vt.rt.enqueue", match_vt_rt_enqueue, mask_vt_rt_enqueue);
   add_vector_vv_insn(this, "vadd.f16x2", match_vadd_f16x2, mask_vadd_f16x2);
   add_vector_vv_insn(this, "vmul.f16x2", match_vmul_f16x2, mask_vmul_f16x2);
   add_vector_vv_insn(this, "vfma.f16x2", match_vfma_f16x2, mask_vfma_f16x2);

@@ -17,6 +17,7 @@
 #include <fstream>
 #include "../VERSION"
 #include "spike_main.h"
+#include "ventus_rt.h"
 
 inline std::optional<bool> parse_bool(std::string str) {
     // transform to lowercase safely (unsigned char cast to avoid UB)
@@ -705,6 +706,11 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
                 currwgid, active_workgroups, active_processors, pdsbase,
                 pdssize);
       }
+      /* vt.rt.traverse retains callback-resume state privately.  PDS physical
+       * addresses are reused by each fresh sim_t batch, so stale state from
+       * a prior (including faulted) batch must not be interpreted as a resume.
+       */
+      ventus_rt::reset_private_contexts_for_simulation();
       sim=new sim_t(&cfg, halted,
               all_buffer_data, plugin_devices, htif_args, dm_config, log_file, dtb_enabled, dtb_file,
 #ifdef HAVE_BOOST_ASIO
@@ -745,6 +751,7 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
       currwgid += active_workgroups;
   //    sprintf(log_name, "object_%ld.riscv.log", currwgid);
   //    log_path = log_name;
+      ventus_rt::reset_private_contexts_for_simulation();
       delete sim;
       sim = nullptr;
   }

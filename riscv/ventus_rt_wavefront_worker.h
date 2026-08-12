@@ -186,10 +186,13 @@ struct TraversalDispatchResult {
  * low-address range.
  */
 template <typename Memory>
-class WorkerLocalMemory {
+class WorkerLocalMemory : public ventus_rt::RtMemory {
 public:
   WorkerLocalMemory(Memory &global_memory, uint64_t context_id)
-      : global_memory_(global_memory), context_id_(context_id) {}
+      : RtMemory(this, &WorkerLocalMemory::load_callback,
+                 &WorkerLocalMemory::store_callback,
+                 &WorkerLocalMemory::context_key_callback),
+        global_memory_(global_memory), context_id_(context_id) {}
 
   uint64_t rt_context_key(reg_t slot) const
   {
@@ -215,6 +218,21 @@ public:
   }
 
 private:
+  static uint32_t load_callback(void *state, reg_t address)
+  {
+    return static_cast<WorkerLocalMemory *>(state)->load32(address);
+  }
+
+  static void store_callback(void *state, reg_t address, uint32_t value)
+  {
+    static_cast<WorkerLocalMemory *>(state)->store32(address, value);
+  }
+
+  static uint64_t context_key_callback(void *state, reg_t slot)
+  {
+    return static_cast<WorkerLocalMemory *>(state)->rt_context_key(slot);
+  }
+
   Memory &global_memory_;
   uint64_t context_id_;
   std::unordered_map<reg_t, uint32_t> local_words_;

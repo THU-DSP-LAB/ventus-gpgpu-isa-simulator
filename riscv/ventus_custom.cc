@@ -3,7 +3,10 @@
 
 #include "trap.h"
 #include <array>
+#include <atomic>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <vector>
 
 namespace {
@@ -14,6 +17,55 @@ constexpr float VENTUS_CUSTOM_LMUL = 1.0f;
 bool lane_active(processor_t *p, reg_t lane)
 {
   return p->gpgpu_unit.simt_stack.lane_active(lane);
+}
+
+/* Opt-in, bounded full-app tracing.  Unlike VENTUS_SPIKE_LOG this records
+ * only traverse operands, so a 160x96 image remains inspectable. */
+bool reserve_rt_traverse_operand_log(uint64_t *sequence)
+{
+  const char *enabled = std::getenv("VENTUS_RT_TRACE_OPERANDS");
+  if (!enabled || !enabled[0] || enabled[0] == '0')
+    return false;
+
+  uint64_t limit = 8;
+  if (const char *limit_env = std::getenv("VENTUS_RT_TRACE_OPERANDS_MAX")) {
+    char *end = nullptr;
+    const unsigned long long parsed = std::strtoull(limit_env, &end, 10);
+    if (end != limit_env && *end == '\0')
+      limit = parsed;
+  }
+
+  static std::atomic<uint64_t> next_sequence{0};
+  *sequence = next_sequence.fetch_add(1, std::memory_order_relaxed);
+  return *sequence < limit;
+}
+
+void log_rt_traverse_operands(processor_t *p, uint64_t sequence, reg_t vd,
+                              reg_t vs2, reg_t vl,
+                              const std::array<uint32_t, VENTUS_CUSTOM_LANES> &slots)
+{
+  const reg_t pds = p->get_csr(CSR_PDS);
+  const reg_t num_warps = p->get_csr(CSR_NUMW);
+  const reg_t num_threads = p->get_csr(CSR_NUMT);
+  const reg_t tid = p->get_csr(CSR_TID);
+  std::fprintf(stderr,
+               "VENTUS_RT_TRAVERSE_OPERANDS seq=%llu pc=0x%llx vd=v%llu "
+               "vs2=v%llu vl=%llu lanes=",
+               static_cast<unsigned long long>(sequence),
+               static_cast<unsigned long long>(p->get_state()->pc),
+               static_cast<unsigned long long>(vd),
+               static_cast<unsigned long long>(vs2),
+               static_cast<unsigned long long>(vl));
+  for (reg_t lane = 0; lane < vl; ++lane) {
+    const reg_t physical = ventus_rt::pds_physical_addr(
+        pds, num_warps, num_threads, tid, lane, slots[lane]);
+    std::fprintf(stderr, "%s%llu%s:slot=0x%08x,pds=0x%llx",
+                 lane ? " " : "",
+                 static_cast<unsigned long long>(lane),
+                 lane_active(p, lane) ? "" : "(inactive)", slots[lane],
+                 static_cast<unsigned long long>(physical));
+  }
+  std::fputc('\n', stderr);
 }
 
 void require_ventus_custom_state(processor_t *p, insn_t insn)
@@ -223,16 +275,26 @@ void ventus_exec_rt_traverse(processor_t *p, insn_t insn)
   const reg_t vl = p->VU.vl->read();
   const reg_t vd_num = insn.rd();
   const reg_t vs2_num = insn.rs2();
+  uint64_t sequence = 0;
+  const bool log_operands = reserve_rt_traverse_operand_log(&sequence);
+  std::array<uint32_t, VENTUS_CUSTOM_LANES> slots{};
+
+  if (log_operands) {
+    for (reg_t lane = 0; lane < vl; ++lane)
+      slots[lane] = p->VU.elt<uint32_t>(2, vs2_num, lane);
+    log_rt_traverse_operands(p, sequence, vd_num | p->ext_rd(),
+                             vs2_num | p->ext_rs2(), vl, slots);
+  }
 
   for (reg_t lane = p->VU.vstart->read(); lane < vl; ++lane) {
     if (!lane_active(p, lane))
       continue;
 
-    auto mem = ventus_rt::make_hybrid_memory(
+    const reg_t slot = log_operands ? slots[lane]
+                                    : p->VU.elt<uint32_t>(2, vs2_num, lane);
+    const uint32_t status = ventus_rt::traverse_spike(
         *p->get_mmu(), p->get_csr(CSR_PDS), p->get_csr(CSR_NUMW),
-        p->get_csr(CSR_NUMT), p->get_csr(CSR_TID), lane);
-    const reg_t slot = p->VU.elt<uint32_t>(2, vs2_num, lane);
-    const uint32_t status = ventus_rt::traverse(mem, slot);
+        p->get_csr(CSR_NUMT), p->get_csr(CSR_TID), lane, slot);
     p->VU.elt<uint32_t>(0, vd_num, lane, true) = status;
   }
 
@@ -250,11 +312,10 @@ void ventus_exec_rt_release(processor_t *p, insn_t insn)
     if (!lane_active(p, lane))
       continue;
 
-    auto mem = ventus_rt::make_hybrid_memory(
-        *p->get_mmu(), p->get_csr(CSR_PDS), p->get_csr(CSR_NUMW),
-        p->get_csr(CSR_NUMT), p->get_csr(CSR_TID), lane);
     const reg_t slot = p->VU.elt<uint32_t>(2, vs2_num, lane);
-    ventus_rt::release(mem, slot);
+    ventus_rt::release_spike(*p->get_mmu(), p->get_csr(CSR_PDS),
+                              p->get_csr(CSR_NUMW), p->get_csr(CSR_NUMT),
+                              p->get_csr(CSR_TID), lane, slot);
   }
 
   p->VU.vstart->write(0);

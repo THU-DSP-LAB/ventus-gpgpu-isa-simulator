@@ -8,7 +8,11 @@
 
 using namespace ventus_rt;
 
-struct TestMemory {
+struct TestMemory : RtMemory {
+  TestMemory()
+      : RtMemory(this, &TestMemory::load_callback, &TestMemory::store_callback,
+                 &TestMemory::context_key_callback) {}
+
   std::unordered_map<reg_t, uint32_t> words;
   uint64_t context_id = next_context_id++;
   static uint64_t next_context_id;
@@ -27,6 +31,22 @@ struct TestMemory {
   void store32(reg_t addr, uint32_t value)
   {
     words[addr] = value;
+  }
+
+private:
+  static uint32_t load_callback(void *state, reg_t addr)
+  {
+    return static_cast<TestMemory *>(state)->load32(addr);
+  }
+
+  static void store_callback(void *state, reg_t addr, uint32_t value)
+  {
+    static_cast<TestMemory *>(state)->store32(addr, value);
+  }
+
+  static uint64_t context_key_callback(void *state, reg_t slot)
+  {
+    return static_cast<TestMemory *>(state)->rt_context_key(slot);
   }
 };
 
@@ -100,19 +120,19 @@ static void write_aabb_scene(TestMemory &mem, reg_t accel, reg_t aabbs,
 }
 
 static void write_aabb(TestMemory &mem, reg_t addr, uint32_t primitive_id,
-                       uint32_t sbt_index)
+                       uint32_t sbt_index, uint32_t opaque = 1)
 {
   write_vec3(mem, addr + 0, -1.0f, -1.0f, 2.0f);
   write_vec3(mem, addr + 12, 1.0f, 1.0f, 4.0f);
-  mem.store32(addr + 24, primitive_id);
-  mem.store32(addr + 28, 11);
-  mem.store32(addr + 32, 5);
-  mem.store32(addr + 36, sbt_index);
-  mem.store32(addr + 40, 0xff);
-  mem.store32(addr + 48, uint32_t(addr));
-  mem.store32(addr + 52, 0);
-  mem.store32(addr + 56, 0x5678);
-  mem.store32(addr + 60, 0);
+  mem.store32(addr + aabb_primitive_id, primitive_id);
+  mem.store32(addr + aabb_geometry_id, 5);
+  mem.store32(addr + aabb_sbt_record_offset, sbt_index);
+  mem.store32(addr + aabb_hit_kind, 0xff);
+  mem.store32(addr + aabb_flags, opaque ? 1 : 0);
+  mem.store32(addr + aabb_primitive_addr_lo, uint32_t(addr));
+  mem.store32(addr + aabb_primitive_addr_lo + 4, 0);
+  mem.store32(addr + aabb_instance_addr_lo, 0x5678);
+  mem.store32(addr + aabb_instance_addr_lo + 4, 0);
 }
 
 static void write_ray(TestMemory &mem, reg_t slot, reg_t accel)
@@ -455,18 +475,20 @@ static void check_procedural_candidate_report_accept()
     assert(traverse(mem, slot) == traversal_candidate_procedural_aabb);
     assert(load_slot(mem, slot, candidate_hit_record_base,
                      hit_record_primitive_id) == 17);
+    /* AABBs always invoke intersection, but the raw leaf opacity is retained
+     * and effective opacity controls whether the report needs any-hit. */
     assert(load_slot(mem, slot, candidate_hit_record_base,
-                     hit_record_need_software_opacity_test) == 1);
+                     hit_record_opaque) == 1);
+    assert(load_slot(mem, slot, candidate_hit_record_base,
+                     hit_record_need_software_opacity_test) == 0);
 
+    /* Model reportIntersectionEXT: only report-specific words may change. */
     store_slot(mem, slot, candidate_hit_record_base, hit_record_status,
                hit_record_valid);
     store_slot(mem, slot, candidate_hit_record_base, hit_record_hit_t,
                bit_cast_u32(2.5f));
     store_slot(mem, slot, candidate_hit_record_base, hit_record_hit_kind, 0xff);
     store_slot(mem, slot, candidate_hit_record_base, hit_record_front_face, 0);
-    store_slot(mem, slot, candidate_hit_record_base, hit_record_opaque, 0);
-    store_slot(mem, slot, candidate_hit_record_base,
-               hit_record_need_software_opacity_test, 1);
     store_slot(mem, slot, control_base, control_callback, callback_accept);
 
     assert(traverse(mem, slot) == traversal_complete_hit);
@@ -474,6 +496,10 @@ static void check_procedural_candidate_report_accept()
                      hit_record_primitive_id) == 17);
     assert(load_slot(mem, slot, committed_hit_record_base,
                      hit_record_hit_kind) == 0xff);
+    assert(load_slot(mem, slot, committed_hit_record_base,
+                     hit_record_opaque) == 1);
+    assert(load_slot(mem, slot, committed_hit_record_base,
+                     hit_record_need_software_opacity_test) == 0);
     assert(std::fabs(bit_cast_f32(load_slot(mem, slot, committed_hit_record_base,
                                             hit_record_hit_t)) -
                      2.5f) < 0.001f);
@@ -497,6 +523,39 @@ static void check_procedural_candidate_report_accept()
     assert(traverse(mem, slot) == traversal_candidate_procedural_aabb);
     assert(load_slot(mem, slot, candidate_hit_record_base,
                      hit_record_primitive_id) == 22);
+  }
+}
+
+static void check_procedural_effective_opacity()
+{
+  struct Case {
+    uint32_t geometry_opaque;
+    uint32_t ray_flags;
+    uint32_t expected_need_any_hit;
+  };
+  const Case cases[] = {
+      {1, 0, 0},
+      {0, 0, 1},
+      {1, ray_flag_force_non_opaque, 1},
+      {0, ray_flag_force_opaque, 0},
+  };
+
+  for (const Case &test : cases) {
+    TestMemory mem;
+    constexpr reg_t slot = 0;
+    constexpr reg_t accel = 0x26000;
+    constexpr reg_t aabbs = 0x27000;
+    write_aabb_scene(mem, accel, aabbs, 1);
+    write_aabb(mem, aabbs, 31, 6, test.geometry_opaque);
+    write_ray(mem, slot, accel);
+    store_slot(mem, slot, 0, slot_flags, test.ray_flags);
+
+    assert(traverse(mem, slot) == traversal_candidate_procedural_aabb);
+    assert(load_slot(mem, slot, candidate_hit_record_base,
+                     hit_record_opaque) == test.geometry_opaque);
+    assert(load_slot(mem, slot, candidate_hit_record_base,
+                     hit_record_need_software_opacity_test) ==
+           test.expected_need_any_hit);
   }
 }
 
@@ -555,6 +614,7 @@ int main()
   check_non_opaque_candidate_accept_and_ignore();
   check_terminate_and_release();
   check_procedural_candidate_report_accept();
+  check_procedural_effective_opacity();
   check_vtas_tlas_blas_triangle_hit();
   check_pds_formula();
   check_rt_private_context_abi();

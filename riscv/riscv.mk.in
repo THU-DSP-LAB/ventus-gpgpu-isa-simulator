@@ -69,9 +69,15 @@ riscv_srcs = \
 	csrs.cc \
 	triggers.cc \
 	ventus_custom.cc \
+	ventus_rt.cc \
 	$(riscv_gen_srcs) \
 
 riscv_test_srcs =
+
+# RTcore implementation is private to libspike_main.  The narrow API in
+# ventus_rt.h carries default visibility for the driver bridge; no STL helper
+# or traversal-state symbol may become a cross-DSO ABI.
+ventus_rt.o: riscv_CFLAGS += -fvisibility=hidden
 
 riscv_gen_hdrs = \
 	insn_list.h \
