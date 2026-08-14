@@ -637,9 +637,32 @@ inline void commit_private_candidate(Memory &mem, reg_t slot)
                                              candidate_hit_record_base,
                                              hit_record_hit_t));
   const Ray ray = load_ray(mem, slot);
-  if (hit_t >= ray.tmin && hit_t < current_tmax(mem, slot)) {
-    copy_hit_record(mem, slot, committed_hit_record_base,
-                    candidate_hit_record_base);
+  const float prior_tmax = current_tmax(mem, slot);
+  const bool closer = hit_t >= ray.tmin && hit_t < prior_tmax;
+  bool compiler_committed = std::isfinite(hit_t) && hit_t >= ray.tmin &&
+                           committed_hit_valid(mem, slot) &&
+                           hit_t == prior_tmax;
+  if (compiler_committed) {
+    /* reportIntersectionEXT commits the reported candidate before traversal
+     * resumes.  Treat that commit as authoritative only when every record
+     * word matches; an equal-distance stale candidate must not be accepted. */
+    for (reg_t word = hit_record_status;
+         word <= hit_record_instance_sbt_record_offset; ++word) {
+      if (load_word(mem, slot, candidate_hit_record_base, word) !=
+          load_word(mem, slot, committed_hit_record_base, word)) {
+        compiler_committed = false;
+        break;
+      }
+    }
+  }
+  if (closer || compiler_committed) {
+    /* RTcore owns a normal any-hit commit.  A procedural report already
+     * copied its candidate into the committed record so that subsequent
+     * reports compare against the real intersection t, not the AABB t. */
+    if (closer) {
+      copy_hit_record(mem, slot, committed_hit_record_base,
+                      candidate_hit_record_base);
+    }
     store_word(mem, slot, 0, slot_hit_t, bit_cast_u32(hit_t));
     store_word(mem, slot, 0, slot_sbt_index,
                load_word(mem, slot, candidate_hit_record_base,

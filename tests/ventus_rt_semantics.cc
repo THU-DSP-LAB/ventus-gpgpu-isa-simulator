@@ -63,6 +63,15 @@ static uint32_t load_slot(TestMemory &mem, reg_t slot, reg_t base, reg_t word)
   return load_word(mem, slot, base, word);
 }
 
+static void commit_intersection_candidate(TestMemory &mem, reg_t slot)
+{
+  for (reg_t word = hit_record_status;
+       word <= hit_record_instance_sbt_record_offset; ++word) {
+    store_slot(mem, slot, committed_hit_record_base, word,
+               load_slot(mem, slot, candidate_hit_record_base, word));
+  }
+}
+
 static void write_vec3(TestMemory &mem, reg_t addr, float x, float y, float z)
 {
   mem.store32(addr + 0, bit_cast_u32(x));
@@ -489,6 +498,10 @@ static void check_procedural_candidate_report_accept()
                bit_cast_u32(2.5f));
     store_slot(mem, slot, candidate_hit_record_base, hit_record_hit_kind, 0xff);
     store_slot(mem, slot, candidate_hit_record_base, hit_record_front_face, 0);
+    /* reportIntersectionEXT commits the reported (not AABB) t before the
+     * pending traversal resumes.  The resume must retain this commit and
+     * synchronize the hardware result slots rather than restoring the AABB. */
+    commit_intersection_candidate(mem, slot);
     store_slot(mem, slot, control_base, control_callback, callback_accept);
 
     assert(traverse(mem, slot) == traversal_complete_hit);
@@ -502,6 +515,8 @@ static void check_procedural_candidate_report_accept()
                      hit_record_need_software_opacity_test) == 0);
     assert(std::fabs(bit_cast_f32(load_slot(mem, slot, committed_hit_record_base,
                                             hit_record_hit_t)) -
+                     2.5f) < 0.001f);
+    assert(std::fabs(bit_cast_f32(load_slot(mem, slot, 0, slot_hit_t)) -
                      2.5f) < 0.001f);
   }
 
