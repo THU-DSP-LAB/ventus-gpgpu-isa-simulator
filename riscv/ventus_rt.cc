@@ -332,7 +332,7 @@ inline uint64_t load_accel_addr(Memory &mem, reg_t slot)
 template <typename Memory>
 inline void clear_control(Memory &mem, reg_t slot)
 {
-  store_word(mem, slot, control_base, control_callback, callback_pending);
+  store_word(mem, slot, abi_control_base_bytes, control_callback_decision, callback_pending);
 }
 
 template <typename Memory>
@@ -391,15 +391,15 @@ inline void copy_hit_record(Memory &mem, reg_t slot, reg_t dst_base,
 template <typename Memory>
 inline bool committed_hit_valid(Memory &mem, reg_t slot)
 {
-  return load_word(mem, slot, committed_hit_record_base, hit_record_status) ==
-         hit_record_valid;
+  return load_word(mem, slot, abi_committed_hit_record_base_bytes, hit_record_status) ==
+         hit_record_status_valid;
 }
 
 template <typename Memory>
 inline float current_tmax(Memory &mem, reg_t slot)
 {
   if (committed_hit_valid(mem, slot))
-    return bit_cast_f32(load_word(mem, slot, committed_hit_record_base,
+    return bit_cast_f32(load_word(mem, slot, abi_committed_hit_record_base_bytes,
                                   hit_record_hit_t));
   return bit_cast_f32(load_word(mem, slot, 0, slot_tmax));
 }
@@ -546,8 +546,8 @@ template <typename Memory>
 inline void commit_hit(Memory &mem, reg_t slot, const Scene &scene,
                        const Hit &hit, bool opaque)
 {
-  write_hit_record(mem, slot, committed_hit_record_base, scene, hit,
-                   hit_record_valid, opaque);
+  write_hit_record(mem, slot, abi_committed_hit_record_base_bytes, scene, hit,
+                   hit_record_status_valid, opaque);
   store_word(mem, slot, 0, slot_hit_t, bit_cast_u32(hit.t));
   store_word(mem, slot, 0, slot_sbt_index,
              hit.tri.instance_sbt_record_offset + hit.tri.sbt_index +
@@ -634,7 +634,7 @@ template <typename Memory>
 inline void commit_private_candidate(Memory &mem, reg_t slot)
 {
   const float hit_t = bit_cast_f32(load_word(mem, slot,
-                                             candidate_hit_record_base,
+                                             abi_candidate_hit_record_base_bytes,
                                              hit_record_hit_t));
   const Ray ray = load_ray(mem, slot);
   const float prior_tmax = current_tmax(mem, slot);
@@ -648,8 +648,8 @@ inline void commit_private_candidate(Memory &mem, reg_t slot)
      * word matches; an equal-distance stale candidate must not be accepted. */
     for (reg_t word = hit_record_status;
          word <= hit_record_instance_sbt_record_offset; ++word) {
-      if (load_word(mem, slot, candidate_hit_record_base, word) !=
-          load_word(mem, slot, committed_hit_record_base, word)) {
+      if (load_word(mem, slot, abi_candidate_hit_record_base_bytes, word) !=
+          load_word(mem, slot, abi_committed_hit_record_base_bytes, word)) {
         compiler_committed = false;
         break;
       }
@@ -660,12 +660,12 @@ inline void commit_private_candidate(Memory &mem, reg_t slot)
      * copied its candidate into the committed record so that subsequent
      * reports compare against the real intersection t, not the AABB t. */
     if (closer) {
-      copy_hit_record(mem, slot, committed_hit_record_base,
-                      candidate_hit_record_base);
+      copy_hit_record(mem, slot, abi_committed_hit_record_base_bytes,
+                      abi_candidate_hit_record_base_bytes);
     }
     store_word(mem, slot, 0, slot_hit_t, bit_cast_u32(hit_t));
     store_word(mem, slot, 0, slot_sbt_index,
-               load_word(mem, slot, candidate_hit_record_base,
+               load_word(mem, slot, abi_candidate_hit_record_base_bytes,
                          hit_record_sbt_index));
   }
 }
@@ -685,7 +685,7 @@ inline uint32_t finish_private_traversal(Memory &mem, reg_t slot,
 {
   const bool hit = committed_hit_valid(mem, slot);
   if (!hit)
-    store_word(mem, slot, committed_hit_record_base, hit_record_status, 0);
+    store_word(mem, slot, abi_committed_hit_record_base_bytes, hit_record_status, 0);
   clear_control(mem, slot);
   rt_private_contexts<Memory>().erase(key);
   return hit ? traversal_complete_hit : traversal_complete_miss;
@@ -697,8 +697,8 @@ inline uint32_t pause_private_candidate(Memory &mem, reg_t slot,
                                         const Hit &candidate,
                                         uint32_t status, bool opaque)
 {
-  write_hit_record(mem, slot, candidate_hit_record_base, scene, candidate,
-                   hit_record_valid, opaque);
+  write_hit_record(mem, slot, abi_candidate_hit_record_base_bytes, scene, candidate,
+                   hit_record_status_valid, opaque);
   clear_control(mem, slot);
   return status;
 }
@@ -865,7 +865,7 @@ inline uint32_t traverse(Memory &mem, reg_t slot)
   auto it = contexts.find(key);
   if (it != contexts.end()) {
     const uint32_t callback =
-        load_word(mem, slot, control_base, control_callback);
+        load_word(mem, slot, abi_control_base_bytes, control_callback_decision);
     if (callback == callback_accept || callback == callback_terminate)
       commit_private_candidate(mem, slot);
     if (callback == callback_terminate) {
@@ -873,7 +873,7 @@ inline uint32_t traverse(Memory &mem, reg_t slot)
       contexts.erase(it);
       return traversal_terminated;
     }
-    store_word(mem, slot, candidate_hit_record_base, hit_record_status, 0);
+    store_word(mem, slot, abi_candidate_hit_record_base_bytes, hit_record_status, 0);
     clear_control(mem, slot);
     switch (it->second.kind) {
     case RtPrivateTraversalKind::triangle_list:
@@ -889,8 +889,8 @@ inline uint32_t traverse(Memory &mem, reg_t slot)
     return traversal_terminated;
 
   clear_control(mem, slot);
-  store_word(mem, slot, candidate_hit_record_base, hit_record_status, 0);
-  store_word(mem, slot, committed_hit_record_base, hit_record_status, 0);
+  store_word(mem, slot, abi_candidate_hit_record_base_bytes, hit_record_status, 0);
+  store_word(mem, slot, abi_committed_hit_record_base_bytes, hit_record_status, 0);
   const Ray ray = load_ray(mem, slot);
   const uint64_t accel_addr = load_accel_addr(mem, slot);
   if (accel_addr == 0)
@@ -1001,14 +1001,14 @@ struct HybridMemory {
 
   uint32_t load32(reg_t addr)
   {
-    if (addr < rt_pds_total_size_bytes)
+    if (addr < abi_fixed_header_size_bytes)
       return slot.load32(addr);
     return raw.load32(addr);
   }
 
   void store32(reg_t addr, uint32_t value)
   {
-    if (addr < rt_pds_total_size_bytes) {
+    if (addr < abi_fixed_header_size_bytes) {
       slot.store32(addr, value);
       return;
     }

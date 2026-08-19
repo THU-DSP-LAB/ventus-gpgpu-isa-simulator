@@ -21,85 +21,9 @@ namespace ventus_rt {
 
 constexpr reg_t lanes = 32;
 
-/* Megakernel v3 owns this fixed PDS header only.  Shader payload and compiler
- * continuation storage remain shader-owned. */
-constexpr reg_t rt_region_size_bytes = 308;
-constexpr reg_t rt_pds_total_size_bytes = rt_region_size_bytes;
-constexpr reg_t rt_worker_local_size_bytes = rt_region_size_bytes;
-
-constexpr reg_t slot_status = 0;
-constexpr reg_t slot_accel_lo = 1;
-constexpr reg_t slot_accel_hi = 2;
-constexpr reg_t slot_flags = 3;
-constexpr reg_t slot_cull_mask = 4;
-constexpr reg_t slot_sbt_offset = 5;
-constexpr reg_t slot_sbt_stride = 6;
-constexpr reg_t slot_miss_index = 7;
-constexpr reg_t slot_origin_x = 8;
-constexpr reg_t slot_origin_y = 9;
-constexpr reg_t slot_origin_z = 10;
-constexpr reg_t slot_tmin = 11;
-constexpr reg_t slot_direction_x = 12;
-constexpr reg_t slot_direction_y = 13;
-constexpr reg_t slot_direction_z = 14;
-constexpr reg_t slot_tmax = 15;
-constexpr reg_t slot_payload_ptr_lo = 16;
-constexpr reg_t slot_payload_ptr_hi = 17;
-constexpr reg_t slot_hit_t = 18;
-constexpr reg_t slot_sbt_index = 19;
-constexpr reg_t slot_launch_id_x = 20;
-constexpr reg_t slot_launch_id_y = 21;
-constexpr reg_t slot_launch_id_z = 22;
-
-constexpr reg_t cps_header_base = 96;
-constexpr reg_t cps_frame_base = 0;
-constexpr reg_t cps_active_level = 1;
-constexpr reg_t cps_fragment_id = 2;
-constexpr reg_t cps_flags = 3;
-
-constexpr reg_t control_base = 112;
-constexpr reg_t control_callback = 0;
-
-constexpr reg_t candidate_hit_record_base = 116;
-constexpr reg_t committed_hit_record_base = 196;
-/* Global-wavefront compatibility path only. */
-constexpr reg_t hit_attrib_base = 276;
-constexpr reg_t hit_record_status = 0;
-constexpr reg_t hit_record_hit_t = 1;
-constexpr reg_t hit_record_sbt_index = 2;
-constexpr reg_t hit_record_shader_record_ptr_lo = 3;
-constexpr reg_t hit_record_shader_record_ptr_hi = 4;
-constexpr reg_t hit_record_primitive_id = 5;
-constexpr reg_t hit_record_instance_id = 6;
-constexpr reg_t hit_record_geometry_id = 7;
-constexpr reg_t hit_record_hit_kind = 8;
-constexpr reg_t hit_record_barycentrics_x = 9;
-constexpr reg_t hit_record_barycentrics_y = 10;
-constexpr reg_t hit_record_primitive_addr_lo = 11;
-constexpr reg_t hit_record_primitive_addr_hi = 12;
-constexpr reg_t hit_record_instance_addr_lo = 13;
-constexpr reg_t hit_record_instance_addr_hi = 14;
-constexpr reg_t hit_record_front_face = 15;
-constexpr reg_t hit_record_opaque = 16;
-constexpr reg_t hit_record_need_software_opacity_test = 17;
-constexpr reg_t hit_record_instance_sbt_record_offset = 18;
-
-constexpr uint32_t slot_status_idle = 0;
-constexpr uint32_t slot_status_trace_request = 1;
-constexpr uint32_t slot_status_terminated = 2;
-
-constexpr uint32_t callback_pending = 0;
-constexpr uint32_t callback_accept = 1;
-constexpr uint32_t callback_ignore = 2;
-constexpr uint32_t callback_terminate = 3;
-
-constexpr uint32_t hit_record_valid = 1;
-
-constexpr uint32_t traversal_complete_miss = 0;
-constexpr uint32_t traversal_complete_hit = 1;
-constexpr uint32_t traversal_candidate_non_opaque_triangle = 2;
-constexpr uint32_t traversal_candidate_procedural_aabb = 3;
-constexpr uint32_t traversal_terminated = 4;
+/* Generated from Mesa's canonical fixed PDS-header ABI.  Shader payload and
+ * compiler continuation storage remain shader-owned and are not constants. */
+#include "ventus_rt_abi_generated.h"
 
 constexpr uint32_t bvh_magic = 0x56545254; // "VTRT"
 constexpr uint32_t bvh_version = 1;

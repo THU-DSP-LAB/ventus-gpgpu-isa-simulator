@@ -201,7 +201,7 @@ public:
 
   uint32_t load32(reg_t address)
   {
-    if (address < ventus_rt::rt_worker_local_size_bytes) {
+    if (address < ventus_rt::abi_fixed_header_size_bytes) {
       const auto it = local_words_.find(address);
       return it == local_words_.end() ? 0 : it->second;
     }
@@ -210,7 +210,7 @@ public:
 
   void store32(reg_t address, uint32_t value)
   {
-    if (address < ventus_rt::rt_worker_local_size_bytes) {
+    if (address < ventus_rt::abi_fixed_header_size_bytes) {
       local_words_[address] = value;
       return;
     }
@@ -269,9 +269,9 @@ seed_worker_slot(WorkerLocalMemory<Memory> &memory,
   store_slot(slot_tmax, field(TraceField::Tmax));
   store_slot(slot_payload_ptr_lo, field(TraceField::PayloadLo));
   store_slot(slot_payload_ptr_hi, field(TraceField::PayloadHi));
-  store_word(memory, 0, cps_header_base, cps_frame_base,
+  store_word(memory, 0, abi_cps_header_base_bytes, cps_frame_base,
              field(TraceField::CpsFrame));
-  store_word(memory, 0, cps_header_base, cps_active_level,
+  store_word(memory, 0, abi_cps_header_base_bytes, cps_active_level,
              field(TraceField::Depth));
 }
 
@@ -283,13 +283,13 @@ restore_completion_slot(WorkerLocalMemory<Memory> &memory,
   using namespace ventus_rt;
   seed_worker_slot(memory, completion.trace_input);
   for (uint32_t word = 0; word < kHitRecordWordCount; ++word) {
-    store_word(memory, 0, candidate_hit_record_base, word,
+    store_word(memory, 0, abi_candidate_hit_record_base_bytes, word,
                completion.candidate_hit[word]);
-    store_word(memory, 0, committed_hit_record_base, word,
+    store_word(memory, 0, abi_committed_hit_record_base_bytes, word,
                completion.committed_hit[word]);
   }
   for (uint32_t word = 0; word < kHitAttributeWordCount; ++word)
-    store_word(memory, 0, hit_attrib_base, word,
+    store_word(memory, 0, abi_hit_attrib_base_bytes, word,
                completion.candidate_attributes[word]);
 }
 
@@ -301,12 +301,12 @@ snapshot_completion_slot(WorkerLocalMemory<Memory> &memory,
   using namespace ventus_rt;
   for (uint32_t word = 0; word < kHitRecordWordCount; ++word) {
     completion.candidate_hit[word] =
-        load_word(memory, 0, candidate_hit_record_base, word);
+        load_word(memory, 0, abi_candidate_hit_record_base_bytes, word);
     completion.committed_hit[word] =
-        load_word(memory, 0, committed_hit_record_base, word);
+        load_word(memory, 0, abi_committed_hit_record_base_bytes, word);
   }
   for (uint32_t word = 0; word < kHitAttributeWordCount; ++word) {
-    const uint32_t value = load_word(memory, 0, hit_attrib_base, word);
+    const uint32_t value = load_word(memory, 0, abi_hit_attrib_base_bytes, word);
     if (status == traversal_candidate_non_opaque_triangle ||
         status == traversal_candidate_procedural_aabb)
       completion.candidate_attributes[word] = value;
@@ -346,7 +346,7 @@ route_completion(uint32_t ray_ref, uint32_t status,
     break;
   case traversal_terminated:
     /* AcceptTerminate commits first; it is a closest-hit result, not a miss. */
-    if (completion.committed_hit[hit_record_status] == hit_record_valid) {
+    if (completion.committed_hit[hit_record_status] == hit_record_status_valid) {
       completion.state = CompletionState::CompleteHit;
       result.traversal_status = traversal_complete_hit;
       result.target = TraversalDispatchTarget::ClosestHit;
@@ -403,15 +403,15 @@ resume_global_traversal_record(Memory &global_memory, uint32_t ray_ref,
   restore_completion_slot(local_memory, *completion);
   switch (completion->action) {
   case CompletionAction::Ignore:
-    store_word(local_memory, 0, control_base, control_callback,
+    store_word(local_memory, 0, abi_control_base_bytes, control_callback_decision,
                callback_ignore);
     break;
   case CompletionAction::AcceptContinue:
-    store_word(local_memory, 0, control_base, control_callback,
+    store_word(local_memory, 0, abi_control_base_bytes, control_callback_decision,
                callback_accept);
     break;
   case CompletionAction::AcceptTerminate:
-    store_word(local_memory, 0, control_base, control_callback,
+    store_word(local_memory, 0, abi_control_base_bytes, control_callback_decision,
                callback_terminate);
     break;
   case CompletionAction::None:
