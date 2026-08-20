@@ -24,6 +24,9 @@ MMA = [
 RT = [
     ("vt_rt_traverse", "vt.rt.traverse", "0xe200000a", "0xfe00707f",
      "ventus_exec_rt_traverse(p, insn);", "add_ventus_rt_traverse_insn"),
+    ("vt_rt_traverse_v5", "vt.rt.traverse", "0xe200200a", "0xfe00707f",
+     "ventus_exec_rt_traverse_v5(p, insn);",
+     "add_ventus_rt_traverse_v5_insn"),
     ("vt_rt_release", "vt.rt.release", "0xe200100a", "0xfe00707f",
      "ventus_exec_rt_release(p, insn);", "add_ventus_rt_release_insn"),
 ]
@@ -75,6 +78,8 @@ def main() -> int:
             "ventus_exec_mma declaration/definition missing", failures)
     require("void ventus_exec_rt_traverse(processor_t *p, insn_t insn)" in custom,
             "ventus_exec_rt_traverse declaration/definition missing", failures)
+    require("void ventus_exec_rt_traverse_v5(processor_t *p, insn_t insn)" in custom,
+            "ventus_exec_rt_traverse_v5 declaration/definition missing", failures)
     require("void ventus_exec_rt_release(processor_t *p, insn_t insn)" in custom,
             "ventus_exec_rt_release declaration/definition missing", failures)
     hard_enqueue_sources = encoding + riscv_mk + disasm + custom
@@ -182,6 +187,7 @@ def main() -> int:
         "trace_aabb_list",
         "make_hybrid_memory",
         "model->executeTraverse(",
+        "model->executeTraverseV5(",
         "model->executeRelease(",
         "class RtCoreModel",
         "RtPrivateState private_state_",

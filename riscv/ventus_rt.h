@@ -29,6 +29,7 @@ constexpr reg_t rt_pds_base_bytes = 0;
 constexpr reg_t rt_region_size_bytes = 276;
 constexpr reg_t rt_pds_total_size_bytes =
     rt_pds_base_bytes + rt_region_size_bytes;
+constexpr reg_t rt_v5_pds_size_bytes = 384;
 constexpr reg_t rt_worker_local_size_bytes = rt_region_size_bytes;
 
 constexpr reg_t slot_status = 0;
@@ -2309,11 +2310,39 @@ struct HybridMemory {
   }
 };
 
+// V5 carries the canonical per-lane PDS address directly. Local PDS offsets
+// are rebased through that address while AS/SBT pointers remain raw addresses.
+struct CanonicalPdsMemory {
+  RawMemory raw;
+  reg_t pds_address;
+
+  uint32_t load32(reg_t address)
+  {
+    return raw.load32(address < rt_v5_pds_size_bytes
+                          ? pds_address + address
+                          : address);
+  }
+
+  void store32(reg_t address, uint32_t value)
+  {
+    raw.store32(address < rt_v5_pds_size_bytes
+                    ? pds_address + address
+                    : address,
+                value);
+  }
+};
+
 inline HybridMemory make_hybrid_memory(mmu_t &mmu, reg_t pds_base,
                                        reg_t num_warps, reg_t num_threads,
                                        reg_t tid, reg_t lane)
 {
   return {{mmu, pds_base, num_warps, num_threads, tid, lane}, {mmu}};
+}
+
+inline CanonicalPdsMemory make_canonical_pds_memory(mmu_t &mmu,
+                                                     reg_t pds_address)
+{
+  return {{mmu}, pds_address};
 }
 #endif
 

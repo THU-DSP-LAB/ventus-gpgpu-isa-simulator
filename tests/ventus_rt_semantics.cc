@@ -895,6 +895,45 @@ static void check_rtcore_model_owns_private_state()
   assert(snapshot.release_command_count == 0);
 }
 
+static void check_rtcore_model_v5_address_binding()
+{
+  TestMemory mem;
+  constexpr reg_t pds_address = 0x1000;
+  constexpr reg_t private_state_address = 0x8000;
+  constexpr reg_t accel = 0x2a000;
+  constexpr reg_t tris = 0x2b000;
+
+  write_scene(mem, accel, tris, 1);
+  write_triangle(mem, tris, 2.0f, 61, 0, 0);
+  write_ray(mem, 0, accel);
+
+  RtCoreModel model;
+  assert(model.executeTraverseV5(mem, pds_address, private_state_address) ==
+         traversal_candidate_non_opaque_triangle);
+
+  bool rejected = false;
+  try {
+    (void)model.executeTraverseV5(mem, pds_address,
+                                  private_state_address + 128);
+  } catch (const std::runtime_error &) {
+    rejected = true;
+  }
+  assert(rejected);
+  assert(model.debugSnapshot().private_context_count == 1);
+
+  model.executeReleaseV5(mem, pds_address);
+  assert(model.debugSnapshot().private_context_count == 0);
+
+  rejected = false;
+  try {
+    (void)model.executeTraverseV5(mem, pds_address,
+                                  private_state_address + 4);
+  } catch (const std::runtime_error &) {
+    rejected = true;
+  }
+  assert(rejected);
+}
+
 int main()
 {
   check_opaque_hit();
@@ -912,5 +951,6 @@ int main()
   check_pds_formula();
   check_rt_private_context_abi();
   check_rtcore_model_owns_private_state();
+  check_rtcore_model_v5_address_binding();
   return 0;
 }

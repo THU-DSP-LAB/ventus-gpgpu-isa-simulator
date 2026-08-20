@@ -233,6 +233,34 @@ void ventus_exec_rt_traverse(processor_t *p, insn_t insn)
   p->VU.vstart->write(0);
 }
 
+void ventus_exec_rt_traverse_v5(processor_t *p, insn_t insn)
+{
+  require_ventus_custom_state(p, insn);
+
+  const reg_t vl = p->VU.vl->read();
+  const reg_t vd_num = insn.rd();
+  const reg_t pds_num = insn.rs2();
+  const reg_t private_num = insn.rs1();
+  ventus_rt::RtCoreModel *model = p->get_sim()->get_rtcore_model();
+  if (model == nullptr)
+    throw trap_illegal_instruction(insn.bits());
+
+  for (reg_t lane = p->VU.vstart->read(); lane < vl; ++lane) {
+    if (!lane_active(p, lane))
+      continue;
+
+    const reg_t pds_address = p->VU.elt<uint32_t>(2, pds_num, lane);
+    const reg_t private_state_address =
+        p->VU.elt<uint32_t>(1, private_num, lane);
+    auto mem = ventus_rt::make_canonical_pds_memory(*p->get_mmu(),
+                                                    pds_address);
+    p->VU.elt<uint32_t>(0, vd_num, lane, true) =
+        model->executeTraverseV5(mem, pds_address, private_state_address);
+  }
+
+  p->VU.vstart->write(0);
+}
+
 void ventus_exec_rt_release(processor_t *p, insn_t insn)
 {
   require_ventus_custom_state(p, insn);
@@ -247,11 +275,16 @@ void ventus_exec_rt_release(processor_t *p, insn_t insn)
     if (!lane_active(p, lane))
       continue;
 
-    auto mem = ventus_rt::make_hybrid_memory(
-        *p->get_mmu(), p->get_csr(CSR_PDS), p->get_csr(CSR_NUMW),
-        p->get_csr(CSR_NUMT), p->get_csr(CSR_TID), lane);
     const reg_t slot = p->VU.elt<uint32_t>(2, vs2_num, lane);
-    model->executeRelease(mem, slot);
+    if (slot < ventus_rt::rt_pds_total_size_bytes) {
+      auto mem = ventus_rt::make_hybrid_memory(
+          *p->get_mmu(), p->get_csr(CSR_PDS), p->get_csr(CSR_NUMW),
+          p->get_csr(CSR_NUMT), p->get_csr(CSR_TID), lane);
+      model->executeRelease(mem, slot);
+    } else {
+      auto mem = ventus_rt::make_canonical_pds_memory(*p->get_mmu(), slot);
+      model->executeReleaseV5(mem, slot);
+    }
   }
 
   p->VU.vstart->write(0);

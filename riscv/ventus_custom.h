@@ -21,6 +21,7 @@ void ventus_exec_mma(processor_t *p, insn_t insn);
 bool ventus_exec_amo_w_if_warp(processor_t *p, insn_t insn,
                                VentusAmoWOp op);
 void ventus_exec_rt_traverse(processor_t *p, insn_t insn);
+void ventus_exec_rt_traverse_v5(processor_t *p, insn_t insn);
 void ventus_exec_rt_release(processor_t *p, insn_t insn);
 
 #endif
