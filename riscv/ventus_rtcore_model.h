@@ -3,10 +3,49 @@
 
 #include "ventus_rt.h"
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <stdexcept>
+#include <unordered_map>
 
 namespace ventus_rt {
+
+constexpr std::size_t v5_warp_lanes = 32;
+
+enum class ResidentWarpState : uint8_t {
+  Unbound,
+  Active,
+  TerminalResident,
+};
+
+enum class RequestControlPhase : uint8_t {
+  Free,
+  Traversing,
+  PausedForSoftware,
+};
+
+// Functional, software-contract view of one lane request. RTL queue, bank,
+// target-unit, and commit-pipeline state deliberately do not appear here.
+struct RequestControlEntry {
+  reg_t hardware_warp_id = 0;
+  uint32_t lane_id = 0;
+  reg_t private_state_address = 0;
+  RequestControlPhase phase = RequestControlPhase::Free;
+};
+
+// V5 resident authority is frozen by the first RT_TRAVERSE active mask and is
+// retained until one whole-original-mask RT_RELEASE succeeds.
+struct ResidentWarpRecord {
+  ResidentWarpState state = ResidentWarpState::Unbound;
+  uint32_t original_bound_mask = 0;
+  uint32_t live_request_mask = 0;
+  uint32_t terminal_mask = 0;
+  std::array<reg_t, v5_warp_lanes> software_pds_address{};
+  std::array<reg_t, v5_warp_lanes> private_state_address{};
+  std::array<uint32_t, v5_warp_lanes> lane_result{};
+  std::array<RequestControlEntry, v5_warp_lanes> requests{};
+};
 
 struct RtCoreDebugSnapshot {
   uint64_t sm_generation = 1;
@@ -33,20 +72,82 @@ public:
     return status;
   }
 
-  template <typename Memory>
-  uint32_t executeTraverseV5(Memory &memory, reg_t pds_address,
-                             reg_t private_state_address)
+  template <typename MemoryFactory>
+  std::array<uint32_t, v5_warp_lanes> executeTraverseV5(
+      reg_t hardware_warp_id, uint32_t issue_mask,
+      const std::array<reg_t, v5_warp_lanes> &pds_addresses,
+      const std::array<reg_t, v5_warp_lanes> &private_state_addresses,
+      MemoryFactory memory_factory)
   {
-    if ((pds_address & 0x3) != 0 || (private_state_address & 0x7f) != 0)
-      throw std::runtime_error("ventus-rt: invalid V5 RT address alignment");
+    if (issue_mask == 0)
+      throw std::runtime_error("ventus-rt: empty V5 RT_TRAVERSE mask");
 
     CommandScope command(*this);
-    bindV5Addresses(pds_address, private_state_address);
-    V5PrivateMemoryView<Memory> view{memory, private_state_address};
-    const uint32_t status =
-        ventus_rt::traverse(view, /* canonical PDS base */ 0, private_state_);
+    auto resident = resident_warps_.find(hardware_warp_id);
+    const bool new_admission =
+        resident == resident_warps_.end() ||
+        resident->second.state == ResidentWarpState::Unbound;
+
+    ResidentWarpRecord next =
+        new_admission ? ResidentWarpRecord{} : resident->second;
+    if (new_admission) {
+      validateNewAdmission(hardware_warp_id, issue_mask, pds_addresses,
+                           private_state_addresses);
+      next.state = ResidentWarpState::Active;
+      next.original_bound_mask = issue_mask;
+    } else {
+      validateResume(next, issue_mask, pds_addresses,
+                     private_state_addresses);
+    }
+
+    std::array<uint32_t, v5_warp_lanes> results{};
+    for (std::size_t lane = 0; lane < v5_warp_lanes; ++lane) {
+      const uint32_t bit = laneBit(lane);
+      if ((issue_mask & bit) == 0)
+        continue;
+
+      if (new_admission) {
+        next.software_pds_address[lane] = pds_addresses[lane];
+        next.private_state_address[lane] = private_state_addresses[lane];
+        next.requests[lane].hardware_warp_id = hardware_warp_id;
+        next.requests[lane].lane_id = uint32_t(lane);
+        next.requests[lane].private_state_address =
+            private_state_addresses[lane];
+      }
+
+      next.requests[lane].phase = RequestControlPhase::Traversing;
+      next.live_request_mask |= bit;
+
+      auto memory = memory_factory(reg_t(lane), pds_addresses[lane]);
+      V5PrivateMemoryView<decltype(memory)> view{
+          memory, private_state_addresses[lane]};
+      const uint32_t status =
+          ventus_rt::traverse(view, /* canonical PDS base */ 0,
+                              private_state_);
+      results[lane] = status;
+      next.lane_result[lane] = status;
+
+      if (isPausedStatus(status)) {
+        next.requests[lane].phase =
+            RequestControlPhase::PausedForSoftware;
+      } else if (isTerminalStatus(status)) {
+        next.live_request_mask &= ~bit;
+        next.terminal_mask |= bit;
+        next.requests[lane] = RequestControlEntry{};
+      } else {
+        throw std::runtime_error("ventus-rt: invalid V5 traversal result");
+      }
+    }
+
+    if (next.terminal_mask == next.original_bound_mask) {
+      if (next.live_request_mask != 0)
+        throw std::logic_error("ventus-rt: terminal V5 warp has live lanes");
+      next.state = ResidentWarpState::TerminalResident;
+    }
+    validateResidentInvariants(next);
+    resident_warps_[hardware_warp_id] = next;
     ++traverse_command_count_;
-    return status;
+    return results;
   }
 
   template <typename Memory>
@@ -57,20 +158,51 @@ public:
     ++release_command_count_;
   }
 
-  template <typename Memory>
-  void executeReleaseV5(Memory &memory, reg_t pds_address)
+  template <typename MemoryFactory>
+  void executeReleaseV5(
+      reg_t hardware_warp_id, uint32_t release_mask,
+      const std::array<reg_t, v5_warp_lanes> &pds_addresses,
+      MemoryFactory memory_factory)
   {
-    CommandScope command(*this);
-    auto binding = v5_pds_to_private_.find(pds_address);
-    const reg_t private_state_address =
-        binding == v5_pds_to_private_.end() ? pds_address : binding->second;
-    V5PrivateMemoryView<Memory> view{memory, private_state_address};
-    ventus_rt::release(view, /* canonical PDS base */ 0, private_state_);
-    if (binding != v5_pds_to_private_.end()) {
-      v5_private_to_pds_.erase(binding->second);
-      v5_pds_to_private_.erase(binding);
+    auto resident = resident_warps_.find(hardware_warp_id);
+    if (resident == resident_warps_.end() ||
+        resident->second.state == ResidentWarpState::Unbound)
+      throw std::runtime_error(
+          "ventus-rt: duplicate or stale V5 RT_RELEASE");
+
+    const ResidentWarpRecord &record = resident->second;
+    if (record.state != ResidentWarpState::TerminalResident)
+      throw std::runtime_error("ventus-rt: early V5 RT_RELEASE");
+    if (release_mask != record.original_bound_mask)
+      throw std::runtime_error("ventus-rt: partial V5 RT_RELEASE mask");
+
+    for (std::size_t lane = 0; lane < v5_warp_lanes; ++lane) {
+      const uint32_t bit = laneBit(lane);
+      if ((release_mask & bit) == 0)
+        continue;
+      if (pds_addresses[lane] != record.software_pds_address[lane])
+        throw std::runtime_error("ventus-rt: wrong-PDS V5 RT_RELEASE");
     }
+
+    CommandScope command(*this);
+    for (std::size_t lane = 0; lane < v5_warp_lanes; ++lane) {
+      const uint32_t bit = laneBit(lane);
+      if ((release_mask & bit) == 0)
+        continue;
+      auto memory = memory_factory(reg_t(lane), pds_addresses[lane]);
+      V5PrivateMemoryView<decltype(memory)> view{
+          memory, record.private_state_address[lane]};
+      ventus_rt::release(view, /* canonical PDS base */ 0, private_state_);
+    }
+
+    resident->second = ResidentWarpRecord{};
     ++release_command_count_;
+  }
+
+  const ResidentWarpRecord *residentWarpRecord(reg_t hardware_warp_id) const
+  {
+    auto resident = resident_warps_.find(hardware_warp_id);
+    return resident == resident_warps_.end() ? nullptr : &resident->second;
   }
 
   void resetSm()
@@ -82,8 +214,7 @@ public:
     traverse_command_count_ = 0;
     release_command_count_ = 0;
     private_state_.reset();
-    v5_pds_to_private_.clear();
-    v5_private_to_pds_.clear();
+    resident_warps_.clear();
   }
 
   RtCoreDebugSnapshot debugSnapshot() const
@@ -110,20 +241,114 @@ private:
     }
   };
 
-  void bindV5Addresses(reg_t pds_address, reg_t private_state_address)
+  static uint32_t laneBit(std::size_t lane)
   {
-    auto pds_binding = v5_pds_to_private_.find(pds_address);
-    if (pds_binding != v5_pds_to_private_.end() &&
-        pds_binding->second != private_state_address)
-      throw std::runtime_error("ventus-rt: V5 PDS/private binding changed");
+    return uint32_t{1} << lane;
+  }
 
-    auto private_binding = v5_private_to_pds_.find(private_state_address);
-    if (private_binding != v5_private_to_pds_.end() &&
-        private_binding->second != pds_address)
-      throw std::runtime_error("ventus-rt: V5 private/PDS binding changed");
+  static bool isPausedStatus(uint32_t status)
+  {
+    return status == traversal_candidate_non_opaque_triangle ||
+           status == traversal_candidate_procedural_aabb;
+  }
 
-    v5_pds_to_private_[pds_address] = private_state_address;
-    v5_private_to_pds_[private_state_address] = pds_address;
+  static bool isTerminalStatus(uint32_t status)
+  {
+    return status == traversal_complete_miss ||
+           status == traversal_complete_hit || status == traversal_terminated;
+  }
+
+  static void validateAddressAlignment(reg_t pds_address,
+                                       reg_t private_state_address)
+  {
+    if ((pds_address & 0x3) != 0 || (private_state_address & 0x7f) != 0)
+      throw std::runtime_error("ventus-rt: invalid V5 RT address alignment");
+  }
+
+  void validateNewAdmission(
+      reg_t hardware_warp_id, uint32_t issue_mask,
+      const std::array<reg_t, v5_warp_lanes> &pds_addresses,
+      const std::array<reg_t, v5_warp_lanes> &private_state_addresses) const
+  {
+    for (std::size_t lane = 0; lane < v5_warp_lanes; ++lane) {
+      const uint32_t bit = laneBit(lane);
+      if ((issue_mask & bit) == 0)
+        continue;
+
+      validateAddressAlignment(pds_addresses[lane],
+                               private_state_addresses[lane]);
+      for (std::size_t previous = 0; previous < lane; ++previous) {
+        if ((issue_mask & laneBit(previous)) == 0)
+          continue;
+        if (pds_addresses[previous] == pds_addresses[lane] ||
+            private_state_addresses[previous] ==
+                private_state_addresses[lane])
+          throw std::runtime_error(
+              "ventus-rt: duplicate V5 lane address binding");
+      }
+
+      for (const auto &owner : resident_warps_) {
+        if (owner.first == hardware_warp_id ||
+            owner.second.state == ResidentWarpState::Unbound)
+          continue;
+        const ResidentWarpRecord &record = owner.second;
+        for (std::size_t owner_lane = 0; owner_lane < v5_warp_lanes;
+             ++owner_lane) {
+          if ((record.original_bound_mask & laneBit(owner_lane)) == 0)
+            continue;
+          if (record.software_pds_address[owner_lane] == pds_addresses[lane] ||
+              record.private_state_address[owner_lane] ==
+                  private_state_addresses[lane])
+            throw std::runtime_error(
+                "ventus-rt: V5 address already resident");
+        }
+      }
+    }
+  }
+
+  static void validateResume(
+      const ResidentWarpRecord &record, uint32_t issue_mask,
+      const std::array<reg_t, v5_warp_lanes> &pds_addresses,
+      const std::array<reg_t, v5_warp_lanes> &private_state_addresses)
+  {
+    if (record.state != ResidentWarpState::Active)
+      throw std::runtime_error("ventus-rt: V5 traverse after rendezvous");
+    if ((issue_mask & ~record.original_bound_mask) != 0)
+      throw std::runtime_error("ventus-rt: V5 resume changed frozen mask");
+
+    for (std::size_t lane = 0; lane < v5_warp_lanes; ++lane) {
+      const uint32_t bit = laneBit(lane);
+      if ((issue_mask & bit) == 0)
+        continue;
+      validateAddressAlignment(pds_addresses[lane],
+                               private_state_addresses[lane]);
+      if (record.requests[lane].phase !=
+          RequestControlPhase::PausedForSoftware)
+        throw std::runtime_error("ventus-rt: V5 lane is not resumable");
+      if (pds_addresses[lane] != record.software_pds_address[lane] ||
+          private_state_addresses[lane] !=
+              record.private_state_address[lane])
+        throw std::runtime_error("ventus-rt: V5 resume address mismatch");
+    }
+  }
+
+  static void validateResidentInvariants(const ResidentWarpRecord &record)
+  {
+    const uint32_t outside =
+        (record.live_request_mask | record.terminal_mask) &
+        ~record.original_bound_mask;
+    if (outside != 0 ||
+        (record.live_request_mask & record.terminal_mask) != 0)
+      throw std::logic_error("ventus-rt: invalid V5 resident masks");
+
+    for (std::size_t lane = 0; lane < v5_warp_lanes; ++lane) {
+      const uint32_t bit = laneBit(lane);
+      const bool live = (record.live_request_mask & bit) != 0;
+      const bool paused = record.requests[lane].phase ==
+                          RequestControlPhase::PausedForSoftware;
+      if (live != paused)
+        throw std::logic_error("ventus-rt: invalid V5 lane request state");
+    }
   }
 
   class CommandScope {
@@ -151,8 +376,7 @@ private:
   uint64_t traverse_command_count_ = 0;
   uint64_t release_command_count_ = 0;
   RtPrivateState private_state_;
-  std::unordered_map<reg_t, reg_t> v5_pds_to_private_;
-  std::unordered_map<reg_t, reg_t> v5_private_to_pds_;
+  std::unordered_map<reg_t, ResidentWarpRecord> resident_warps_;
   bool command_active_ = false;
 };
 

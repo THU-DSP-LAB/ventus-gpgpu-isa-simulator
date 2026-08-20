@@ -32,6 +32,26 @@ struct TestMemory {
 
 uint64_t TestMemory::next_context_id = 1;
 
+struct CanonicalTestPdsMemory {
+  TestMemory &memory;
+  reg_t pds_address;
+
+  uint32_t load32(reg_t address)
+  {
+    return memory.load32(address < rt_v5_pds_size_bytes
+                             ? pds_address + address
+                             : address);
+  }
+
+  void store32(reg_t address, uint32_t value)
+  {
+    memory.store32(address < rt_v5_pds_size_bytes
+                       ? pds_address + address
+                       : address,
+                   value);
+  }
+};
+
 static void store_slot(TestMemory &mem, reg_t slot, reg_t base, reg_t word,
                        uint32_t value)
 {
@@ -895,39 +915,163 @@ static void check_rtcore_model_owns_private_state()
   assert(snapshot.release_command_count == 0);
 }
 
-static void check_rtcore_model_v5_address_binding()
+static void check_rtcore_model_v5_lifecycle()
 {
   TestMemory mem;
-  constexpr reg_t pds_address = 0x1000;
-  constexpr reg_t private_state_address = 0x8000;
+  constexpr reg_t hardware_warp_id = 9;
   constexpr reg_t accel = 0x2a000;
   constexpr reg_t tris = 0x2b000;
+  constexpr reg_t empty_accel = 0x2c000;
+  constexpr uint32_t original_mask = 0x7;
+
+  std::array<reg_t, v5_warp_lanes> pds_addresses{};
+  std::array<reg_t, v5_warp_lanes> private_state_addresses{};
+  pds_addresses[0] = 0x1000;
+  pds_addresses[1] = 0x1200;
+  pds_addresses[2] = 0x1400;
+  pds_addresses[3] = 0x1600;
+  private_state_addresses[0] = 0x8000;
+  private_state_addresses[1] = 0x8080;
+  private_state_addresses[2] = 0x8100;
+  private_state_addresses[3] = 0x8180;
+
+  auto make_memory = [&mem](reg_t, reg_t pds_address) {
+    return CanonicalTestPdsMemory{mem, pds_address};
+  };
 
   write_scene(mem, accel, tris, 1);
   write_triangle(mem, tris, 2.0f, 61, 0, 0);
-  write_ray(mem, 0, accel);
+  write_scene(mem, empty_accel, tris, 0);
+  write_ray(mem, pds_addresses[0], accel);
+  write_ray(mem, pds_addresses[1], accel);
+  write_ray(mem, pds_addresses[2], empty_accel);
 
   RtCoreModel model;
-  assert(model.executeTraverseV5(mem, pds_address, private_state_address) ==
-         traversal_candidate_non_opaque_triangle);
+  auto results = model.executeTraverseV5(
+      hardware_warp_id, original_mask, pds_addresses,
+      private_state_addresses, make_memory);
+  assert(results[0] == traversal_candidate_non_opaque_triangle);
+  assert(results[1] == traversal_candidate_non_opaque_triangle);
+  assert(results[2] == traversal_complete_miss);
+
+  const ResidentWarpRecord *record =
+      model.residentWarpRecord(hardware_warp_id);
+  assert(record != nullptr);
+  assert(record->state == ResidentWarpState::Active);
+  assert(record->original_bound_mask == original_mask);
+  assert(record->live_request_mask == 0x3);
+  assert(record->terminal_mask == 0x4);
+  assert(record->software_pds_address[0] == pds_addresses[0]);
+  assert(record->private_state_address[1] == private_state_addresses[1]);
+  assert(record->requests[0].phase ==
+         RequestControlPhase::PausedForSoftware);
+  assert(record->requests[1].phase ==
+         RequestControlPhase::PausedForSoftware);
+  assert(record->requests[2].phase == RequestControlPhase::Free);
+  assert(model.debugSnapshot().private_context_count == 2);
 
   bool rejected = false;
   try {
-    (void)model.executeTraverseV5(mem, pds_address,
-                                  private_state_address + 128);
+    model.executeReleaseV5(hardware_warp_id, original_mask, pds_addresses,
+                           make_memory);
   } catch (const std::runtime_error &) {
     rejected = true;
   }
   assert(rejected);
-  assert(model.debugSnapshot().private_context_count == 1);
+  assert(model.debugSnapshot().release_command_count == 0);
 
-  model.executeReleaseV5(mem, pds_address);
+  rejected = false;
+  try {
+    (void)model.executeTraverseV5(hardware_warp_id, 0x8, pds_addresses,
+                                  private_state_addresses, make_memory);
+  } catch (const std::runtime_error &) {
+    rejected = true;
+  }
+  assert(rejected);
+
+  auto wrong_private_addresses = private_state_addresses;
+  wrong_private_addresses[0] += 128;
+  rejected = false;
+  try {
+    (void)model.executeTraverseV5(hardware_warp_id, 0x1, pds_addresses,
+                                  wrong_private_addresses, make_memory);
+  } catch (const std::runtime_error &) {
+    rejected = true;
+  }
+  assert(rejected);
+
+  store_slot(mem, pds_addresses[0], control_base,
+             control_callback_decision, callback_ignore);
+  results = model.executeTraverseV5(hardware_warp_id, 0x1, pds_addresses,
+                                    private_state_addresses, make_memory);
+  assert(results[0] == traversal_complete_miss);
+  record = model.residentWarpRecord(hardware_warp_id);
+  assert(record->state == ResidentWarpState::Active);
+  assert(record->original_bound_mask == original_mask);
+  assert(record->live_request_mask == 0x2);
+  assert(record->terminal_mask == 0x5);
+  assert(record->requests[0].phase == RequestControlPhase::Free);
+  assert(record->requests[1].phase ==
+         RequestControlPhase::PausedForSoftware);
+
+  store_slot(mem, pds_addresses[1], control_base,
+             control_callback_decision, callback_ignore);
+  results = model.executeTraverseV5(hardware_warp_id, 0x2, pds_addresses,
+                                    private_state_addresses, make_memory);
+  assert(results[1] == traversal_complete_miss);
+  record = model.residentWarpRecord(hardware_warp_id);
+  assert(record->state == ResidentWarpState::TerminalResident);
+  assert(record->original_bound_mask == original_mask);
+  assert(record->live_request_mask == 0);
+  assert(record->terminal_mask == original_mask);
   assert(model.debugSnapshot().private_context_count == 0);
 
   rejected = false;
   try {
-    (void)model.executeTraverseV5(mem, pds_address,
-                                  private_state_address + 4);
+    model.executeReleaseV5(hardware_warp_id, 0x3, pds_addresses,
+                           make_memory);
+  } catch (const std::runtime_error &) {
+    rejected = true;
+  }
+  assert(rejected);
+
+  auto wrong_pds_addresses = pds_addresses;
+  wrong_pds_addresses[1] += 0x200;
+  rejected = false;
+  try {
+    model.executeReleaseV5(hardware_warp_id, original_mask,
+                           wrong_pds_addresses, make_memory);
+  } catch (const std::runtime_error &) {
+    rejected = true;
+  }
+  assert(rejected);
+  record = model.residentWarpRecord(hardware_warp_id);
+  assert(record->state == ResidentWarpState::TerminalResident);
+  assert(record->terminal_mask == original_mask);
+
+  model.executeReleaseV5(hardware_warp_id, original_mask, pds_addresses,
+                         make_memory);
+  record = model.residentWarpRecord(hardware_warp_id);
+  assert(record->state == ResidentWarpState::Unbound);
+  assert(record->original_bound_mask == 0);
+  assert(model.debugSnapshot().traverse_command_count == 3);
+  assert(model.debugSnapshot().release_command_count == 1);
+
+  rejected = false;
+  try {
+    model.executeReleaseV5(hardware_warp_id, original_mask, pds_addresses,
+                           make_memory);
+  } catch (const std::runtime_error &) {
+    rejected = true;
+  }
+  assert(rejected);
+
+  rejected = false;
+  try {
+    auto unaligned_private_addresses = private_state_addresses;
+    unaligned_private_addresses[0] += 4;
+    (void)model.executeTraverseV5(hardware_warp_id, 0x1, pds_addresses,
+                                  unaligned_private_addresses, make_memory);
   } catch (const std::runtime_error &) {
     rejected = true;
   }
@@ -951,6 +1095,6 @@ int main()
   check_pds_formula();
   check_rt_private_context_abi();
   check_rtcore_model_owns_private_state();
-  check_rtcore_model_v5_address_binding();
+  check_rtcore_model_v5_lifecycle();
   return 0;
 }

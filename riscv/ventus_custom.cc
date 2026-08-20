@@ -52,6 +52,8 @@ void ventus_exec_packed(processor_t *p, insn_t insn, VentusPackedOp op,
   require_ventus_custom_state(p, insn);
 
   const reg_t vl = p->VU.vl->read();
+  if (vl > ventus_rt::v5_warp_lanes)
+    throw trap_illegal_instruction(insn.bits());
   const reg_t vd_num = insn.rd();
   const reg_t vs1_num = insn.rs1();
   const reg_t vs2_num = insn.rs2();
@@ -245,17 +247,31 @@ void ventus_exec_rt_traverse_v5(processor_t *p, insn_t insn)
   if (model == nullptr)
     throw trap_illegal_instruction(insn.bits());
 
+  uint32_t issue_mask = 0;
+  std::array<reg_t, ventus_rt::v5_warp_lanes> pds_addresses{};
+  std::array<reg_t, ventus_rt::v5_warp_lanes> private_state_addresses{};
   for (reg_t lane = p->VU.vstart->read(); lane < vl; ++lane) {
     if (!lane_active(p, lane))
       continue;
 
-    const reg_t pds_address = p->VU.elt<uint32_t>(2, pds_num, lane);
-    const reg_t private_state_address =
+    issue_mask |= uint32_t{1} << lane;
+    pds_addresses[lane] = p->VU.elt<uint32_t>(2, pds_num, lane);
+    private_state_addresses[lane] =
         p->VU.elt<uint32_t>(1, private_num, lane);
-    auto mem = ventus_rt::make_canonical_pds_memory(*p->get_mmu(),
-                                                    pds_address);
-    p->VU.elt<uint32_t>(0, vd_num, lane, true) =
-        model->executeTraverseV5(mem, pds_address, private_state_address);
+  }
+
+  if (issue_mask != 0) {
+    const auto results = model->executeTraverseV5(
+        p->get_csr(CSR_TID), issue_mask, pds_addresses,
+        private_state_addresses,
+        [p](reg_t, reg_t pds_address) {
+          return ventus_rt::make_canonical_pds_memory(*p->get_mmu(),
+                                                       pds_address);
+        });
+    for (reg_t lane = p->VU.vstart->read(); lane < vl; ++lane) {
+      if ((issue_mask & (uint32_t{1} << lane)) != 0)
+        p->VU.elt<uint32_t>(0, vd_num, lane, true) = results[lane];
+    }
   }
 
   p->VU.vstart->write(0);
@@ -266,24 +282,46 @@ void ventus_exec_rt_release(processor_t *p, insn_t insn)
   require_ventus_custom_state(p, insn);
 
   const reg_t vl = p->VU.vl->read();
+  if (vl > ventus_rt::v5_warp_lanes)
+    throw trap_illegal_instruction(insn.bits());
   const reg_t vs2_num = insn.rs2();
   ventus_rt::RtCoreModel *model = p->get_sim()->get_rtcore_model();
   if (model == nullptr)
     throw trap_illegal_instruction(insn.bits());
 
+  uint32_t active_mask = 0;
+  bool operand_exceeds_legacy_slot = false;
+  std::array<reg_t, ventus_rt::v5_warp_lanes> operands{};
   for (reg_t lane = p->VU.vstart->read(); lane < vl; ++lane) {
     if (!lane_active(p, lane))
       continue;
 
     const reg_t slot = p->VU.elt<uint32_t>(2, vs2_num, lane);
-    if (slot < ventus_rt::rt_pds_total_size_bytes) {
+    active_mask |= uint32_t{1} << lane;
+    operands[lane] = slot;
+    operand_exceeds_legacy_slot |=
+        slot >= ventus_rt::rt_pds_total_size_bytes;
+  }
+
+  const auto *resident = model->residentWarpRecord(p->get_csr(CSR_TID));
+  const bool v5_release =
+      resident != nullptr &&
+      resident->state != ventus_rt::ResidentWarpState::Unbound;
+  if (v5_release || operand_exceeds_legacy_slot) {
+    model->executeReleaseV5(
+        p->get_csr(CSR_TID), active_mask, operands,
+        [p](reg_t, reg_t pds_address) {
+          return ventus_rt::make_canonical_pds_memory(*p->get_mmu(),
+                                                       pds_address);
+        });
+  } else if (active_mask != 0) {
+    for (reg_t lane = p->VU.vstart->read(); lane < vl; ++lane) {
+      if ((active_mask & (uint32_t{1} << lane)) == 0)
+        continue;
       auto mem = ventus_rt::make_hybrid_memory(
           *p->get_mmu(), p->get_csr(CSR_PDS), p->get_csr(CSR_NUMW),
           p->get_csr(CSR_NUMT), p->get_csr(CSR_TID), lane);
-      model->executeRelease(mem, slot);
-    } else {
-      auto mem = ventus_rt::make_canonical_pds_memory(*p->get_mmu(), slot);
-      model->executeReleaseV5(mem, slot);
+      model->executeRelease(mem, operands[lane]);
     }
   }
 
