@@ -2040,6 +2040,19 @@ inline void commit_private_candidate(Memory &mem, reg_t slot)
 }
 
 template <typename Memory>
+inline auto commit_callback_result(Memory &mem, reg_t slot, int)
+    -> decltype(mem.commit_shader_return(slot), void())
+{
+  mem.commit_shader_return(slot);
+}
+
+template <typename Memory>
+inline void commit_callback_result(Memory &mem, reg_t slot, long)
+{
+  commit_private_candidate(mem, slot);
+}
+
+template <typename Memory>
 inline bool private_candidate_is_before_tmax(Memory &mem, reg_t slot,
                                              float hit_t)
 {
@@ -3034,7 +3047,7 @@ inline uint32_t traverse(Memory &mem, reg_t slot,
 
     clear_control(mem, slot);
     if (decision == callback_accept || decision == callback_terminate)
-      commit_private_candidate(mem, slot);
+      commit_callback_result(mem, slot, 0);
     store_word(mem, slot, candidate_hit_record_base, hit_record_status,
                hit_record_invalid);
 

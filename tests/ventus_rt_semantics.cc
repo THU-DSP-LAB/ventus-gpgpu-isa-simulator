@@ -206,6 +206,27 @@ static void write_v5_private_input(TestMemory &mem, reg_t pds,
               uint32_t(accel >> 32));
 }
 
+static void publish_v5_shader_accept(TestMemory &mem, reg_t pds,
+                                     bool terminate = false)
+{
+  for (uint32_t offset = 0; offset < 96; offset += sizeof(uint32_t)) {
+    mem.store32(pds + rt_v5_pds_committed_base + offset,
+                mem.load32(pds + rt_v5_pds_callback_base + offset));
+  }
+  uint32_t metadata =
+      mem.load32(pds + rt_v5_pds_committed_base + rt_v5_hit_metadata);
+  mem.store32(pds + rt_v5_pds_committed_base + rt_v5_hit_metadata,
+              metadata | rt_v5_hit_metadata_committed_valid);
+
+  const uint32_t accepted_t =
+      mem.load32(pds + rt_v5_pds_committed_base + rt_v5_hit_t);
+  for (uint32_t offset = 8; offset < 32; offset += sizeof(uint32_t))
+    mem.store32(pds + rt_v5_pds_callback_base + offset, 0);
+  mem.store32(pds + rt_v5_pds_callback_base + 4, accepted_t);
+  mem.store32(pds + rt_v5_pds_callback_base,
+              terminate ? uint32_t{3} : uint32_t{1});
+}
+
 static void write_vtas_header(TestMemory &mem, reg_t addr, uint32_t type,
                               uint32_t root_ref)
 {
@@ -626,7 +647,7 @@ static void check_rtcore_model_v5_vtas_v2_private_frontier()
       hardware_warp_id, 1, pds_addresses, private_addresses, make_memory);
   assert(results[0] ==
          (rt_v5_completion_valid | rt_v5_return_any_hit_required));
-  mem.store32(pds + rt_v5_pds_callback_base, 1);
+  publish_v5_shader_accept(mem, pds);
   results = model.executeTraverseV5(
       hardware_warp_id, 1, pds_addresses, private_addresses, make_memory);
   assert(results[0] ==
@@ -636,6 +657,10 @@ static void check_rtcore_model_v5_vtas_v2_private_frontier()
   assert((committed_metadata & rt_v5_hit_metadata_committed_valid) != 0);
   assert(mem.load32(pds + rt_v5_pds_committed_base +
                     rt_v5_hit_primitive_index) == 188);
+  assert(mem.load32(private_address + rt_v5_private_ray_tmax) ==
+         bit_cast_u32(5.0f));
+  assert((mem.load32(private_address + rt_v5_private_hot_control) &
+          (uint32_t{1} << 8)) != 0);
   model.executeReleaseV5(hardware_warp_id, 1, pds_addresses, make_memory);
 
   write_v5_ray(mem, pds, tlas);
@@ -650,6 +675,67 @@ static void check_rtcore_model_v5_vtas_v2_private_frontier()
     rejected = true;
   }
   assert(rejected);
+}
+
+static void check_rtcore_model_v5_procedural_callback()
+{
+  TestMemory mem;
+  constexpr reg_t hardware_warp_id = 18;
+  constexpr reg_t pds = 0x5000;
+  constexpr reg_t private_address = 0xa000;
+  constexpr reg_t tlas = 0x82000;
+  constexpr reg_t blas = 0x83000;
+  constexpr uint32_t instance_ref = 0x50 | node_instance;
+  constexpr uint32_t aabb_ref = 0x50 | node_aabb;
+
+  write_vtas_v2_header(mem, tlas, as_type_tlas, instance_ref, 1, 128);
+  write_vtas_instance(mem, tlas + 0x50, blas, 55, 4);
+  mem.store32(tlas + 0x50 + instance_v2_parent_edge,
+              instance_v2_root_parent_edge);
+  write_vtas_v2_header(mem, blas, as_type_blas, aabb_ref, 1, 64);
+  write_vtas_aabb(mem, blas + 0x50, 188, 0);
+  write_v5_ray(mem, pds, tlas);
+  write_v5_private_input(mem, pds, private_address, instance_ref);
+
+  std::array<reg_t, v5_warp_lanes> pds_addresses{};
+  std::array<reg_t, v5_warp_lanes> private_addresses{};
+  pds_addresses[0] = pds;
+  private_addresses[0] = private_address;
+  auto make_memory = [&mem](reg_t, reg_t pds_address) {
+    return CanonicalTestPdsMemory{mem, pds_address};
+  };
+
+  RtCoreModel model;
+  auto results = model.executeTraverseV5(
+      hardware_warp_id, 1, pds_addresses, private_addresses, make_memory);
+  assert(results[0] ==
+         (rt_v5_completion_valid | rt_v5_return_intersection_required));
+  const reg_t callback = pds + rt_v5_pds_callback_base;
+  assert(mem.load32(callback + rt_v5_hit_primitive_index) == 188);
+  assert(mem.load32(callback + rt_v5_hit_instance_index) == 55);
+  assert(mem.load32(callback + rt_v5_hit_geometry_index) == 6);
+  const uint32_t candidate_metadata =
+      mem.load32(callback + rt_v5_hit_metadata);
+  assert((candidate_metadata & rt_v5_hit_metadata_geometry_mask) ==
+         rt_v5_hit_geometry_procedural_aabb);
+  assert((candidate_metadata & rt_v5_hit_metadata_committed_valid) == 0);
+
+  mem.store32(callback + rt_v5_hit_t, bit_cast_u32(3.0f));
+  publish_v5_shader_accept(mem, pds);
+  results = model.executeTraverseV5(
+      hardware_warp_id, 1, pds_addresses, private_addresses, make_memory);
+  assert(results[0] ==
+         (rt_v5_completion_valid | rt_v5_return_closest_hit_ready));
+  const reg_t committed = pds + rt_v5_pds_committed_base;
+  assert(mem.load32(committed + rt_v5_hit_primitive_index) == 188);
+  assert(mem.load32(committed + rt_v5_hit_instance_index) == 55);
+  assert(mem.load32(committed + rt_v5_hit_geometry_index) == 6);
+  assert(mem.load32(committed + rt_v5_hit_t) == bit_cast_u32(3.0f));
+  assert((mem.load32(committed + rt_v5_hit_metadata) &
+          rt_v5_hit_metadata_committed_valid) != 0);
+  assert(mem.load32(private_address + rt_v5_private_ray_tmax) ==
+         bit_cast_u32(3.0f));
+  model.executeReleaseV5(hardware_warp_id, 1, pds_addresses, make_memory);
 }
 
 static void check_triangle_facing_culling()
@@ -1471,5 +1557,6 @@ int main()
   check_rtcore_model_owns_private_state();
   check_rtcore_model_v5_lifecycle();
   check_rtcore_model_v5_vtas_v2_private_frontier();
+  check_rtcore_model_v5_procedural_callback();
   return 0;
 }

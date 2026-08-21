@@ -124,6 +124,7 @@ public:
       const uint32_t traversal_status =
           ventus_rt::traverse(view, /* canonical PDS base */ 0,
                               private_state_);
+      view.publishTraversalStatus(traversal_status);
       const uint32_t compact_result =
           compactResult(traversal_status, view.hasCommittedHit());
       results[lane] = compact_result;
@@ -329,6 +330,38 @@ private:
     {
       return (memory.load32(rt_v5_pds_committed_base + rt_v5_hit_metadata) &
               rt_v5_hit_metadata_committed_valid) != 0;
+    }
+    void commit_shader_return(reg_t)
+    {
+      const uint32_t accepted_t =
+          memory.load32(rt_v5_pds_callback_base + sizeof(uint32_t));
+      memory.store32(private_state_address + rt_v5_private_ray_tmax,
+                     accepted_t);
+      uint32_t hot_control =
+          memory.load32(private_state_address + rt_v5_private_hot_control);
+      hot_control |= uint32_t{1} << 8;
+      memory.store32(private_state_address + rt_v5_private_hot_control,
+                     hot_control);
+    }
+    void publishTraversalStatus(uint32_t status)
+    {
+      if (!isPausedStatus(status))
+        return;
+
+      constexpr uint32_t attribute_count_mask = 0x3fu <<
+          rt_v5_hit_metadata_attribute_count_shift;
+      constexpr uint32_t attribute_format_mask = 0xffu <<
+          rt_v5_hit_metadata_attribute_format_shift;
+      uint32_t metadata =
+          memory.load32(rt_v5_pds_callback_base + rt_v5_hit_metadata);
+      metadata &= ~rt_v5_hit_metadata_geometry_mask;
+      if (status == traversal_candidate_procedural_aabb) {
+        metadata &= ~(attribute_count_mask | attribute_format_mask);
+        metadata |= rt_v5_hit_geometry_procedural_aabb;
+      } else {
+        metadata |= rt_v5_hit_geometry_triangle;
+      }
+      memory.store32(rt_v5_pds_callback_base + rt_v5_hit_metadata, metadata);
     }
 
   private:
