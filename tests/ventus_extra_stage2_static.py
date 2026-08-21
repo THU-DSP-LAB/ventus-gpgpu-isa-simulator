@@ -189,6 +189,8 @@ def main() -> int:
         "model->executeTraverse(",
         "model->executeTraverseV5(",
         "model->executeRelease(",
+        "resident_hardware_warp_id",
+        "return p->get_id()",
         "class RtCoreModel",
         "RtPrivateState private_state_",
     ]:

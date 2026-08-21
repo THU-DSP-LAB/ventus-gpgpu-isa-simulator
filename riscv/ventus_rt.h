@@ -35,6 +35,46 @@ constexpr reg_t rt_pds_total_size_bytes =
 constexpr reg_t rt_v5_pds_size_bytes = 384;
 constexpr reg_t rt_worker_local_size_bytes = rt_region_size_bytes;
 
+constexpr reg_t rt_v5_pds_traversable_reference = 0x000;
+constexpr reg_t rt_v5_pds_ray_flags = 0x008;
+constexpr reg_t rt_v5_pds_trace_selector_control = 0x00c;
+constexpr reg_t rt_v5_pds_world_origin = 0x020;
+constexpr reg_t rt_v5_pds_ray_tmin = 0x02c;
+constexpr reg_t rt_v5_pds_world_direction = 0x030;
+constexpr reg_t rt_v5_pds_ray_tmax = 0x03c;
+constexpr reg_t rt_v5_pds_callback_base = 0x060;
+constexpr reg_t rt_v5_pds_committed_base = 0x0c0;
+
+constexpr reg_t rt_v5_hit_t = 0x00;
+constexpr reg_t rt_v5_hit_instance_sbt_contribution = 0x04;
+constexpr reg_t rt_v5_hit_geometry_index = 0x08;
+constexpr reg_t rt_v5_hit_primitive_index = 0x0c;
+constexpr reg_t rt_v5_hit_instance_metadata_reference = 0x10;
+constexpr reg_t rt_v5_hit_metadata = 0x18;
+constexpr reg_t rt_v5_hit_primitive_reference = 0x20;
+constexpr reg_t rt_v5_hit_instance_index = 0x28;
+constexpr reg_t rt_v5_hit_instance_custom_index = 0x2c;
+constexpr reg_t rt_v5_hit_attributes = 0x40;
+
+constexpr uint32_t rt_v5_hit_geometry_triangle = 1;
+constexpr uint32_t rt_v5_hit_geometry_procedural_aabb = 2;
+constexpr uint32_t rt_v5_hit_attribute_barycentric_fp32x2 = 1;
+constexpr uint32_t rt_v5_hit_attribute_opaque_bytes = 2;
+constexpr uint32_t rt_v5_hit_metadata_geometry_mask = 0x3;
+constexpr uint32_t rt_v5_hit_metadata_hit_kind_shift = 2;
+constexpr uint32_t rt_v5_hit_metadata_attribute_count_shift = 10;
+constexpr uint32_t rt_v5_hit_metadata_attribute_format_shift = 16;
+constexpr uint32_t rt_v5_hit_metadata_procedural_any_hit = 1u << 24;
+constexpr uint32_t rt_v5_hit_metadata_committed_valid = 1u << 25;
+
+constexpr uint32_t rt_v5_completion_valid = 1u << 31;
+constexpr uint32_t rt_v5_return_miss = 0x01;
+constexpr uint32_t rt_v5_return_closest_hit_ready = 0x02;
+constexpr uint32_t rt_v5_return_any_hit_required = 0x03;
+constexpr uint32_t rt_v5_return_intersection_required = 0x04;
+constexpr uint32_t rt_v5_return_hit_done_no_shader = 0x05;
+constexpr uint32_t rt_v5_return_fault = 0x06;
+
 constexpr reg_t rt_v5_private_frontier_0 = 0x00;
 constexpr reg_t rt_v5_private_ray_tmin = 0x30;
 constexpr reg_t rt_v5_private_ray_tmax = 0x34;

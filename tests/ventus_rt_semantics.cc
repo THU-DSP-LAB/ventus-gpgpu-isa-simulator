@@ -153,26 +153,44 @@ static void write_ray(TestMemory &mem, reg_t slot, reg_t accel)
   store_slot(mem, slot, 0, slot_tmax, bit_cast_u32(100.0f));
 }
 
+static void write_v5_ray(TestMemory &mem, reg_t pds, reg_t accel)
+{
+  mem.store32(pds + rt_v5_pds_traversable_reference, uint32_t(accel));
+  mem.store32(pds + rt_v5_pds_traversable_reference + 4,
+              uint32_t(uint64_t(accel) >> 32));
+  mem.store32(pds + rt_v5_pds_ray_flags, 0);
+  const uint32_t selector = 0xffu | (2u << 8) | (2u << 12);
+  mem.store32(pds + rt_v5_pds_trace_selector_control, selector);
+  write_vec3(mem, pds + rt_v5_pds_world_origin, 0.0f, 0.0f, 0.0f);
+  mem.store32(pds + rt_v5_pds_ray_tmin, bit_cast_u32(0.0f));
+  write_vec3(mem, pds + rt_v5_pds_world_direction, 0.0f, 0.0f, 1.0f);
+  mem.store32(pds + rt_v5_pds_ray_tmax, bit_cast_u32(100.0f));
+  mem.store32(pds + rt_v5_pds_committed_base + rt_v5_hit_t,
+              bit_cast_u32(100.0f));
+  mem.store32(pds + rt_v5_pds_committed_base + rt_v5_hit_metadata, 0);
+}
+
 static void write_v5_private_input(TestMemory &mem, reg_t pds,
                                    reg_t private_address, uint32_t root_ref)
 {
   mem.store32(private_address + rt_v5_private_frontier_0, root_ref);
   mem.store32(private_address + rt_v5_private_frontier_0 + 4, 0);
   mem.store32(private_address + rt_v5_private_ray_tmin,
-              load_slot(mem, pds, 0, slot_tmin));
+              mem.load32(pds + rt_v5_pds_ray_tmin));
   mem.store32(private_address + rt_v5_private_ray_tmax,
-              load_slot(mem, pds, 0, slot_tmax));
+              mem.load32(pds + rt_v5_pds_ray_tmax));
   mem.store32(private_address + rt_v5_private_ray_flags,
-              load_slot(mem, pds, 0, slot_flags));
+              mem.load32(pds + rt_v5_pds_ray_flags));
 
-  uint32_t hot = load_slot(mem, pds, 0, slot_cull_mask) & 0xffu;
+  uint32_t hot =
+      mem.load32(pds + rt_v5_pds_trace_selector_control) & 0xffu;
   for (uint32_t axis = 0; axis < 3; ++axis) {
     const float direction = bit_cast_f32(
-        load_slot(mem, pds, 0, slot_direction_x + axis));
+        mem.load32(pds + rt_v5_pds_world_direction + axis * 4));
     if (direction == 0.0f)
       hot |= uint32_t{1} << (14 + axis);
     mem.store32(private_address + rt_v5_private_origin + axis * 4,
-                load_slot(mem, pds, 0, slot_origin_x + axis));
+                mem.load32(pds + rt_v5_pds_world_origin + axis * 4));
     mem.store32(private_address + rt_v5_private_inv_direction + axis * 4,
                 bit_cast_u32(vtas_v2_inverse_direction(direction)));
     mem.store32(private_address + rt_v5_private_direction + axis * 4,
@@ -180,8 +198,8 @@ static void write_v5_private_input(TestMemory &mem, reg_t pds,
   }
   mem.store32(private_address + rt_v5_private_hot_control, hot);
   const uint64_t accel =
-      uint64_t(load_slot(mem, pds, 0, slot_accel_lo)) |
-      (uint64_t(load_slot(mem, pds, 0, slot_accel_hi)) << 32);
+      uint64_t(mem.load32(pds + rt_v5_pds_traversable_reference)) |
+      (uint64_t(mem.load32(pds + rt_v5_pds_traversable_reference + 4)) << 32);
   mem.store32(private_address + rt_v5_private_active_as_base,
               uint32_t(accel));
   mem.store32(private_address + rt_v5_private_active_as_base + 4,
@@ -541,7 +559,7 @@ static void check_rtcore_model_v5_vtas_v2_private_frontier()
               instance_v2_root_parent_edge);
   write_vtas_v2_header(mem, blas, as_type_blas, triangle_ref, 1, 64);
   write_vtas_triangle(mem, blas + 0x50, 5.0f, 188, 2, 0);
-  write_ray(mem, pds, tlas);
+  write_v5_ray(mem, pds, tlas);
   write_v5_private_input(mem, pds, private_address, instance_ref);
 
   std::array<reg_t, v5_warp_lanes> pds_addresses{};
@@ -555,7 +573,15 @@ static void check_rtcore_model_v5_vtas_v2_private_frontier()
   RtCoreModel model;
   auto results = model.executeTraverseV5(
       hardware_warp_id, 1, pds_addresses, private_addresses, make_memory);
-  assert(results[0] == traversal_candidate_non_opaque_triangle);
+  assert(results[0] ==
+         (rt_v5_completion_valid | rt_v5_return_any_hit_required));
+  const uint32_t candidate_metadata =
+      mem.load32(pds + rt_v5_pds_callback_base + rt_v5_hit_metadata);
+  assert((candidate_metadata & rt_v5_hit_metadata_geometry_mask) ==
+         rt_v5_hit_geometry_triangle);
+  assert(((candidate_metadata >> rt_v5_hit_metadata_hit_kind_shift) & 0xffu) ==
+         triangle_hit_kind_front_face);
+  assert((candidate_metadata & rt_v5_hit_metadata_committed_valid) == 0);
   const uint64_t raw_frontier =
       uint64_t(mem.load32(private_address)) |
       (uint64_t(mem.load32(private_address + 4)) << 32);
@@ -588,14 +614,31 @@ static void check_rtcore_model_v5_vtas_v2_private_frontier()
   assert(mem.load32(private_address + rt_v5_private_instance_custom_index) ==
          0);
 
-  store_slot(mem, pds, control_base, control_callback_decision,
-             callback_ignore);
+  mem.store32(pds + rt_v5_pds_callback_base, 0);
   results = model.executeTraverseV5(
       hardware_warp_id, 1, pds_addresses, private_addresses, make_memory);
-  assert(results[0] == traversal_complete_miss);
+  assert(results[0] == (rt_v5_completion_valid | rt_v5_return_miss));
   model.executeReleaseV5(hardware_warp_id, 1, pds_addresses, make_memory);
 
-  write_ray(mem, pds, tlas);
+  write_v5_ray(mem, pds, tlas);
+  write_v5_private_input(mem, pds, private_address, instance_ref);
+  results = model.executeTraverseV5(
+      hardware_warp_id, 1, pds_addresses, private_addresses, make_memory);
+  assert(results[0] ==
+         (rt_v5_completion_valid | rt_v5_return_any_hit_required));
+  mem.store32(pds + rt_v5_pds_callback_base, 1);
+  results = model.executeTraverseV5(
+      hardware_warp_id, 1, pds_addresses, private_addresses, make_memory);
+  assert(results[0] ==
+         (rt_v5_completion_valid | rt_v5_return_closest_hit_ready));
+  const uint32_t committed_metadata =
+      mem.load32(pds + rt_v5_pds_committed_base + rt_v5_hit_metadata);
+  assert((committed_metadata & rt_v5_hit_metadata_committed_valid) != 0);
+  assert(mem.load32(pds + rt_v5_pds_committed_base +
+                    rt_v5_hit_primitive_index) == 188);
+  model.executeReleaseV5(hardware_warp_id, 1, pds_addresses, make_memory);
+
+  write_v5_ray(mem, pds, tlas);
   write_v5_private_input(mem, pds, private_address, instance_ref);
   mem.store32(private_address + rt_v5_private_ray_tmin,
               bit_cast_u32(1.0f));
@@ -1271,17 +1314,19 @@ static void check_rtcore_model_v5_lifecycle()
   write_scene(mem, accel, tris, 1);
   write_triangle(mem, tris, 2.0f, 61, 0, 0);
   write_scene(mem, empty_accel, tris, 0);
-  write_ray(mem, pds_addresses[0], accel);
-  write_ray(mem, pds_addresses[1], accel);
-  write_ray(mem, pds_addresses[2], empty_accel);
+  write_v5_ray(mem, pds_addresses[0], accel);
+  write_v5_ray(mem, pds_addresses[1], accel);
+  write_v5_ray(mem, pds_addresses[2], empty_accel);
 
   RtCoreModel model;
   auto results = model.executeTraverseV5(
       hardware_warp_id, original_mask, pds_addresses,
       private_state_addresses, make_memory);
-  assert(results[0] == traversal_candidate_non_opaque_triangle);
-  assert(results[1] == traversal_candidate_non_opaque_triangle);
-  assert(results[2] == traversal_complete_miss);
+  assert(results[0] ==
+         (rt_v5_completion_valid | rt_v5_return_any_hit_required));
+  assert(results[1] ==
+         (rt_v5_completion_valid | rt_v5_return_any_hit_required));
+  assert(results[2] == (rt_v5_completion_valid | rt_v5_return_miss));
 
   const ResidentWarpRecord *record =
       model.residentWarpRecord(hardware_warp_id);
@@ -1329,11 +1374,10 @@ static void check_rtcore_model_v5_lifecycle()
   }
   assert(rejected);
 
-  store_slot(mem, pds_addresses[0], control_base,
-             control_callback_decision, callback_ignore);
+  mem.store32(pds_addresses[0] + rt_v5_pds_callback_base, 0);
   results = model.executeTraverseV5(hardware_warp_id, 0x1, pds_addresses,
                                     private_state_addresses, make_memory);
-  assert(results[0] == traversal_complete_miss);
+  assert(results[0] == (rt_v5_completion_valid | rt_v5_return_miss));
   record = model.residentWarpRecord(hardware_warp_id);
   assert(record->state == ResidentWarpState::Active);
   assert(record->original_bound_mask == original_mask);
@@ -1343,11 +1387,10 @@ static void check_rtcore_model_v5_lifecycle()
   assert(record->requests[1].phase ==
          RequestControlPhase::PausedForSoftware);
 
-  store_slot(mem, pds_addresses[1], control_base,
-             control_callback_decision, callback_ignore);
+  mem.store32(pds_addresses[1] + rt_v5_pds_callback_base, 0);
   results = model.executeTraverseV5(hardware_warp_id, 0x2, pds_addresses,
                                     private_state_addresses, make_memory);
-  assert(results[1] == traversal_complete_miss);
+  assert(results[1] == (rt_v5_completion_valid | rt_v5_return_miss));
   record = model.residentWarpRecord(hardware_warp_id);
   assert(record->state == ResidentWarpState::TerminalResident);
   assert(record->original_bound_mask == original_mask);

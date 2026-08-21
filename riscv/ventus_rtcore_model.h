@@ -121,16 +121,18 @@ public:
       auto memory = memory_factory(reg_t(lane), pds_addresses[lane]);
       V5PrivateMemoryView<decltype(memory)> view{
           memory, private_state_addresses[lane]};
-      const uint32_t status =
+      const uint32_t traversal_status =
           ventus_rt::traverse(view, /* canonical PDS base */ 0,
                               private_state_);
-      results[lane] = status;
-      next.lane_result[lane] = status;
+      const uint32_t compact_result =
+          compactResult(traversal_status, view.hasCommittedHit());
+      results[lane] = compact_result;
+      next.lane_result[lane] = compact_result;
 
-      if (isPausedStatus(status)) {
+      if (isPausedStatus(traversal_status)) {
         next.requests[lane].phase =
             RequestControlPhase::PausedForSoftware;
-      } else if (isTerminalStatus(status)) {
+      } else if (isTerminalStatus(traversal_status)) {
         next.live_request_mask &= ~bit;
         next.terminal_mask |= bit;
         next.requests[lane] = RequestControlEntry{};
@@ -232,11 +234,75 @@ private:
   template <typename Memory> struct V5PrivateMemoryView {
     Memory &memory;
     reg_t private_state_address;
+    uint32_t callback_effect = 0;
 
     uint64_t rt_context_key(reg_t) const { return private_state_address; }
-    uint32_t load32(reg_t address) { return memory.load32(address); }
+    uint32_t load32(reg_t address)
+    {
+      if (address >= rt_v5_pds_size_bytes)
+        return memory.load32(address);
+
+      if (address == word_addr(0, control_base,
+                               control_callback_decision)) {
+        callback_effect = memory.load32(rt_v5_pds_callback_base);
+        if ((callback_effect & ~uint32_t{3}) != 0 ||
+            ((callback_effect & uint32_t{2}) != 0 &&
+             (callback_effect & uint32_t{1}) == 0))
+          return callback_pending;
+        if (callback_effect & uint32_t{2})
+          return callback_terminate;
+        return (callback_effect & uint32_t{1}) ? callback_accept
+                                               : callback_ignore;
+      }
+
+      if (address == word_addr(0, 0, slot_status))
+        return slot_status_trace_request;
+      if (address == word_addr(0, 0, slot_accel_lo))
+        return memory.load32(rt_v5_pds_traversable_reference);
+      if (address == word_addr(0, 0, slot_accel_hi))
+        return memory.load32(rt_v5_pds_traversable_reference + 4);
+      if (address == word_addr(0, 0, slot_flags))
+        return memory.load32(rt_v5_pds_ray_flags);
+      if (address == word_addr(0, 0, slot_cull_mask))
+        return memory.load32(rt_v5_pds_trace_selector_control) & 0xffu;
+      if (address == word_addr(0, 0, slot_sbt_offset))
+        return (memory.load32(rt_v5_pds_trace_selector_control) >> 8) & 0xfu;
+      if (address == word_addr(0, 0, slot_sbt_stride))
+        return (memory.load32(rt_v5_pds_trace_selector_control) >> 12) & 0xfu;
+      if (address == word_addr(0, 0, slot_miss_index))
+        return memory.load32(rt_v5_pds_trace_selector_control) >> 16;
+      if (address >= word_addr(0, 0, slot_origin_x) &&
+          address <= word_addr(0, 0, slot_tmax))
+        return memory.load32(address);
+
+      reg_t base = 0;
+      reg_t word = 0;
+      if (legacyHitAddress(address, base, word))
+        return loadLegacyHitWord(base, word);
+      return memory.load32(address);
+    }
     void store32(reg_t address, uint32_t value)
     {
+      if (address >= rt_v5_pds_size_bytes) {
+        memory.store32(address, value);
+        return;
+      }
+      if (address == word_addr(0, control_base,
+                               control_callback_decision)) {
+        memory.store32(rt_v5_pds_callback_base, 0);
+        return;
+      }
+      if (address == word_addr(0, 0, slot_status) ||
+          address == word_addr(0, 0, slot_hit_t) ||
+          address == word_addr(0, 0, slot_sbt_index))
+        return;
+
+      reg_t base = 0;
+      reg_t word = 0;
+      if (legacyHitAddress(address, base, word)) {
+        storeLegacyHitWord(base, word, value);
+        return;
+      }
       memory.store32(address, value);
     }
     uint64_t rt_private_load64(reg_t offset)
@@ -259,6 +325,165 @@ private:
       memory.store32(private_state_address + offset + 4,
                      uint32_t(value >> 32));
     }
+    bool hasCommittedHit()
+    {
+      return (memory.load32(rt_v5_pds_committed_base + rt_v5_hit_metadata) &
+              rt_v5_hit_metadata_committed_valid) != 0;
+    }
+
+  private:
+    static bool legacyHitAddress(reg_t address, reg_t &base, reg_t &word)
+    {
+      if (address >= candidate_hit_record_base &&
+          address < candidate_hit_record_base + 19 * sizeof(uint32_t)) {
+        base = rt_v5_pds_callback_base;
+        word = (address - candidate_hit_record_base) / sizeof(uint32_t);
+        return true;
+      }
+      if (address >= committed_hit_record_base &&
+          address < committed_hit_record_base + 19 * sizeof(uint32_t)) {
+        base = rt_v5_pds_committed_base;
+        word = (address - committed_hit_record_base) / sizeof(uint32_t);
+        return true;
+      }
+      return false;
+    }
+
+    uint32_t loadLegacyHitWord(reg_t base, reg_t word)
+    {
+      const uint32_t metadata = memory.load32(base + rt_v5_hit_metadata);
+      switch (word) {
+      case hit_record_status:
+        return base == rt_v5_pds_committed_base
+                   ? ((metadata & rt_v5_hit_metadata_committed_valid) != 0)
+                   : hit_record_valid;
+      case hit_record_hit_t:
+        return memory.load32(base + rt_v5_hit_t);
+      case hit_record_sbt_index:
+      case hit_record_shader_record_ptr_lo:
+      case hit_record_shader_record_ptr_hi:
+        return 0;
+      case hit_record_primitive_id:
+        return memory.load32(base + rt_v5_hit_primitive_index);
+      case hit_record_instance_id:
+        return memory.load32(base + rt_v5_hit_instance_index);
+      case hit_record_geometry_id:
+        return memory.load32(base + rt_v5_hit_geometry_index);
+      case hit_record_hit_kind:
+        return (metadata >> rt_v5_hit_metadata_hit_kind_shift) & 0xffu;
+      case hit_record_barycentrics_x:
+        return memory.load32(base + rt_v5_hit_attributes);
+      case hit_record_barycentrics_y:
+        return memory.load32(base + rt_v5_hit_attributes + 4);
+      case hit_record_primitive_addr_lo:
+        return memory.load32(base + rt_v5_hit_primitive_reference);
+      case hit_record_primitive_addr_hi:
+        return memory.load32(base + rt_v5_hit_primitive_reference + 4);
+      case hit_record_instance_addr_lo:
+        return memory.load32(base + rt_v5_hit_instance_metadata_reference);
+      case hit_record_instance_addr_hi:
+        return memory.load32(base + rt_v5_hit_instance_metadata_reference + 4);
+      case hit_record_front_face:
+        return ((metadata >> rt_v5_hit_metadata_hit_kind_shift) & 0xffu) ==
+               triangle_hit_kind_front_face;
+      case hit_record_opaque:
+        return 0;
+      case hit_record_need_software_opacity_test:
+        return (metadata & rt_v5_hit_metadata_procedural_any_hit) != 0;
+      case hit_record_instance_sbt_record_offset:
+        return memory.load32(base + rt_v5_hit_instance_sbt_contribution);
+      default:
+        return 0;
+      }
+    }
+
+    void updateMetadata(reg_t base, uint32_t clear_mask, uint32_t set_mask)
+    {
+      uint32_t metadata = memory.load32(base + rt_v5_hit_metadata);
+      metadata = (metadata & ~clear_mask) | set_mask;
+      memory.store32(base + rt_v5_hit_metadata, metadata);
+    }
+
+    void storeLegacyHitWord(reg_t base, reg_t word, uint32_t value)
+    {
+      const bool committed = base == rt_v5_pds_committed_base;
+      switch (word) {
+      case hit_record_status:
+        if (committed) {
+          updateMetadata(base, rt_v5_hit_metadata_committed_valid,
+                         value == hit_record_valid
+                             ? rt_v5_hit_metadata_committed_valid
+                             : 0);
+        }
+        return;
+      case hit_record_hit_t:
+        memory.store32(base + rt_v5_hit_t, value);
+        return;
+      case hit_record_sbt_index:
+      case hit_record_shader_record_ptr_lo:
+      case hit_record_shader_record_ptr_hi:
+        return;
+      case hit_record_primitive_id:
+        memory.store32(base + rt_v5_hit_primitive_index, value);
+        return;
+      case hit_record_instance_id:
+        memory.store32(base + rt_v5_hit_instance_index, value);
+        return;
+      case hit_record_geometry_id:
+        memory.store32(base + rt_v5_hit_geometry_index, value);
+        return;
+      case hit_record_hit_kind: {
+        uint32_t metadata = memory.load32(base + rt_v5_hit_metadata);
+        if ((metadata & rt_v5_hit_metadata_geometry_mask) == 0) {
+          const bool triangle = value == triangle_hit_kind_front_face ||
+                                value == triangle_hit_kind_back_face;
+          metadata |= triangle
+                          ? rt_v5_hit_geometry_triangle |
+                                (8u <<
+                                 rt_v5_hit_metadata_attribute_count_shift) |
+                                (rt_v5_hit_attribute_barycentric_fp32x2
+                                 << rt_v5_hit_metadata_attribute_format_shift)
+                          : rt_v5_hit_geometry_procedural_aabb;
+        }
+        metadata &= ~(0xffu << rt_v5_hit_metadata_hit_kind_shift);
+        metadata |= (value & 0xffu)
+                    << rt_v5_hit_metadata_hit_kind_shift;
+        memory.store32(base + rt_v5_hit_metadata, metadata);
+        return;
+      }
+      case hit_record_barycentrics_x:
+        memory.store32(base + rt_v5_hit_attributes, value);
+        return;
+      case hit_record_barycentrics_y:
+        memory.store32(base + rt_v5_hit_attributes + 4, value);
+        return;
+      case hit_record_primitive_addr_lo:
+        memory.store32(base + rt_v5_hit_primitive_reference, value);
+        return;
+      case hit_record_primitive_addr_hi:
+        memory.store32(base + rt_v5_hit_primitive_reference + 4, value);
+        return;
+      case hit_record_instance_addr_lo:
+        memory.store32(base + rt_v5_hit_instance_metadata_reference, value);
+        return;
+      case hit_record_instance_addr_hi:
+        memory.store32(base + rt_v5_hit_instance_metadata_reference + 4,
+                       value);
+        return;
+      case hit_record_need_software_opacity_test:
+        updateMetadata(base, rt_v5_hit_metadata_procedural_any_hit,
+                       value ? rt_v5_hit_metadata_procedural_any_hit : 0);
+        return;
+      case hit_record_instance_sbt_record_offset:
+        memory.store32(base + rt_v5_hit_instance_sbt_contribution, value);
+        return;
+      case hit_record_front_face:
+      case hit_record_opaque:
+        return;
+      default:
+        return;
+      }
+    }
   };
 
   static uint32_t laneBit(std::size_t lane)
@@ -276,6 +501,30 @@ private:
   {
     return status == traversal_complete_miss ||
            status == traversal_complete_hit || status == traversal_terminated;
+  }
+
+  static uint32_t compactResult(uint32_t status, bool committed_hit)
+  {
+    uint32_t reason = rt_v5_return_fault;
+    switch (status) {
+    case traversal_complete_miss:
+      reason = rt_v5_return_miss;
+      break;
+    case traversal_complete_hit:
+      reason = rt_v5_return_closest_hit_ready;
+      break;
+    case traversal_candidate_non_opaque_triangle:
+      reason = rt_v5_return_any_hit_required;
+      break;
+    case traversal_candidate_procedural_aabb:
+      reason = rt_v5_return_intersection_required;
+      break;
+    case traversal_terminated:
+      reason = committed_hit ? rt_v5_return_hit_done_no_shader
+                             : rt_v5_return_miss;
+      break;
+    }
+    return rt_v5_completion_valid | reason;
   }
 
   static void validateAddressAlignment(reg_t pds_address,

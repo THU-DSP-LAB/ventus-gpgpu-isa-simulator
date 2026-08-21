@@ -15,6 +15,13 @@ bool lane_active(processor_t *p, reg_t lane)
   return p->gpgpu_unit.simt_stack.lane_active(lane);
 }
 
+reg_t resident_hardware_warp_id(processor_t *p)
+{
+  // CSR_TID is workgroup-local and repeats for each one-warp RT workgroup.
+  // The Spike hart ID is the unique resident warp slot within this SM model.
+  return p->get_id();
+}
+
 void require_ventus_custom_state(processor_t *p, insn_t insn)
 {
   if (!p->get_state()->sstatus->enabled(SSTATUS_VS) ||
@@ -262,7 +269,7 @@ void ventus_exec_rt_traverse_v5(processor_t *p, insn_t insn)
 
   if (issue_mask != 0) {
     const auto results = model->executeTraverseV5(
-        p->get_csr(CSR_TID), issue_mask, pds_addresses,
+        resident_hardware_warp_id(p), issue_mask, pds_addresses,
         private_state_addresses,
         [p](reg_t, reg_t pds_address) {
           return ventus_rt::make_canonical_pds_memory(*p->get_mmu(),
@@ -303,13 +310,14 @@ void ventus_exec_rt_release(processor_t *p, insn_t insn)
         slot >= ventus_rt::rt_pds_total_size_bytes;
   }
 
-  const auto *resident = model->residentWarpRecord(p->get_csr(CSR_TID));
+  const reg_t hardware_warp_id = resident_hardware_warp_id(p);
+  const auto *resident = model->residentWarpRecord(hardware_warp_id);
   const bool v5_release =
       resident != nullptr &&
       resident->state != ventus_rt::ResidentWarpState::Unbound;
   if (v5_release || operand_exceeds_legacy_slot) {
     model->executeReleaseV5(
-        p->get_csr(CSR_TID), active_mask, operands,
+        hardware_warp_id, active_mask, operands,
         [p](reg_t, reg_t pds_address) {
           return ventus_rt::make_canonical_pds_memory(*p->get_mmu(),
                                                        pds_address);
