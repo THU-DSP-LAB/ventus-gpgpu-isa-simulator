@@ -10,7 +10,10 @@
 #include <limits>
 #include <stdexcept>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
+
+#include "ventus_rt_vtas_v2_codec.h"
 
 #ifndef VENTUS_RT_STANDALONE
 #include "decode.h"
@@ -31,6 +34,20 @@ constexpr reg_t rt_pds_total_size_bytes =
     rt_pds_base_bytes + rt_region_size_bytes;
 constexpr reg_t rt_v5_pds_size_bytes = 384;
 constexpr reg_t rt_worker_local_size_bytes = rt_region_size_bytes;
+
+constexpr reg_t rt_v5_private_frontier_0 = 0x00;
+constexpr reg_t rt_v5_private_ray_tmin = 0x30;
+constexpr reg_t rt_v5_private_ray_tmax = 0x34;
+constexpr reg_t rt_v5_private_ray_flags = 0x38;
+constexpr reg_t rt_v5_private_hot_control = 0x3c;
+constexpr reg_t rt_v5_private_origin = 0x40;
+constexpr reg_t rt_v5_private_inv_direction = 0x4c;
+constexpr reg_t rt_v5_private_active_as_base = 0x58;
+constexpr reg_t rt_v5_private_direction = 0x60;
+constexpr reg_t rt_v5_private_instance_sbt_contribution = 0x6c;
+constexpr reg_t rt_v5_private_instance_metadata_reference = 0x70;
+constexpr reg_t rt_v5_private_instance_index = 0x78;
+constexpr reg_t rt_v5_private_instance_custom_index = 0x7c;
 
 constexpr reg_t slot_status = 0;
 constexpr reg_t slot_accel_lo = 1;
@@ -121,6 +138,8 @@ constexpr uint32_t as_header_magic = 0x00;
 constexpr uint32_t as_header_version = 0x04;
 constexpr uint32_t as_header_type = 0x08;
 constexpr uint32_t as_header_root_node_ref = 0x10;
+constexpr uint32_t as_header_node_region_offset = 0x18;
+constexpr uint32_t as_header_node_region_size = 0x1c;
 constexpr uint32_t as_header_root_aabb_min_x = 0x30;
 constexpr uint32_t as_header_root_aabb_min_y = 0x34;
 constexpr uint32_t as_header_root_aabb_min_z = 0x38;
@@ -148,6 +167,12 @@ constexpr uint32_t box4_min_z = 0x30;
 constexpr uint32_t box4_max_x = 0x40;
 constexpr uint32_t box4_max_y = 0x50;
 constexpr uint32_t box4_max_z = 0x60;
+constexpr uint32_t box4_v2_parent_node_ref = 0x70;
+constexpr uint32_t box4_v2_parent_child_index = 0x74;
+constexpr uint32_t box4_v2_node_flags = 0x75;
+constexpr uint32_t box4_v2_child_flags = 0x76;
+constexpr uint32_t box4_v2_reserved = 0x7a;
+constexpr uint32_t box4_v2_node_flag_root = 0x01;
 
 constexpr uint32_t triangle_v0 = 0x00;
 constexpr uint32_t triangle_v1 = 0x0c;
@@ -175,8 +200,13 @@ constexpr uint32_t instance_mask = 0x0c;
 constexpr uint32_t instance_sbt_record_offset = 0x10;
 constexpr uint32_t instance_flags = 0x14;
 constexpr uint32_t instance_instance_id = 0x18;
+constexpr uint32_t instance_v2_parent_edge = 0x1c;
 constexpr uint32_t instance_object_to_world = 0x20;
 constexpr uint32_t instance_world_to_object = 0x50;
+constexpr uint32_t instance_v2_root_parent_edge = 0xffffffffu;
+constexpr uint32_t instance_v2_parent_offset_mask = 0xffffff80u;
+constexpr uint32_t instance_v2_parent_reserved_mask = 0x0000007cu;
+constexpr uint32_t instance_v2_parent_child_mask = 0x00000003u;
 
 constexpr uint32_t ray_flag_force_opaque = 1u << 0;
 constexpr uint32_t ray_flag_force_non_opaque = 1u << 1;
@@ -1906,7 +1936,22 @@ struct RtPrivateContext {
   Ray ray;
   Scene scene;
   uint32_t next_primitive = 0;
+  uint16_t vtas_version = 0;
   std::vector<TraversalEntry> stack;
+  vtas_v2::FixedFrontier v2_frontier;
+  uint64_t v2_tlas_base = 0;
+  uint64_t v2_active_as_base = 0;
+  Ray v2_active_ray;
+  uint32_t v2_instance_id = 0;
+  uint32_t v2_instance_sbt_offset = 0;
+  uint64_t v2_instance_addr = 0;
+  uint32_t v2_replay_count = 0;
+  uint32_t v2_overflow_count = 0;
+  uint32_t v2_parent_bailout_count = 0;
+  uint32_t v2_cross_count = 0;
+  uint32_t v2_tlas_node_count = 0;
+  uint64_t v2_operation_count = 0;
+  uint64_t v2_operation_budget = 0;
 };
 
 template <typename Memory>
@@ -2043,9 +2088,587 @@ inline uint32_t trace_private_aabb_list(Memory &mem, reg_t slot,
   return finish_private_traversal(mem, slot, key, private_state);
 }
 
+struct VtasV2ChildHit {
+  uint32_t ref = invalid_node_ref;
+  float t_near = 0.0f;
+  uint8_t child_slot = 0;
+};
+
+struct VtasV2ParentResume {
+  bool valid = false;
+  bool root = false;
+  vtas_v2::FrontierEntry entry;
+};
+
 template <typename Memory>
-inline uint32_t trace_private_vtas(Memory &mem, reg_t slot, uint64_t key,
-                                   RtPrivateState &private_state)
+inline auto try_load_private_u64(Memory &mem, reg_t offset, uint64_t &value,
+                                 int)
+    -> decltype(mem.rt_private_load64(offset), bool())
+{
+  value = mem.rt_private_load64(offset);
+  return true;
+}
+
+template <typename Memory>
+inline bool try_load_private_u64(Memory &, reg_t, uint64_t &, long)
+{
+  return false;
+}
+
+template <typename Memory>
+inline auto try_load_private_u32(Memory &mem, reg_t offset, uint32_t &value,
+                                 int)
+    -> decltype(mem.rt_private_load32(offset), bool())
+{
+  value = mem.rt_private_load32(offset);
+  return true;
+}
+
+template <typename Memory>
+inline bool try_load_private_u32(Memory &, reg_t, uint32_t &, long)
+{
+  return false;
+}
+
+template <typename Memory>
+inline auto store_private_u64(Memory &mem, reg_t offset, uint64_t value, int)
+    -> decltype(mem.rt_private_store64(offset, value), void())
+{
+  mem.rt_private_store64(offset, value);
+}
+
+template <typename Memory>
+inline void store_private_u64(Memory &, reg_t, uint64_t, long)
+{
+}
+
+template <typename Memory>
+inline auto store_private_u32(Memory &mem, reg_t offset, uint32_t value, int)
+    -> decltype(mem.rt_private_store32(offset, value), void())
+{
+  mem.rt_private_store32(offset, value);
+}
+
+template <typename Memory>
+inline void store_private_u32(Memory &, reg_t, uint32_t, long)
+{
+}
+
+inline uint32_t vtas_v2_parallel_axis_mask(const Ray &ray)
+{
+  const float direction[3] = {
+      ray.direction.x, ray.direction.y, ray.direction.z};
+  uint32_t mask = 0;
+  for (uint32_t axis = 0; axis < 3; ++axis) {
+    if (direction[axis] == 0.0f)
+      mask |= uint32_t{1} << (14 + axis);
+  }
+  return mask;
+}
+
+inline float vtas_v2_inverse_direction(float direction)
+{
+  const float reciprocal = 1.0f / direction;
+  if (std::isfinite(reciprocal))
+    return reciprocal;
+  return direction < 0.0f ? -std::numeric_limits<float>::max()
+                          : std::numeric_limits<float>::max();
+}
+
+template <typename Memory>
+inline void sync_vtas_v2_private_state(Memory &mem, reg_t slot,
+                                       const RtPrivateContext &ctx)
+{
+  for (uint32_t index = 0; index < 6; ++index)
+    store_private_u64(mem, reg_t(index) * 8,
+                      ctx.v2_frontier.slots()[index], 0);
+  store_private_u32(mem, 0x30, bit_cast_u32(ctx.v2_active_ray.tmin), 0);
+  store_private_u32(mem, 0x34, bit_cast_u32(current_tmax(mem, slot)), 0);
+  store_private_u32(mem, 0x38, ctx.v2_active_ray.flags, 0);
+  uint32_t hot_control =
+      (ctx.v2_active_ray.cull_mask & 0xffu) |
+      (committed_hit_valid(mem, slot) ? uint32_t{1} << 8 : 0) |
+      (ctx.v2_instance_addr != 0 ? uint32_t{1} << 9 : 0) |
+      vtas_v2_parallel_axis_mask(ctx.v2_active_ray);
+  if (ctx.v2_instance_addr != 0)
+    hot_control |=
+        (mem.load32(ctx.v2_instance_addr + instance_flags) & 0xfu) << 10;
+  store_private_u32(mem, 0x3c, hot_control, 0);
+
+  const float origin[3] = {ctx.v2_active_ray.origin.x,
+                           ctx.v2_active_ray.origin.y,
+                           ctx.v2_active_ray.origin.z};
+  const float direction[3] = {ctx.v2_active_ray.direction.x,
+                              ctx.v2_active_ray.direction.y,
+                              ctx.v2_active_ray.direction.z};
+  for (uint32_t axis = 0; axis < 3; ++axis) {
+    store_private_u32(mem, rt_v5_private_origin + axis * 4,
+                      bit_cast_u32(origin[axis]), 0);
+    store_private_u32(mem, rt_v5_private_inv_direction + axis * 4,
+                      bit_cast_u32(vtas_v2_inverse_direction(direction[axis])),
+                      0);
+    store_private_u32(mem, rt_v5_private_direction + axis * 4,
+                      bit_cast_u32(direction[axis]), 0);
+  }
+  store_private_u64(mem, rt_v5_private_active_as_base,
+                    ctx.v2_active_as_base, 0);
+  store_private_u32(mem, rt_v5_private_instance_sbt_contribution,
+                    ctx.v2_instance_sbt_offset, 0);
+  store_private_u64(mem, rt_v5_private_instance_metadata_reference,
+                    ctx.v2_instance_addr, 0);
+  store_private_u32(mem, rt_v5_private_instance_index,
+                    ctx.v2_instance_id, 0);
+  store_private_u32(
+      mem, rt_v5_private_instance_custom_index,
+      ctx.v2_instance_addr != 0
+          ? mem.load32(ctx.v2_instance_addr + instance_custom_index)
+          : 0,
+      0);
+}
+
+inline void fail_vtas_v2(const char *reason)
+{
+  throw std::runtime_error(reason);
+}
+
+inline uint32_t vtas_v2_node_size(uint32_t type)
+{
+  switch (type) {
+  case node_box4: return vtas_v2::box4_size;
+  case node_triangle: return vtas_v2::triangle_size;
+  case node_instance: return vtas_v2::instance_size;
+  case node_aabb: return vtas_v2::aabb_size;
+  default: return 0;
+  }
+}
+
+template <typename Memory>
+inline void validate_vtas_v2_header(Memory &mem, uint64_t as_base,
+                                    uint32_t expected_type)
+{
+  if (as_base == 0)
+    fail_vtas_v2("ventus-rt: null VTAS V2 address");
+  const uint32_t version_size = mem.load32(as_base + as_header_version);
+  if (mem.load32(as_base + as_header_magic) != as_magic ||
+      (version_size & 0xffffu) != as_version_v2 ||
+      (version_size >> 16) != as_header_size ||
+      mem.load32(as_base + as_header_type) != expected_type ||
+      mem.load32(as_base + as_header_node_region_offset) != as_header_size)
+    fail_vtas_v2("ventus-rt: malformed VTAS V2 header");
+}
+
+template <typename Memory>
+inline void validate_vtas_v2_node_ref(Memory &mem, uint64_t as_base,
+                                      uint32_t ref,
+                                      vtas_v2::Domain domain)
+{
+  if (ref == invalid_node_ref)
+    fail_vtas_v2("ventus-rt: invalid VTAS V2 node reference");
+  const uint32_t type = node_ref_type(ref);
+  const uint32_t size = vtas_v2_node_size(type);
+  const uint32_t offset = node_ref_offset(ref);
+  const uint32_t region_offset =
+      mem.load32(as_base + as_header_node_region_offset);
+  const uint32_t region_size =
+      mem.load32(as_base + as_header_node_region_size);
+  const uint64_t region_end = uint64_t(region_offset) + region_size;
+  if (size == 0 || offset < region_offset ||
+      uint64_t(offset) + size > region_end ||
+      (type == node_box4 && (offset & (vtas_v2::box4_size - 1)) != 0))
+    fail_vtas_v2("ventus-rt: out-of-range VTAS V2 node reference");
+  const bool domain_type_valid =
+      domain == vtas_v2::Domain::tlas
+          ? (type == node_box4 || type == node_instance)
+          : (type == node_box4 || type == node_triangle ||
+             type == node_aabb);
+  if (!domain_type_valid)
+    fail_vtas_v2("ventus-rt: VTAS V2 node/domain mismatch");
+}
+
+template <typename Memory>
+inline uint32_t validate_vtas_v2_image(Memory &mem, uint64_t as_base,
+                                       uint32_t expected_type)
+{
+  validate_vtas_v2_header(mem, as_base, expected_type);
+  const uint32_t root = load_node_ref(mem, as_base);
+  const uint32_t expected_count =
+      mem.load32(as_base + vtas_v2::header_node_count);
+  const uint32_t region_size =
+      mem.load32(as_base + as_header_node_region_size);
+  if (root == invalid_node_ref) {
+    if (expected_count != 0)
+      fail_vtas_v2("ventus-rt: empty VTAS V2 has nonzero node count");
+    return 0;
+  }
+  if (expected_count == 0 || expected_count > region_size / 64u)
+    fail_vtas_v2("ventus-rt: impossible VTAS V2 node count");
+
+  struct Work {
+    uint32_t ref;
+    uint32_t parent_ref;
+    uint8_t parent_child;
+    bool root;
+  };
+  std::vector<Work> work = {{root, invalid_node_ref, 0xff, true}};
+  std::unordered_set<uint32_t> visited;
+  const vtas_v2::Domain domain =
+      expected_type == as_type_tlas ? vtas_v2::Domain::tlas
+                                    : vtas_v2::Domain::blas;
+
+  while (!work.empty()) {
+    const Work item = work.back();
+    work.pop_back();
+    if (!visited.insert(item.ref).second)
+      fail_vtas_v2("ventus-rt: VTAS V2 duplicate or cyclic node reference");
+    if (visited.size() > expected_count)
+      fail_vtas_v2("ventus-rt: VTAS V2 reachable node count overflow");
+    validate_vtas_v2_node_ref(mem, as_base, item.ref, domain);
+
+    const uint32_t type = node_ref_type(item.ref);
+    const reg_t node_addr = as_base + node_ref_offset(item.ref);
+    if (type == node_box4) {
+      const uint32_t parent_ref =
+          mem.load32(node_addr + box4_v2_parent_node_ref);
+      const uint32_t parent_control =
+          mem.load32(node_addr + box4_v2_parent_child_index);
+      const uint8_t parent_child = parent_control & 0xffu;
+      const uint8_t flags = (parent_control >> 8) & 0xffu;
+      if ((parent_control >> 16) != 0 ||
+          mem.load32(node_addr + box4_v2_child_flags + 2) != 0 ||
+          mem.load32(node_addr + box4_v2_reserved + 2) != 0)
+        fail_vtas_v2("ventus-rt: nonzero VTAS V2 Box4 reserved metadata");
+      if (item.root) {
+        if (item.ref != root || parent_ref != invalid_node_ref ||
+            parent_child != 0xff || flags != box4_v2_node_flag_root)
+          fail_vtas_v2("ventus-rt: malformed VTAS V2 Box4 root metadata");
+      } else if (parent_ref != item.parent_ref ||
+                 parent_child != item.parent_child || flags != 0) {
+        fail_vtas_v2("ventus-rt: VTAS V2 Box4 parent backlink mismatch");
+      }
+      for (uint8_t child = 0; child < 4; ++child) {
+        const uint32_t child_ref =
+            mem.load32(node_addr + box4_child_ref + child * 4);
+        if (child_ref != invalid_node_ref)
+          work.push_back({child_ref, item.ref, child, false});
+      }
+      continue;
+    }
+
+    if (type == node_instance) {
+      const uint32_t edge =
+          mem.load32(node_addr + instance_v2_parent_edge);
+      if (item.root) {
+        if (item.ref != root || edge != instance_v2_root_parent_edge)
+          fail_vtas_v2("ventus-rt: malformed VTAS V2 instance root metadata");
+      } else {
+        const uint32_t expected_edge =
+            node_ref_offset(item.parent_ref) | item.parent_child;
+        if ((edge & instance_v2_parent_reserved_mask) != 0 ||
+            edge != expected_edge)
+          fail_vtas_v2("ventus-rt: VTAS V2 instance parent backlink mismatch");
+      }
+    }
+  }
+
+  if (visited.size() != expected_count)
+    fail_vtas_v2("ventus-rt: VTAS V2 reachable node count mismatch");
+  return expected_count;
+}
+
+template <typename Memory>
+inline void validate_v5_private_initial_state(Memory &mem, const Ray &ray,
+                                              uint64_t accel_addr,
+                                              uint32_t root)
+{
+  uint64_t raw_root = 0;
+  if (!try_load_private_u64(mem, rt_v5_private_frontier_0, raw_root, 0))
+    return;
+  vtas_v2::FrontierEntry compiler_entry;
+  if (!vtas_v2::decode_frontier_entry(raw_root, compiler_entry) ||
+      compiler_entry.node_ref != root ||
+      compiler_entry.kind != vtas_v2::FrontierKind::direct_node ||
+      compiler_entry.domain != vtas_v2::Domain::tlas)
+    fail_vtas_v2("ventus-rt: compiler VTAS V2 root frontier mismatch");
+
+  const uint32_t expected_hot =
+      (ray.cull_mask & 0xffu) | vtas_v2_parallel_axis_mask(ray);
+  const reg_t offsets[] = {
+      rt_v5_private_ray_tmin,
+      rt_v5_private_ray_tmax,
+      rt_v5_private_ray_flags,
+      rt_v5_private_hot_control,
+  };
+  const uint32_t expected[] = {
+      bit_cast_u32(ray.tmin),
+      bit_cast_u32(ray.tmax),
+      ray.flags,
+      expected_hot,
+  };
+  for (uint32_t index = 0; index < 4; ++index) {
+    uint32_t actual = 0;
+    if (!try_load_private_u32(mem, offsets[index], actual, 0) ||
+        actual != expected[index])
+      fail_vtas_v2("ventus-rt: compiler VTAS V2 hot-state mismatch");
+  }
+
+  const float origin[3] = {ray.origin.x, ray.origin.y, ray.origin.z};
+  const float direction[3] = {
+      ray.direction.x, ray.direction.y, ray.direction.z};
+  for (uint32_t axis = 0; axis < 3; ++axis) {
+    uint32_t actual_origin = 0;
+    uint32_t actual_inverse = 0;
+    uint32_t actual_direction = 0;
+    if (!try_load_private_u32(mem, rt_v5_private_origin + axis * 4,
+                              actual_origin, 0) ||
+        !try_load_private_u32(mem,
+                              rt_v5_private_inv_direction + axis * 4,
+                              actual_inverse, 0) ||
+        !try_load_private_u32(mem, rt_v5_private_direction + axis * 4,
+                              actual_direction, 0) ||
+        actual_origin != bit_cast_u32(origin[axis]) ||
+        actual_inverse != bit_cast_u32(
+                              vtas_v2_inverse_direction(direction[axis])) ||
+        actual_direction != bit_cast_u32(direction[axis]))
+      fail_vtas_v2("ventus-rt: compiler VTAS V2 ray projection mismatch");
+  }
+  uint64_t actual_as = 0;
+  if (!try_load_private_u64(mem, rt_v5_private_active_as_base,
+                            actual_as, 0) || actual_as != accel_addr)
+    fail_vtas_v2("ventus-rt: compiler VTAS V2 active-AS mismatch");
+}
+
+template <typename Memory>
+inline VtasV2ParentResume resolve_vtas_v2_box_parent(
+    Memory &mem, const RtPrivateContext &ctx,
+    const vtas_v2::FrontierEntry &current)
+{
+  validate_vtas_v2_node_ref(mem, ctx.v2_active_as_base, current.node_ref,
+                            current.domain);
+  if (node_ref_type(current.node_ref) != node_box4)
+    fail_vtas_v2("ventus-rt: VTAS V2 bailout target is not Box4");
+  const reg_t node_addr =
+      ctx.v2_active_as_base + node_ref_offset(current.node_ref);
+  const uint32_t parent_ref =
+      mem.load32(node_addr + box4_v2_parent_node_ref);
+  const uint32_t parent_control =
+      mem.load32(node_addr + box4_v2_parent_child_index);
+  const uint8_t parent_child = parent_control & 0xffu;
+  const uint8_t flags = (parent_control >> 8) & 0xffu;
+  if ((parent_control >> 16) != 0 ||
+      mem.load32(node_addr + box4_v2_child_flags + 2) != 0 ||
+      mem.load32(node_addr + box4_v2_reserved + 2) != 0)
+    fail_vtas_v2("ventus-rt: nonzero VTAS V2 Box4 reserved metadata");
+
+  VtasV2ParentResume result;
+  if (parent_ref == invalid_node_ref) {
+    if (current.node_ref != load_node_ref(mem, ctx.v2_active_as_base) ||
+        parent_child != 0xff || flags != box4_v2_node_flag_root)
+      fail_vtas_v2("ventus-rt: malformed VTAS V2 Box4 root metadata");
+    result.root = true;
+    return result;
+  }
+  if (parent_child >= 4 || flags != 0)
+    fail_vtas_v2("ventus-rt: malformed VTAS V2 Box4 parent edge");
+  validate_vtas_v2_node_ref(mem, ctx.v2_active_as_base, parent_ref,
+                            current.domain);
+  if (node_ref_type(parent_ref) != node_box4 ||
+      mem.load32(ctx.v2_active_as_base + node_ref_offset(parent_ref) +
+                 box4_child_ref + parent_child * 4) != current.node_ref)
+    fail_vtas_v2("ventus-rt: VTAS V2 Box4 parent backlink mismatch");
+
+  result.valid = true;
+  result.entry.node_ref = parent_ref;
+  result.entry.kind = vtas_v2::FrontierKind::parent_resume;
+  result.entry.domain = current.domain;
+  result.entry.child_anchor = parent_child;
+  result.entry.anchor_valid = true;
+  return result;
+}
+
+template <typename Memory>
+inline uint32_t load_vtas_v2_instance_parent_edge(
+    Memory &mem, const RtPrivateContext &ctx, uint32_t instance_ref)
+{
+  validate_vtas_v2_node_ref(mem, ctx.v2_tlas_base, instance_ref,
+                            vtas_v2::Domain::tlas);
+  if (node_ref_type(instance_ref) != node_instance)
+    fail_vtas_v2("ventus-rt: VTAS V2 cross return is not an instance");
+  const reg_t instance_addr =
+      ctx.v2_tlas_base + node_ref_offset(instance_ref);
+  const uint32_t edge = mem.load32(instance_addr + instance_v2_parent_edge);
+  if (edge == instance_v2_root_parent_edge) {
+    if (instance_ref != load_node_ref(mem, ctx.v2_tlas_base))
+      fail_vtas_v2("ventus-rt: non-root VTAS V2 instance claims root");
+    return edge;
+  }
+  if ((edge & instance_v2_parent_reserved_mask) != 0)
+    fail_vtas_v2("ventus-rt: malformed VTAS V2 instance parent edge");
+  const uint8_t child = edge & instance_v2_parent_child_mask;
+  const uint32_t parent_ref =
+      (edge & instance_v2_parent_offset_mask) | node_box4;
+  validate_vtas_v2_node_ref(mem, ctx.v2_tlas_base, parent_ref,
+                            vtas_v2::Domain::tlas);
+  if (mem.load32(ctx.v2_tlas_base + node_ref_offset(parent_ref) +
+                 box4_child_ref + child * 4) != instance_ref)
+    fail_vtas_v2("ventus-rt: VTAS V2 instance parent backlink mismatch");
+  return edge;
+}
+
+inline bool vtas_v2_child_less(const VtasV2ChildHit &lhs,
+                               const VtasV2ChildHit &rhs)
+{
+  if (lhs.t_near != rhs.t_near)
+    return lhs.t_near < rhs.t_near;
+  if (lhs.child_slot != rhs.child_slot)
+    return lhs.child_slot < rhs.child_slot;
+  return lhs.ref < rhs.ref;
+}
+
+template <typename Memory>
+inline uint32_t collect_vtas_v2_box_hits(
+    Memory &mem, const RtPrivateContext &ctx,
+    const vtas_v2::FrontierEntry &entry, float committed_tmax,
+    VtasV2ChildHit (&filtered)[4])
+{
+  VtasV2ChildHit all[4];
+  uint32_t all_count = 0;
+  for (uint8_t child_slot = 0; child_slot < 4; ++child_slot) {
+    const reg_t node_addr =
+        ctx.v2_active_as_base + node_ref_offset(entry.node_ref);
+    const uint32_t child =
+        mem.load32(node_addr + box4_child_ref + child_slot * 4);
+    if (child == invalid_node_ref)
+      continue;
+    validate_vtas_v2_node_ref(mem, ctx.v2_active_as_base, child,
+                              entry.domain);
+    float t_near = 0.0f;
+    if (intersect_box4_child(mem, ctx.v2_active_as_base, entry.node_ref,
+                             child_slot, ctx.v2_active_ray, t_near))
+      all[all_count++] = {child, t_near, child_slot};
+  }
+  for (uint32_t index = 1; index < all_count; ++index) {
+    const VtasV2ChildHit value = all[index];
+    uint32_t insert = index;
+    while (insert > 0 && vtas_v2_child_less(value, all[insert - 1])) {
+      all[insert] = all[insert - 1];
+      --insert;
+    }
+    all[insert] = value;
+  }
+
+  int anchor_index = -1;
+  if (entry.anchor_valid) {
+    for (uint32_t index = 0; index < all_count; ++index) {
+      if (all[index].child_slot == entry.child_anchor) {
+        anchor_index = int(index);
+        break;
+      }
+    }
+    if (anchor_index < 0)
+      fail_vtas_v2("ventus-rt: VTAS V2 replay anchor is not reproducible");
+  }
+
+  uint32_t filtered_count = 0;
+  for (uint32_t index = 0; index < all_count; ++index) {
+    const bool selected_by_cursor =
+        !entry.anchor_valid || index > uint32_t(anchor_index) ||
+        (entry.inclusive && index == uint32_t(anchor_index));
+    if (selected_by_cursor && all[index].t_near < committed_tmax)
+      filtered[filtered_count++] = all[index];
+  }
+  return filtered_count;
+}
+
+inline bool vtas_v2_internal_ref(uint32_t ref)
+{
+  return node_ref_type(ref) == node_box4;
+}
+
+inline bool push_vtas_v2_node_route(
+    RtPrivateContext &ctx, const vtas_v2::FrontierEntry &current,
+    const VtasV2ChildHit (&hits)[4], uint32_t hit_count,
+    const VtasV2ParentResume &parent,
+    vtas_v2::FrontierEntry &selected)
+{
+  vtas_v2::FrontierEntry old_entries[6];
+  const uint8_t old_ordinary = ctx.v2_frontier.ordinary_size();
+  for (uint8_t index = 0; index < old_ordinary; ++index) {
+    if (!ctx.v2_frontier.read_logical(index, old_entries[index]))
+      fail_vtas_v2("ventus-rt: invalid VTAS V2 resident frontier");
+  }
+  vtas_v2::FrontierEntry protected_return;
+  if (ctx.v2_frontier.control().cross_as &&
+      !ctx.v2_frontier.read_logical(old_ordinary, protected_return))
+    fail_vtas_v2("ventus-rt: missing VTAS V2 cross-AS return");
+
+  const uint8_t capacity =
+      ctx.v2_frontier.control().cross_as ? 5 : 6;
+  vtas_v2::FrontierEntry merged[10];
+  uint8_t merged_count = 0;
+  const uint8_t frontier_count = hit_count == 0 ? 0 : hit_count - 1;
+  bool replayable = true;
+  for (uint8_t index = 0; index < frontier_count; ++index)
+    replayable = replayable && vtas_v2_internal_ref(hits[index + 1].ref);
+  const bool direct_remainder_fits =
+      hit_count != 0 && replayable &&
+      unsigned(old_ordinary) + frontier_count + (parent.valid ? 1 : 0) <=
+          capacity;
+
+  if (hit_count != 0 && direct_remainder_fits) {
+    for (uint8_t index = 0; index < frontier_count; ++index) {
+      vtas_v2::FrontierEntry direct;
+      direct.node_ref = hits[index + 1].ref;
+      direct.domain = current.domain;
+      merged[merged_count++] = direct;
+    }
+  } else if (frontier_count != 0) {
+    vtas_v2::FrontierEntry replay;
+    replay.node_ref = current.node_ref;
+    replay.kind = vtas_v2::FrontierKind::same_node_replay;
+    replay.domain = current.domain;
+    replay.child_anchor = hits[0].child_slot;
+    replay.anchor_valid = true;
+    merged[merged_count++] = replay;
+    ctx.v2_replay_count++;
+  }
+
+  bool parent_deferred = false;
+  if (parent.valid) {
+    if (merged_count < capacity)
+      merged[merged_count++] = parent.entry;
+    else
+      parent_deferred = true;
+  }
+  for (uint8_t index = 0; index < old_ordinary; ++index)
+    merged[merged_count++] = old_entries[index];
+
+  const bool overflow = merged_count > capacity || parent_deferred;
+  if (overflow)
+    ctx.v2_overflow_count++;
+  const uint8_t retained = merged_count > capacity ? capacity : merged_count;
+  vtas_v2::FrontierEntry final_entries[6];
+  for (uint8_t index = 0; index < retained; ++index)
+    final_entries[index] = merged[index];
+  uint8_t final_count = retained;
+  if (ctx.v2_frontier.control().cross_as)
+    final_entries[final_count++] = protected_return;
+  const bool lost = ctx.v2_frontier.control().lost || overflow;
+  if (!ctx.v2_frontier.rewrite(final_entries, final_count,
+                               ctx.v2_frontier.control().cross_as, lost))
+    fail_vtas_v2("ventus-rt: rejected VTAS V2 route transition");
+
+  if (hit_count == 0)
+    return false;
+  const vtas_v2::Domain selected_domain = current.domain;
+  selected = {};
+  selected.node_ref = hits[0].ref;
+  selected.domain = selected_domain;
+  return true;
+}
+
+template <typename Memory>
+inline uint32_t trace_private_vtas_v1(Memory &mem, reg_t slot, uint64_t key,
+                                      RtPrivateState &private_state)
 {
   RtPrivateContext &ctx = private_state.contexts().at(key);
   while (!ctx.stack.empty()) {
@@ -2137,6 +2760,225 @@ inline uint32_t trace_private_vtas(Memory &mem, reg_t slot, uint64_t key,
 }
 
 template <typename Memory>
+inline void enter_vtas_v2_blas(Memory &mem, RtPrivateContext &ctx,
+                               const vtas_v2::FrontierEntry &instance_entry)
+{
+  if (instance_entry.domain != vtas_v2::Domain::tlas ||
+      ctx.v2_frontier.control().cross_as)
+    fail_vtas_v2("ventus-rt: nested VTAS V2 AS crossing");
+  const reg_t instance_addr =
+      ctx.v2_tlas_base + node_ref_offset(instance_entry.node_ref);
+  (void)load_vtas_v2_instance_parent_edge(mem, ctx,
+                                           instance_entry.node_ref);
+  const uint64_t blas = load_u64(mem, instance_addr + instance_blas_addr_lo);
+  const uint32_t blas_node_count =
+      validate_vtas_v2_image(mem, blas, as_type_blas);
+  if (ctx.v2_cross_count >= ctx.v2_tlas_node_count)
+    fail_vtas_v2("ventus-rt: VTAS V2 cross-AS watchdog exceeded");
+  const uint64_t added_budget =
+      std::max<uint64_t>(256, uint64_t(blas_node_count) * 64);
+  if (ctx.v2_operation_budget >
+      std::numeric_limits<uint64_t>::max() - added_budget)
+    fail_vtas_v2("ventus-rt: VTAS V2 operation budget overflow");
+  ctx.v2_operation_budget += added_budget;
+
+  vtas_v2::FrontierEntry cross_return;
+  cross_return.node_ref = instance_entry.node_ref;
+  cross_return.kind = vtas_v2::FrontierKind::cross_as_return;
+  cross_return.domain = vtas_v2::Domain::tlas;
+  if (!ctx.v2_frontier.reset_to(cross_return, true, false))
+    fail_vtas_v2("ventus-rt: cannot install VTAS V2 cross-AS return");
+
+  ctx.v2_active_as_base = blas;
+  ctx.v2_active_ray = ctx.ray;
+  ctx.v2_active_ray.origin = transform_instance_point(
+      mem, instance_addr + instance_world_to_object, ctx.ray.origin);
+  ctx.v2_active_ray.direction = transform_instance_vector(
+      mem, instance_addr + instance_world_to_object, ctx.ray.direction);
+  ctx.v2_instance_id = mem.load32(instance_addr + instance_instance_id);
+  ctx.v2_instance_sbt_offset =
+      mem.load32(instance_addr + instance_sbt_record_offset);
+  ctx.v2_instance_addr = instance_addr;
+  ctx.v2_cross_count++;
+
+  const uint32_t root = load_node_ref(mem, blas);
+  if (root != invalid_node_ref) {
+    validate_vtas_v2_node_ref(mem, blas, root, vtas_v2::Domain::blas);
+    vtas_v2::FrontierEntry root_entry;
+    root_entry.node_ref = root;
+    root_entry.domain = vtas_v2::Domain::blas;
+    if (!ctx.v2_frontier.push_top(root_entry))
+      fail_vtas_v2("ventus-rt: cannot install VTAS V2 BLAS root");
+  }
+}
+
+template <typename Memory>
+inline void return_vtas_v2_to_tlas(Memory &mem, RtPrivateContext &ctx)
+{
+  if (!ctx.v2_frontier.control().cross_as ||
+      ctx.v2_frontier.control().lost ||
+      ctx.v2_frontier.ordinary_size() != 0 ||
+      ctx.v2_frontier.size() != 1)
+    fail_vtas_v2("ventus-rt: invalid VTAS V2 BLAS return state");
+  vtas_v2::FrontierEntry return_entry;
+  if (!ctx.v2_frontier.read_logical(0, return_entry) ||
+      return_entry.kind != vtas_v2::FrontierKind::cross_as_return)
+    fail_vtas_v2("ventus-rt: missing VTAS V2 BLAS return entry");
+
+  const uint32_t edge = load_vtas_v2_instance_parent_edge(
+      mem, ctx, return_entry.node_ref);
+  ctx.v2_active_as_base = ctx.v2_tlas_base;
+  ctx.v2_active_ray = ctx.ray;
+  ctx.v2_instance_id = 0;
+  ctx.v2_instance_sbt_offset = 0;
+  ctx.v2_instance_addr = 0;
+  if (edge == instance_v2_root_parent_edge) {
+    ctx.v2_frontier.clear();
+    return;
+  }
+
+  vtas_v2::FrontierEntry parent;
+  parent.node_ref = (edge & instance_v2_parent_offset_mask) | node_box4;
+  parent.kind = vtas_v2::FrontierKind::parent_resume;
+  parent.domain = vtas_v2::Domain::tlas;
+  parent.child_anchor = edge & instance_v2_parent_child_mask;
+  parent.anchor_valid = true;
+  if (!ctx.v2_frontier.reset_to(parent, false, true))
+    fail_vtas_v2("ventus-rt: cannot install VTAS V2 TLAS parent resume");
+}
+
+template <typename Memory>
+inline uint32_t trace_private_vtas_v2(Memory &mem, reg_t slot, uint64_t key,
+                                      RtPrivateState &private_state)
+{
+  RtPrivateContext &ctx = private_state.contexts().at(key);
+  bool current_valid = false;
+  vtas_v2::FrontierEntry current;
+
+  while (true) {
+    if (++ctx.v2_operation_count > ctx.v2_operation_budget)
+      fail_vtas_v2("ventus-rt: VTAS V2 traversal watchdog exceeded");
+    VtasV2ParentResume parent;
+    if (!current_valid) {
+      if (!ctx.v2_frontier.valid())
+        fail_vtas_v2("ventus-rt: invalid VTAS V2 frontier state");
+      if (ctx.v2_frontier.empty()) {
+        if (ctx.v2_frontier.control().cross_as ||
+            ctx.v2_frontier.control().lost)
+          fail_vtas_v2("ventus-rt: incomplete VTAS V2 frontier drained");
+        sync_vtas_v2_private_state(mem, slot, ctx);
+        return finish_private_traversal(mem, slot, key, private_state);
+      }
+      if (ctx.v2_frontier.control().cross_as &&
+          ctx.v2_frontier.ordinary_size() == 0) {
+        return_vtas_v2_to_tlas(mem, ctx);
+        sync_vtas_v2_private_state(mem, slot, ctx);
+        continue;
+      }
+
+      const bool parent_bailout =
+          ctx.v2_frontier.control().lost &&
+          ctx.v2_frontier.ordinary_size() == 1;
+      if (!ctx.v2_frontier.pop_top(current))
+        fail_vtas_v2("ventus-rt: cannot pop VTAS V2 frontier");
+      if (parent_bailout) {
+        if (node_ref_type(current.node_ref) != node_box4 ||
+            current.kind == vtas_v2::FrontierKind::cross_as_return)
+          fail_vtas_v2("ventus-rt: VTAS V2 lost state lacks internal anchor");
+        parent = resolve_vtas_v2_box_parent(mem, ctx, current);
+        ctx.v2_parent_bailout_count++;
+        if (parent.root)
+          ctx.v2_frontier.control().lost = false;
+      }
+    }
+    current_valid = false;
+
+    const vtas_v2::Domain active_domain =
+        ctx.v2_frontier.control().cross_as ? vtas_v2::Domain::blas
+                                           : vtas_v2::Domain::tlas;
+    if (current.domain != active_domain ||
+        current.kind == vtas_v2::FrontierKind::cross_as_return)
+      fail_vtas_v2("ventus-rt: VTAS V2 active-domain mismatch");
+    validate_vtas_v2_node_ref(mem, ctx.v2_active_as_base,
+                              current.node_ref, current.domain);
+    const uint32_t type = node_ref_type(current.node_ref);
+    const reg_t node_addr =
+        ctx.v2_active_as_base + node_ref_offset(current.node_ref);
+
+    if (type == node_box4) {
+      VtasV2ChildHit hits[4];
+      const uint32_t hit_count = collect_vtas_v2_box_hits(
+          mem, ctx, current, current_tmax(mem, slot), hits);
+      current_valid = push_vtas_v2_node_route(
+          ctx, current, hits, hit_count, parent, current);
+      sync_vtas_v2_private_state(mem, slot, ctx);
+      continue;
+    }
+    if (parent.valid || parent.root)
+      fail_vtas_v2("ventus-rt: VTAS V2 parent bailout consumed a leaf");
+
+    Ray ray = ctx.v2_active_ray;
+    ray.tmax = current_tmax(mem, slot);
+    if (type == node_instance) {
+      if (current.domain != vtas_v2::Domain::tlas)
+        fail_vtas_v2("ventus-rt: VTAS V2 instance outside TLAS");
+      const uint32_t mask = mem.load32(node_addr + instance_mask);
+      if ((ray.cull_mask & mask) == 0)
+        continue;
+      enter_vtas_v2_blas(mem, ctx, current);
+      sync_vtas_v2_private_state(mem, slot, ctx);
+      continue;
+    }
+
+    if (type == node_aabb) {
+      const ProceduralAabb aabb = load_vtas_aabb(
+          mem, ctx.v2_active_as_base, current.node_ref, ctx.v2_instance_id,
+          ctx.v2_instance_sbt_offset, ctx.v2_instance_addr,
+          ray.sbt_stride);
+      float hit_t = 0.0f;
+      if (!intersect_aabb(ray, aabb, hit_t) ||
+          !private_candidate_is_before_tmax(mem, slot, hit_t))
+        continue;
+      Hit candidate = hit_from_aabb(aabb, hit_t);
+      if (!prepare_aabb_candidate(ray, candidate))
+        continue;
+      sync_vtas_v2_private_state(mem, slot, ctx);
+      return pause_private_candidate(mem, slot, ctx.scene, candidate,
+                                     traversal_candidate_procedural_aabb);
+    }
+
+    if (type != node_triangle)
+      fail_vtas_v2("ventus-rt: unsupported VTAS V2 leaf type");
+    const Triangle tri = load_vtas_triangle(
+        mem, ctx.v2_active_as_base, current.node_ref, ctx.v2_instance_id,
+        ctx.v2_instance_sbt_offset, ctx.v2_instance_addr, ray.sbt_stride);
+    Hit candidate;
+    candidate.t = ray.tmax;
+    if (!intersect_triangle(ray, tri, candidate) ||
+        !prepare_triangle_candidate(ray, candidate))
+      continue;
+    if (!candidate.tri.opaque) {
+      sync_vtas_v2_private_state(mem, slot, ctx);
+      return pause_private_candidate(mem, slot, ctx.scene, candidate,
+                                     traversal_candidate_non_opaque_triangle);
+    }
+    commit_hit(mem, slot, ctx.scene, candidate);
+    if (ray.flags & ray_flag_terminate_on_first_hit)
+      return finish_private_traversal(mem, slot, key, private_state);
+  }
+}
+
+template <typename Memory>
+inline uint32_t trace_private_vtas(Memory &mem, reg_t slot, uint64_t key,
+                                   RtPrivateState &private_state)
+{
+  const RtPrivateContext &ctx = private_state.contexts().at(key);
+  return ctx.vtas_version == as_version_v2
+             ? trace_private_vtas_v2(mem, slot, key, private_state)
+             : trace_private_vtas_v1(mem, slot, key, private_state);
+}
+
+template <typename Memory>
 inline uint32_t traverse(Memory &mem, reg_t slot,
                          RtPrivateState &private_state)
 {
@@ -2183,17 +3025,45 @@ inline uint32_t traverse(Memory &mem, reg_t slot,
     return finish_private_traversal(mem, slot, key, private_state);
 
   if (mem.load32(accel_addr + 0) == as_magic) {
-    if (!is_supported_vtas_version(
-          mem.load32(accel_addr + as_header_version) & 0xffffu) ||
+    const uint16_t vtas_version =
+        mem.load32(accel_addr + as_header_version) & 0xffffu;
+    if (!is_supported_vtas_version(vtas_version) ||
         mem.load32(accel_addr + as_header_type) != as_type_tlas)
       return finish_private_traversal(mem, slot, key, private_state);
+    uint32_t v2_tlas_node_count = 0;
+    if (vtas_version == as_version_v2)
+      v2_tlas_node_count =
+          validate_vtas_v2_image(mem, accel_addr, as_type_tlas);
     RtPrivateContext ctx = {};
     ctx.kind = RtPrivateTraversalKind::vtas;
+    ctx.vtas_version = vtas_version;
     ctx.ray = ray;
     ctx.scene.hit_sbt_base = 0;
     ctx.scene.shader_group_handle_size = 32;
-    ctx.stack.push_back({accel_addr, load_node_ref(mem, accel_addr), ray, 0, 0, 0});
+    const uint32_t root = load_node_ref(mem, accel_addr);
+    if (root == invalid_node_ref)
+      return finish_private_traversal(mem, slot, key, private_state);
+    if (vtas_version == as_version_v2) {
+      validate_vtas_v2_node_ref(mem, accel_addr, root,
+                                vtas_v2::Domain::tlas);
+      vtas_v2::FrontierEntry root_entry;
+      root_entry.node_ref = root;
+      root_entry.domain = vtas_v2::Domain::tlas;
+      validate_v5_private_initial_state(mem, ray, accel_addr, root);
+      if (!ctx.v2_frontier.reset_to(root_entry, false, false))
+        fail_vtas_v2("ventus-rt: cannot initialize VTAS V2 root frontier");
+      ctx.v2_tlas_base = accel_addr;
+      ctx.v2_active_as_base = accel_addr;
+      ctx.v2_active_ray = ray;
+      ctx.v2_tlas_node_count = v2_tlas_node_count;
+      ctx.v2_operation_budget =
+          std::max<uint64_t>(1024, uint64_t(v2_tlas_node_count) * 64);
+    } else {
+      ctx.stack.push_back({accel_addr, root, ray, 0, 0, 0});
+    }
     contexts.emplace(key, std::move(ctx));
+    if (vtas_version == as_version_v2)
+      sync_vtas_v2_private_state(mem, slot, contexts.at(key));
     return trace_private_vtas(mem, slot, key, private_state);
   }
 

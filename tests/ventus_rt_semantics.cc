@@ -153,6 +153,41 @@ static void write_ray(TestMemory &mem, reg_t slot, reg_t accel)
   store_slot(mem, slot, 0, slot_tmax, bit_cast_u32(100.0f));
 }
 
+static void write_v5_private_input(TestMemory &mem, reg_t pds,
+                                   reg_t private_address, uint32_t root_ref)
+{
+  mem.store32(private_address + rt_v5_private_frontier_0, root_ref);
+  mem.store32(private_address + rt_v5_private_frontier_0 + 4, 0);
+  mem.store32(private_address + rt_v5_private_ray_tmin,
+              load_slot(mem, pds, 0, slot_tmin));
+  mem.store32(private_address + rt_v5_private_ray_tmax,
+              load_slot(mem, pds, 0, slot_tmax));
+  mem.store32(private_address + rt_v5_private_ray_flags,
+              load_slot(mem, pds, 0, slot_flags));
+
+  uint32_t hot = load_slot(mem, pds, 0, slot_cull_mask) & 0xffu;
+  for (uint32_t axis = 0; axis < 3; ++axis) {
+    const float direction = bit_cast_f32(
+        load_slot(mem, pds, 0, slot_direction_x + axis));
+    if (direction == 0.0f)
+      hot |= uint32_t{1} << (14 + axis);
+    mem.store32(private_address + rt_v5_private_origin + axis * 4,
+                load_slot(mem, pds, 0, slot_origin_x + axis));
+    mem.store32(private_address + rt_v5_private_inv_direction + axis * 4,
+                bit_cast_u32(vtas_v2_inverse_direction(direction)));
+    mem.store32(private_address + rt_v5_private_direction + axis * 4,
+                bit_cast_u32(direction));
+  }
+  mem.store32(private_address + rt_v5_private_hot_control, hot);
+  const uint64_t accel =
+      uint64_t(load_slot(mem, pds, 0, slot_accel_lo)) |
+      (uint64_t(load_slot(mem, pds, 0, slot_accel_hi)) << 32);
+  mem.store32(private_address + rt_v5_private_active_as_base,
+              uint32_t(accel));
+  mem.store32(private_address + rt_v5_private_active_as_base + 4,
+              uint32_t(accel >> 32));
+}
+
 static void write_vtas_header(TestMemory &mem, reg_t addr, uint32_t type,
                               uint32_t root_ref)
 {
@@ -160,6 +195,20 @@ static void write_vtas_header(TestMemory &mem, reg_t addr, uint32_t type,
   mem.store32(addr + as_header_version, as_version);
   mem.store32(addr + as_header_type, type);
   mem.store32(addr + as_header_root_node_ref, root_ref);
+}
+
+static void write_vtas_v2_header(TestMemory &mem, reg_t addr, uint32_t type,
+                                 uint32_t root_ref, uint32_t node_count,
+                                 uint32_t region_size)
+{
+  mem.store32(addr + as_header_magic, as_magic);
+  mem.store32(addr + as_header_version,
+              as_version_v2 | (as_header_size << 16));
+  mem.store32(addr + as_header_type, type);
+  mem.store32(addr + as_header_root_node_ref, root_ref);
+  mem.store32(addr + 0x14, node_count);
+  mem.store32(addr + as_header_node_region_offset, as_header_size);
+  mem.store32(addr + as_header_node_region_size, region_size);
 }
 
 static uint32_t make_node_ref(uint32_t offset, uint32_t type)
@@ -200,6 +249,32 @@ static void write_vtas_instance(TestMemory &mem, reg_t addr, reg_t blas,
                   bit_cast_u32(value));
     }
   }
+}
+
+static void write_vtas_v2_box4(TestMemory &mem, reg_t as_base,
+                               uint32_t node_offset,
+                               const std::array<uint32_t, 4> &children,
+                               uint32_t parent_ref, uint8_t parent_child,
+                               bool root)
+{
+  const reg_t addr = as_base + node_offset;
+  for (uint32_t child = 0; child < 4; ++child) {
+    mem.store32(addr + box4_child_ref + child * 4, children[child]);
+    if (children[child] == invalid_node_ref)
+      continue;
+    mem.store32(addr + box4_min_x + child * 4, bit_cast_u32(-1.0f));
+    mem.store32(addr + box4_min_y + child * 4, bit_cast_u32(-1.0f));
+    mem.store32(addr + box4_min_z + child * 4, bit_cast_u32(1.0f));
+    mem.store32(addr + box4_max_x + child * 4, bit_cast_u32(1.0f));
+    mem.store32(addr + box4_max_y + child * 4, bit_cast_u32(1.0f));
+    mem.store32(addr + box4_max_z + child * 4, bit_cast_u32(9.0f));
+  }
+  mem.store32(addr + box4_v2_parent_node_ref, parent_ref);
+  mem.store32(addr + box4_v2_parent_child_index,
+              uint32_t(parent_child) |
+                  (uint32_t(root ? box4_v2_node_flag_root : 0) << 8));
+  mem.store32(addr + box4_v2_child_flags + 2, 0);
+  mem.store32(addr + box4_v2_reserved + 2, 0);
 }
 
 static void write_vtas_aabb(TestMemory &mem, reg_t addr,
@@ -278,6 +353,260 @@ static void check_vtas_tlas_blas_triangle_hit()
   assert(std::fabs(bit_cast_f32(load_slot(mem, slot, committed_hit_record_base,
                                           hit_record_hit_t)) -
                    5.0f) < 0.001f);
+}
+
+static void check_vtas_v2_blas_internal_node_domain()
+{
+  TestMemory mem;
+  constexpr reg_t slot = 0;
+  constexpr reg_t tlas = 0x40000;
+  constexpr reg_t blas = 0x50000;
+  constexpr uint32_t instance_ref = 0x50 | node_instance;
+  constexpr uint32_t box_ref = 0x80 | node_box4;
+  constexpr uint32_t triangle_ref = 0x100 | node_triangle;
+
+  write_vtas_v2_header(mem, tlas, as_type_tlas, instance_ref, 1, 128);
+  write_vtas_instance(mem, tlas + 0x50, blas, 31, 2);
+  mem.store32(tlas + 0x50 + instance_v2_parent_edge,
+              instance_v2_root_parent_edge);
+
+  write_vtas_v2_header(mem, blas, as_type_blas, box_ref, 2,
+                       0x140 - as_header_size);
+  write_vtas_v2_box4(
+      mem, blas, 0x80,
+      {triangle_ref, invalid_node_ref, invalid_node_ref, invalid_node_ref},
+      invalid_node_ref, 0xff, true);
+  write_vtas_triangle(mem, blas + 0x100, 5.0f, 91, 3, 0);
+  write_ray(mem, slot, tlas);
+
+  RtPrivateState state;
+  assert(traverse(mem, slot, state) ==
+         traversal_candidate_non_opaque_triangle);
+  assert(load_slot(mem, slot, candidate_hit_record_base,
+                   hit_record_primitive_id) == 91);
+  store_slot(mem, slot, control_base, control_callback_decision,
+             callback_ignore);
+  assert(traverse(mem, slot, state) == traversal_complete_miss);
+}
+
+static void check_vtas_v2_fixed_stack_replay()
+{
+  TestMemory mem;
+  constexpr reg_t slot = 0;
+  constexpr reg_t tlas = 0x60000;
+  constexpr reg_t blas = 0x70000;
+  constexpr uint32_t depth = 8;
+  constexpr uint32_t box_start = 0x100;
+  constexpr uint32_t instance_start = box_start + depth * 0x80;
+  constexpr uint32_t instance_count = depth + 1;
+  constexpr uint32_t region_end =
+      instance_start + instance_count * 0x80;
+
+  write_vtas_v2_header(mem, blas, as_type_blas,
+                       make_node_ref(0x50, node_triangle), 1, 64);
+  write_vtas_triangle(mem, blas + 0x50, 5.0f, 177, 2, 0);
+
+  write_vtas_v2_header(mem, tlas, as_type_tlas,
+                       make_node_ref(box_start, node_box4),
+                       depth + instance_count, region_end - as_header_size);
+  for (uint32_t level = 0; level < depth; ++level) {
+    const uint32_t box_offset = box_start + level * 0x80;
+    const uint32_t deferred_instance = instance_start + level * 0x80;
+    const uint32_t selected =
+        level + 1 < depth
+            ? make_node_ref(box_offset + 0x80, node_box4)
+            : make_node_ref(instance_start + depth * 0x80, node_instance);
+    const std::array<uint32_t, 4> children = {
+        selected,
+        make_node_ref(deferred_instance, node_instance),
+        invalid_node_ref,
+        invalid_node_ref,
+    };
+    write_vtas_v2_box4(
+        mem, tlas, box_offset, children,
+        level == 0 ? invalid_node_ref
+                   : make_node_ref(box_offset - 0x80, node_box4),
+        level == 0 ? 0xff : 0, level == 0);
+  }
+  for (uint32_t index = 0; index < instance_count; ++index) {
+    const uint32_t instance_offset = instance_start + index * 0x80;
+    write_vtas_instance(mem, tlas + instance_offset, blas, 100 + index, 4);
+    const uint32_t parent_level = index == depth ? depth - 1 : index;
+    const uint32_t child_index = index == depth ? 0 : 1;
+    mem.store32(tlas + instance_offset + instance_v2_parent_edge,
+                box_start + parent_level * 0x80 + child_index);
+  }
+
+  write_ray(mem, slot, tlas);
+  RtPrivateState state;
+  uint32_t status = traverse(mem, slot, state);
+  assert(status == traversal_candidate_non_opaque_triangle);
+  assert(state.context_count() == 1);
+  const uint64_t key = rt_context_key(mem, slot, 0);
+  const RtPrivateContext &paused = state.contexts().at(key);
+  assert(paused.vtas_version == as_version_v2);
+  assert(paused.stack.empty());
+  assert(paused.v2_frontier.valid());
+  assert(paused.v2_frontier.size() <= 6);
+  assert(paused.v2_replay_count > 0);
+  assert(paused.v2_overflow_count > 0);
+  assert(paused.v2_cross_count > 0);
+
+  uint32_t candidate_count = 0;
+  uint32_t max_parent_bailouts = 0;
+  std::array<bool, instance_count> seen_instances{};
+  while (status == traversal_candidate_non_opaque_triangle) {
+    const uint32_t instance_id = load_slot(
+        mem, slot, candidate_hit_record_base, hit_record_instance_id);
+    assert(instance_id >= 100 && instance_id < 100 + instance_count);
+    const uint32_t instance_index = instance_id - 100;
+    assert(!seen_instances[instance_index]);
+    seen_instances[instance_index] = true;
+    candidate_count++;
+    max_parent_bailouts = std::max(
+        max_parent_bailouts,
+        state.contexts().at(key).v2_parent_bailout_count);
+    store_slot(mem, slot, control_base, control_callback_decision,
+               callback_ignore);
+    status = traverse(mem, slot, state);
+  }
+  assert(status == traversal_complete_miss);
+  assert(candidate_count == instance_count);
+  for (bool seen : seen_instances)
+    assert(seen);
+  assert(max_parent_bailouts > 0);
+  assert(state.context_count() == 0);
+
+  const uint32_t deepest_instance = instance_start + depth * 0x80;
+  mem.store32(tlas + deepest_instance + instance_v2_parent_edge,
+              box_start + (depth - 1) * 0x80 + 4);
+  write_ray(mem, slot, tlas);
+  RtPrivateState malformed_state;
+  bool rejected = false;
+  try {
+    (void)traverse(mem, slot, malformed_state);
+  } catch (const std::runtime_error &) {
+    rejected = true;
+  }
+  assert(rejected);
+  release(mem, slot, malformed_state);
+
+  mem.store32(tlas + deepest_instance + instance_v2_parent_edge,
+              box_start + (depth - 1) * 0x80);
+  const uint32_t nonroot_box = box_start + 0x80;
+  mem.store32(tlas + nonroot_box + box4_v2_parent_node_ref,
+              invalid_node_ref);
+  mem.store32(tlas + nonroot_box + box4_v2_parent_child_index,
+              0xffu | (box4_v2_node_flag_root << 8));
+  write_ray(mem, slot, tlas);
+  RtPrivateState false_root_state;
+  rejected = false;
+  try {
+    (void)traverse(mem, slot, false_root_state);
+  } catch (const std::runtime_error &) {
+    rejected = true;
+  }
+  assert(rejected);
+
+  mem.store32(tlas + nonroot_box + box4_v2_parent_node_ref,
+              make_node_ref(box_start, node_box4));
+  mem.store32(tlas + nonroot_box + box4_v2_parent_child_index, 0);
+  mem.store32(tlas + box_start + box4_child_ref,
+              make_node_ref(box_start, node_box4));
+  write_ray(mem, slot, tlas);
+  RtPrivateState cyclic_state;
+  rejected = false;
+  try {
+    (void)traverse(mem, slot, cyclic_state);
+  } catch (const std::runtime_error &) {
+    rejected = true;
+  }
+  assert(rejected);
+}
+
+static void check_rtcore_model_v5_vtas_v2_private_frontier()
+{
+  TestMemory mem;
+  constexpr reg_t hardware_warp_id = 17;
+  constexpr reg_t pds = 0x3000;
+  constexpr reg_t private_address = 0x9000;
+  constexpr reg_t tlas = 0x80000;
+  constexpr reg_t blas = 0x81000;
+  constexpr uint32_t instance_ref = 0x50 | node_instance;
+  constexpr uint32_t triangle_ref = 0x50 | node_triangle;
+
+  write_vtas_v2_header(mem, tlas, as_type_tlas, instance_ref, 1, 128);
+  write_vtas_instance(mem, tlas + 0x50, blas, 55, 4);
+  mem.store32(tlas + 0x50 + instance_v2_parent_edge,
+              instance_v2_root_parent_edge);
+  write_vtas_v2_header(mem, blas, as_type_blas, triangle_ref, 1, 64);
+  write_vtas_triangle(mem, blas + 0x50, 5.0f, 188, 2, 0);
+  write_ray(mem, pds, tlas);
+  write_v5_private_input(mem, pds, private_address, instance_ref);
+
+  std::array<reg_t, v5_warp_lanes> pds_addresses{};
+  std::array<reg_t, v5_warp_lanes> private_addresses{};
+  pds_addresses[0] = pds;
+  private_addresses[0] = private_address;
+  auto make_memory = [&mem](reg_t, reg_t pds_address) {
+    return CanonicalTestPdsMemory{mem, pds_address};
+  };
+
+  RtCoreModel model;
+  auto results = model.executeTraverseV5(
+      hardware_warp_id, 1, pds_addresses, private_addresses, make_memory);
+  assert(results[0] == traversal_candidate_non_opaque_triangle);
+  const uint64_t raw_frontier =
+      uint64_t(mem.load32(private_address)) |
+      (uint64_t(mem.load32(private_address + 4)) << 32);
+  vtas_v2::FrontierEntry frontier;
+  assert(vtas_v2::decode_frontier_entry(raw_frontier, frontier));
+  assert(frontier.kind == vtas_v2::FrontierKind::cross_as_return);
+  assert(frontier.node_ref == instance_ref);
+  for (uint32_t frontier_slot = 1; frontier_slot < 6; ++frontier_slot) {
+    assert(mem.load32(private_address + frontier_slot * 8) == 0);
+    assert(mem.load32(private_address + frontier_slot * 8 + 4) == 0);
+  }
+  assert(mem.load32(private_address + rt_v5_private_ray_tmin) ==
+         bit_cast_u32(0.0f));
+  assert(mem.load32(private_address + rt_v5_private_ray_tmax) ==
+         bit_cast_u32(100.0f));
+  assert(mem.load32(private_address + rt_v5_private_ray_flags) == 0);
+  assert(mem.load32(private_address + rt_v5_private_hot_control) ==
+         (0xffu | (uint32_t{1} << 9) | (uint32_t{1} << 14) |
+          (uint32_t{1} << 15)));
+  assert(mem.load32(private_address + rt_v5_private_inv_direction) ==
+         bit_cast_u32(std::numeric_limits<float>::max()));
+  assert(mem.load32(private_address + rt_v5_private_active_as_base) == blas);
+  assert(mem.load32(private_address + rt_v5_private_active_as_base + 4) == 0);
+  assert(mem.load32(private_address + rt_v5_private_instance_sbt_contribution)
+         == 4);
+  assert(mem.load32(private_address +
+                    rt_v5_private_instance_metadata_reference) ==
+         tlas + 0x50);
+  assert(mem.load32(private_address + rt_v5_private_instance_index) == 55);
+  assert(mem.load32(private_address + rt_v5_private_instance_custom_index) ==
+         0);
+
+  store_slot(mem, pds, control_base, control_callback_decision,
+             callback_ignore);
+  results = model.executeTraverseV5(
+      hardware_warp_id, 1, pds_addresses, private_addresses, make_memory);
+  assert(results[0] == traversal_complete_miss);
+  model.executeReleaseV5(hardware_warp_id, 1, pds_addresses, make_memory);
+
+  write_ray(mem, pds, tlas);
+  write_v5_private_input(mem, pds, private_address, instance_ref);
+  mem.store32(private_address + rt_v5_private_ray_tmin,
+              bit_cast_u32(1.0f));
+  bool rejected = false;
+  try {
+    (void)model.executeTraverseV5(
+        hardware_warp_id, 1, pds_addresses, private_addresses, make_memory);
+  } catch (const std::runtime_error &) {
+    rejected = true;
+  }
+  assert(rejected);
 }
 
 static void check_triangle_facing_culling()
@@ -1089,6 +1418,8 @@ int main()
   check_invalid_callback_decision_fails_closed();
   check_procedural_candidate_report_accept();
   check_vtas_tlas_blas_triangle_hit();
+  check_vtas_v2_blas_internal_node_domain();
+  check_vtas_v2_fixed_stack_replay();
   check_triangle_facing_culling();
   check_effective_opacity_culling();
   check_primitive_type_culling();
@@ -1096,5 +1427,6 @@ int main()
   check_rt_private_context_abi();
   check_rtcore_model_owns_private_state();
   check_rtcore_model_v5_lifecycle();
+  check_rtcore_model_v5_vtas_v2_private_frontier();
   return 0;
 }

@@ -377,8 +377,146 @@ inline bool validate_stack(const uint64_t slots[6], const StackControl &control)
       return false;
     }
   }
+  if (control.lost) {
+    const uint8_t ordinary_count =
+        control.count - (control.cross_as ? 1 : 0);
+    if (ordinary_count == 0)
+      return false;
+    FrontierEntry recovery;
+    if (!decode_frontier_entry(
+            slots[(control.top + ordinary_count - 1) % 6], recovery) ||
+        node_type(recovery.node_ref) != node_box4 ||
+        recovery.kind == FrontierKind::cross_as_return)
+      return false;
+  }
   return true;
 }
+
+class FixedFrontier {
+public:
+  const StackControl &control() const { return control_; }
+  StackControl &control() { return control_; }
+  const uint64_t *slots() const { return slots_; }
+
+  void clear()
+  {
+    for (uint64_t &slot : slots_)
+      slot = 0;
+    control_ = {};
+  }
+
+  bool empty() const { return control_.count == 0; }
+  uint8_t size() const { return control_.count; }
+  uint8_t ordinary_size() const
+  {
+    return control_.count - (control_.cross_as ? 1 : 0);
+  }
+
+  bool peek_top(FrontierEntry &entry) const
+  {
+    return control_.count != 0 &&
+           decode_frontier_entry(slots_[control_.top], entry);
+  }
+
+  bool read_logical(uint8_t logical_index, FrontierEntry &entry) const
+  {
+    if (logical_index >= control_.count)
+      return false;
+    return decode_frontier_entry(
+        slots_[(control_.top + logical_index) % 6], entry);
+  }
+
+  bool push_top(const FrontierEntry &entry)
+  {
+    uint64_t raw;
+    if (control_.count >= 6 || !encode_frontier_entry(entry, raw))
+      return false;
+    control_.top = control_.count == 0
+                       ? 0
+                       : uint8_t((control_.top + 5) % 6);
+    slots_[control_.top] = raw;
+    control_.count++;
+    return validate_stack(slots_, control_);
+  }
+
+  bool pop_top(FrontierEntry &entry)
+  {
+    if (!peek_top(entry))
+      return false;
+    slots_[control_.top] = 0;
+    control_.count--;
+    control_.top = control_.count == 0
+                       ? 0
+                       : uint8_t((control_.top + 1) % 6);
+    return true;
+  }
+
+  bool drop_bottom_ordinary()
+  {
+    if (ordinary_size() == 0)
+      return false;
+    if (!control_.cross_as) {
+      const uint8_t bottom = uint8_t((control_.top + control_.count - 1) % 6);
+      slots_[bottom] = 0;
+      control_.count--;
+      if (control_.count == 0)
+        control_.top = 0;
+      return validate_stack(slots_, control_);
+    }
+
+    const uint8_t ordinary_bottom =
+        uint8_t((control_.top + control_.count - 2) % 6);
+    const uint8_t return_bottom =
+        uint8_t((control_.top + control_.count - 1) % 6);
+    slots_[ordinary_bottom] = slots_[return_bottom];
+    slots_[return_bottom] = 0;
+    control_.count--;
+    return validate_stack(slots_, control_);
+  }
+
+  bool reset_to(const FrontierEntry &entry, bool cross_as, bool lost)
+  {
+    clear();
+    uint64_t raw;
+    if (!encode_frontier_entry(entry, raw))
+      return false;
+    slots_[0] = raw;
+    control_.count = 1;
+    control_.top = 0;
+    control_.cross_as = cross_as;
+    control_.lost = lost;
+    return validate_stack(slots_, control_);
+  }
+
+  bool rewrite(const FrontierEntry *entries, uint8_t count,
+               bool cross_as, bool lost)
+  {
+    if (count > 6 || (count != 0 && entries == nullptr))
+      return false;
+    clear();
+    control_.count = count;
+    control_.top = 0;
+    control_.cross_as = cross_as;
+    control_.lost = lost;
+    for (uint8_t index = 0; index < count; ++index) {
+      if (!encode_frontier_entry(entries[index], slots_[index])) {
+        clear();
+        return false;
+      }
+    }
+    if (!validate_stack(slots_, control_)) {
+      clear();
+      return false;
+    }
+    return true;
+  }
+
+  bool valid() const { return validate_stack(slots_, control_); }
+
+private:
+  uint64_t slots_[6] = {};
+  StackControl control_;
+};
 
 } // namespace vtas_v2
 } // namespace ventus_rt

@@ -239,6 +239,26 @@ private:
     {
       memory.store32(address, value);
     }
+    uint64_t rt_private_load64(reg_t offset)
+    {
+      const uint64_t lo = memory.load32(private_state_address + offset);
+      const uint64_t hi = memory.load32(private_state_address + offset + 4);
+      return lo | (hi << 32);
+    }
+    uint32_t rt_private_load32(reg_t offset)
+    {
+      return memory.load32(private_state_address + offset);
+    }
+    void rt_private_store32(reg_t offset, uint32_t value)
+    {
+      memory.store32(private_state_address + offset, value);
+    }
+    void rt_private_store64(reg_t offset, uint64_t value)
+    {
+      memory.store32(private_state_address + offset, uint32_t(value));
+      memory.store32(private_state_address + offset + 4,
+                     uint32_t(value >> 32));
+    }
   };
 
   static uint32_t laneBit(std::size_t lane)

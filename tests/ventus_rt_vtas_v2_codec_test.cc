@@ -151,6 +151,35 @@ int main(int argc, char **argv)
   assert(!encode_stack_control(empty_bad_top, raw_control));
   assert(!validate_stack(slots, empty_bad_top));
 
+  FixedFrontier fixed;
+  assert(fixed.reset_to(direct, false, false));
+  assert(fixed.size() == 1 && fixed.ordinary_size() == 1);
+  FrontierEntry parent_tlas = parent;
+  parent_tlas.domain = Domain::tlas;
+  assert(fixed.push_top(parent_tlas));
+  FrontierEntry logical;
+  assert(fixed.read_logical(0, logical));
+  assert(logical.kind == FrontierKind::parent_resume);
+  assert(fixed.read_logical(1, logical));
+  assert(logical.kind == FrontierKind::direct_node);
+  assert(fixed.pop_top(logical));
+  assert(logical.kind == FrontierKind::parent_resume);
+  assert(fixed.drop_bottom_ordinary());
+  assert(fixed.empty());
+
+  FrontierEntry crossed[2] = {direct, cross};
+  crossed[0].domain = Domain::blas;
+  assert(fixed.rewrite(crossed, 2, true, false));
+  assert(fixed.ordinary_size() == 1);
+  assert(fixed.drop_bottom_ordinary());
+  assert(fixed.size() == 1 && fixed.ordinary_size() == 0);
+  assert(fixed.read_logical(0, logical));
+  assert(logical.kind == FrontierKind::cross_as_return);
+  assert(fixed.valid());
+
+  crossed[0].node_ref = 80 | node_instance;
+  assert(!fixed.rewrite(crossed, 2, true, true));
+
   if (argc == 2) {
     std::ifstream stream(argv[1], std::ios::binary);
     assert(stream.good());
