@@ -110,7 +110,9 @@ constexpr uint32_t geometry_triangle_list = 1;
 constexpr uint32_t geometry_procedural_aabb_list = 2;
 
 constexpr uint32_t as_magic = 0x53415456; // "VTAS"
-constexpr uint32_t as_version = 1;
+constexpr uint32_t as_version_v1 = 1;
+constexpr uint32_t as_version_v2 = 2;
+constexpr uint32_t as_version = as_version_v1;
 constexpr uint32_t as_type_blas = 1;
 constexpr uint32_t as_type_tlas = 2;
 constexpr uint32_t as_header_size = 0x50;
@@ -133,6 +135,11 @@ constexpr uint32_t node_triangle = 2;
 constexpr uint32_t node_instance = 3;
 constexpr uint32_t node_aabb = 4;
 constexpr uint32_t invalid_node_ref = 0xffffffffu;
+
+inline bool is_supported_vtas_version(uint32_t version)
+{
+  return version == as_version_v1 || version == as_version_v2;
+}
 
 constexpr uint32_t box4_child_ref = 0x00;
 constexpr uint32_t box4_min_x = 0x10;
@@ -1293,7 +1300,8 @@ inline uint32_t trace_vtas(Memory &mem, reg_t slot, const Ray &ray,
   TraversalDebugCounters debug_counters;
 
   if (mem.load32(tlas_addr + as_header_magic) != as_magic ||
-      (mem.load32(tlas_addr + as_header_version) & 0xffffu) != as_version ||
+      !is_supported_vtas_version(
+        mem.load32(tlas_addr + as_header_version) & 0xffffu) ||
       mem.load32(tlas_addr + as_header_type) != as_type_tlas) {
     if (debug) {
       std::fprintf(stderr,
@@ -1653,7 +1661,8 @@ inline uint32_t trace_vtas_cont(Memory &mem, reg_t slot, const Ray &ray,
                                 uint64_t tlas_addr)
 {
   if (mem.load32(tlas_addr + as_header_magic) != as_magic ||
-      (mem.load32(tlas_addr + as_header_version) & 0xffffu) != as_version ||
+      !is_supported_vtas_version(
+        mem.load32(tlas_addr + as_header_version) & 0xffffu) ||
       mem.load32(tlas_addr + as_header_type) != as_type_tlas)
     return finish_traversal(mem, slot);
 
@@ -2174,7 +2183,8 @@ inline uint32_t traverse(Memory &mem, reg_t slot,
     return finish_private_traversal(mem, slot, key, private_state);
 
   if (mem.load32(accel_addr + 0) == as_magic) {
-    if ((mem.load32(accel_addr + as_header_version) & 0xffffu) != as_version ||
+    if (!is_supported_vtas_version(
+          mem.load32(accel_addr + as_header_version) & 0xffffu) ||
         mem.load32(accel_addr + as_header_type) != as_type_tlas)
       return finish_private_traversal(mem, slot, key, private_state);
     RtPrivateContext ctx = {};
