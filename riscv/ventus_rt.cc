@@ -33,6 +33,7 @@ struct Triangle {
   Vec3 v2;
   uint32_t primitive_id = 0;
   uint32_t instance_id = 0;
+  uint32_t instance_custom_index = 0;
   uint32_t geometry_id = 0;
   uint32_t sbt_index = 0;
   uint32_t instance_sbt_record_offset = 0;
@@ -47,6 +48,7 @@ struct ProceduralAabb {
   Vec3 max;
   uint32_t primitive_id = 0;
   uint32_t instance_id = 0;
+  uint32_t instance_custom_index = 0;
   uint32_t geometry_id = 0;
   uint32_t sbt_index = 0;
   uint32_t instance_sbt_record_offset = 0;
@@ -251,6 +253,7 @@ inline Hit hit_from_aabb(const ProceduralAabb &aabb, float hit_t)
   hit.front_face = true;
   hit.tri.primitive_id = aabb.primitive_id;
   hit.tri.instance_id = aabb.instance_id;
+  hit.tri.instance_custom_index = aabb.instance_custom_index;
   hit.tri.geometry_id = aabb.geometry_id;
   hit.tri.sbt_index = aabb.sbt_index;
   hit.tri.instance_sbt_record_offset = aabb.instance_sbt_record_offset;
@@ -320,6 +323,8 @@ inline void write_hit_record(Memory &mem, reg_t slot, reg_t base,
              uint32_t(shader_record_ptr >> 32));
   store_word(mem, slot, base, hit_record_primitive_id, hit.tri.primitive_id);
   store_word(mem, slot, base, hit_record_instance_id, hit.tri.instance_id);
+  store_word(mem, slot, base, hit_record_instance_custom_index,
+             hit.tri.instance_custom_index);
   store_word(mem, slot, base, hit_record_geometry_id, hit.tri.geometry_id);
   store_word(mem, slot, base, hit_record_hit_kind, hit.tri.hit_kind);
   store_word(mem, slot, base, hit_record_barycentrics_x,
@@ -389,6 +394,7 @@ template <typename Memory>
 inline Triangle load_vtas_triangle(Memory &mem, uint64_t as_base,
                                    uint32_t node_ref,
                                    uint32_t instance_id,
+                                   uint32_t instance_custom_index,
                                    uint32_t instance_sbt_offset,
                                    uint64_t instance_addr)
 {
@@ -399,6 +405,7 @@ inline Triangle load_vtas_triangle(Memory &mem, uint64_t as_base,
   tri.v2 = load_vec3(mem, addr + triangle_v2);
   tri.primitive_id = mem.load32(addr + triangle_primitive_id);
   tri.instance_id = instance_id;
+  tri.instance_custom_index = instance_custom_index;
   tri.geometry_id = mem.load32(addr + triangle_geometry_id);
   tri.sbt_index = mem.load32(addr + triangle_sbt_record_offset);
   tri.instance_sbt_record_offset = instance_sbt_offset;
@@ -412,6 +419,7 @@ inline Triangle load_vtas_triangle(Memory &mem, uint64_t as_base,
 template <typename Memory>
 inline ProceduralAabb load_vtas_aabb(Memory &mem, uint64_t as_base,
                                      uint32_t node_ref, uint32_t instance_id,
+                                     uint32_t instance_custom_index,
                                      uint32_t instance_sbt_offset,
                                      uint64_t instance_addr)
 {
@@ -421,6 +429,7 @@ inline ProceduralAabb load_vtas_aabb(Memory &mem, uint64_t as_base,
   aabb.max = load_vec3(mem, addr + aabb_max);
   aabb.primitive_id = mem.load32(addr + aabb_primitive_id);
   aabb.instance_id = instance_id;
+  aabb.instance_custom_index = instance_custom_index;
   aabb.geometry_id = mem.load32(addr + aabb_geometry_id);
   aabb.sbt_index = mem.load32(addr + aabb_sbt_record_offset);
   aabb.instance_sbt_record_offset = instance_sbt_offset;
@@ -494,6 +503,7 @@ struct TraversalEntry {
   uint32_t node_ref = invalid_node_ref;
   Ray ray;
   uint32_t instance_id = 0;
+  uint32_t instance_custom_index = 0;
   uint32_t instance_sbt_offset = 0;
   uint64_t instance_addr = 0;
   uint32_t instance_flags = 0;
@@ -693,7 +703,8 @@ inline uint32_t trace_private_vtas(Memory &mem, reg_t slot, uint64_t key)
       for (uint32_t i = hit_count; i > 0; --i)
         if (!push_private_entry(
                 ctx, {entry.as_base, hits[i - 1].ref, entry.ray,
-                      entry.instance_id, entry.instance_sbt_offset,
+                      entry.instance_id, entry.instance_custom_index,
+                      entry.instance_sbt_offset,
                       entry.instance_addr, entry.instance_flags}))
           return abort_private_traversal(mem, slot, key);
       continue;
@@ -716,6 +727,7 @@ inline uint32_t trace_private_vtas(Memory &mem, reg_t slot, uint64_t key)
       if (!push_private_entry(
               ctx, {blas, load_node_ref(mem, blas), object_ray,
                     mem.load32(node_addr + instance_instance_id),
+                    mem.load32(node_addr + instance_custom_index),
                     mem.load32(node_addr + instance_sbt_record_offset),
                     node_addr, mem.load32(node_addr + instance_flags)}))
         return abort_private_traversal(mem, slot, key);
@@ -725,6 +737,7 @@ inline uint32_t trace_private_vtas(Memory &mem, reg_t slot, uint64_t key)
     if (type == node_aabb) {
       const ProceduralAabb aabb = load_vtas_aabb(
           mem, entry.as_base, entry.node_ref, entry.instance_id,
+          entry.instance_custom_index,
           entry.instance_sbt_offset, entry.instance_addr);
       float hit_t = 0.0f;
       if (!intersect_aabb(entry.ray, aabb, hit_t) ||
@@ -741,6 +754,7 @@ inline uint32_t trace_private_vtas(Memory &mem, reg_t slot, uint64_t key)
       continue;
     const Triangle tri = load_vtas_triangle(mem, entry.as_base, entry.node_ref,
                                              entry.instance_id,
+                                             entry.instance_custom_index,
                                              entry.instance_sbt_offset,
                                              entry.instance_addr);
     Hit candidate;
@@ -803,7 +817,7 @@ inline uint32_t traverse(Memory &mem, reg_t slot)
   ctx.scene.shader_group_handle_size = 32;
   ctx.kind = RtPrivateTraversalKind::vtas;
   const uint32_t root_ref = load_node_ref(mem, accel_addr);
-  if (!push_private_entry(ctx, {accel_addr, root_ref, ray, 0, 0, 0, 0})) {
+  if (!push_private_entry(ctx, {accel_addr, root_ref, ray, 0, 0, 0, 0, 0})) {
     clear_control(mem, slot);
     return traversal_terminated;
   }

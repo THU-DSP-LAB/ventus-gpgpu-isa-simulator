@@ -238,6 +238,7 @@ static void check_vtas_aabb_candidate(TestMemory &memory)
                    uint32_t(instance - tlas) | node_instance);
   memory.store_u32(instance + instance_blas_addr_lo, uint32_t(blas));
   memory.store_u32(instance + instance_mask, 0xff);
+  memory.store_u32(instance + instance_custom_index, 23);
   memory.store_u32(instance + instance_sbt_record_offset, 5);
   memory.store_u32(instance + instance_instance_id, 13);
   write_identity_transform(memory, instance + instance_object_to_world);
@@ -266,6 +267,7 @@ static void check_vtas_aabb_candidate(TestMemory &memory)
   assert(candidate && candidate->state == CompletionState::Candidate);
   assert(candidate->candidate_hit[hit_record_primitive_id] == primitive_id);
   assert(candidate->candidate_hit[hit_record_instance_id] == 13);
+  assert(candidate->candidate_hit[hit_record_instance_custom_index] == 23);
   assert(candidate->candidate_hit[hit_record_sbt_index] == 14);
   assert(candidate->candidate_hit[hit_record_instance_sbt_record_offset] == 5);
   assert(candidate->candidate_hit[hit_record_opaque] == 1);

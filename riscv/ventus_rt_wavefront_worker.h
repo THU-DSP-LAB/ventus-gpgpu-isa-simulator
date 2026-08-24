@@ -38,7 +38,7 @@ enum class TraversalDispatchTarget {
  * selects the next shader from the resulting target.
  */
 constexpr uint32_t kHitRecordWordCount =
-    ventus_rt::hit_record_instance_sbt_record_offset + 1;
+    ventus_rt::hit_record_word_count;
 constexpr uint32_t kHitAttributeWordCount = 2;
 
 enum class CompletionAction : uint32_t {

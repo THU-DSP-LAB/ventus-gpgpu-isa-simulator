@@ -82,10 +82,12 @@ static void write_identity_transform(TestMemory &mem, reg_t addr)
 }
 
 static void write_instance(TestMemory &mem, reg_t addr, reg_t blas,
-                           uint32_t instance_id, uint32_t sbt_offset)
+                           uint32_t instance_id, uint32_t custom_index,
+                           uint32_t sbt_offset)
 {
   mem.store32(addr + instance_blas_addr_lo, uint32_t(blas));
   mem.store32(addr + instance_blas_addr_hi, uint32_t(blas >> 32));
+  mem.store32(addr + instance_custom_index, custom_index);
   mem.store32(addr + instance_mask, 0xff);
   mem.store32(addr + instance_sbt_record_offset, sbt_offset);
   mem.store32(addr + instance_instance_id, instance_id);
@@ -137,7 +139,7 @@ static void write_tlas_blas(TestMemory &mem, reg_t tlas, reg_t blas,
 {
   write_header(mem, tlas, as_type_tlas,
                make_node_ref(as_header_size, node_instance));
-  write_instance(mem, tlas + as_header_size, blas, 13, 4);
+  write_instance(mem, tlas + as_header_size, blas, 13, 29, 4);
   write_header(mem, blas, as_type_blas,
                make_node_ref(as_header_size, leaf_type));
 }
@@ -157,6 +159,8 @@ static void check_triangle_hit_and_candidate()
                    hit_record_primitive_id) == 77);
   assert(load_slot(mem, slot, abi_committed_hit_record_base_bytes,
                    hit_record_instance_id) == 13);
+  assert(load_slot(mem, slot, abi_committed_hit_record_base_bytes,
+                   hit_record_instance_custom_index) == 29);
   assert(load_slot(mem, slot, abi_committed_hit_record_base_bytes,
                    hit_record_sbt_index) == 8);
 
