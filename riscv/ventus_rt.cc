@@ -77,9 +77,6 @@ struct Ray {
 };
 
 struct Scene {
-  uint64_t primitive_addr = 0;
-  uint32_t primitive_count = 0;
-  uint32_t primitive_stride = 0;
   uint64_t hit_sbt_base = 0;
   uint32_t shader_group_handle_size = 0;
 };
@@ -246,40 +243,6 @@ inline Vec3 transform_instance_vector(Memory &mem, reg_t matrix_addr,
   };
 }
 
-template <typename Memory>
-inline ProceduralAabb load_aabb(Memory &mem, reg_t addr)
-{
-  ProceduralAabb aabb;
-  aabb.min = load_vec3(mem, addr + aabb_min);
-  aabb.max = load_vec3(mem, addr + aabb_max);
-  aabb.primitive_id = mem.load32(addr + aabb_primitive_id);
-  aabb.geometry_id = mem.load32(addr + aabb_geometry_id);
-  aabb.sbt_index = mem.load32(addr + aabb_sbt_record_offset);
-  aabb.hit_kind = mem.load32(addr + aabb_hit_kind);
-  aabb.opaque = mem.load32(addr + aabb_flags) & 0x1;
-  aabb.primitive_addr = load_u64(mem, addr + aabb_primitive_addr_lo);
-  aabb.instance_addr = load_u64(mem, addr + aabb_instance_addr_lo);
-  return aabb;
-}
-
-template <typename Memory>
-inline Triangle load_triangle(Memory &mem, reg_t addr)
-{
-  Triangle tri;
-  tri.v0 = load_vec3(mem, addr + 0);
-  tri.v1 = load_vec3(mem, addr + 12);
-  tri.v2 = load_vec3(mem, addr + 24);
-  tri.primitive_id = mem.load32(addr + 36);
-  tri.instance_id = mem.load32(addr + 40);
-  tri.geometry_id = mem.load32(addr + 44);
-  tri.sbt_index = mem.load32(addr + 48);
-  tri.hit_kind = mem.load32(addr + 52);
-  tri.opaque = mem.load32(addr + 56);
-  tri.primitive_addr = load_u64(mem, addr + 64);
-  tri.instance_addr = load_u64(mem, addr + 72);
-  return tri;
-}
-
 inline Hit hit_from_aabb(const ProceduralAabb &aabb, float hit_t)
 {
   Hit hit;
@@ -417,12 +380,6 @@ inline uint32_t node_ref_offset(uint32_t ref)
 }
 
 template <typename Memory>
-inline Vec3 load_vec3_indexed(Memory &mem, reg_t addr, uint32_t index)
-{
-  return load_vec3(mem, addr + reg_t(index) * 12);
-}
-
-template <typename Memory>
 inline uint32_t load_node_ref(Memory &mem, uint64_t as_base)
 {
   return mem.load32(as_base + as_header_root_node_ref);
@@ -555,8 +512,6 @@ inline void commit_hit(Memory &mem, reg_t slot, const Scene &scene,
 }
 
 enum class RtPrivateTraversalKind : uint8_t {
-  triangle_list,
-  aabb_list,
   vtas,
 };
 
@@ -569,7 +524,6 @@ struct RtPrivateContext {
   RtPrivateTraversalKind kind;
   Ray ray;
   Scene scene;
-  uint32_t next_primitive = 0;
   std::vector<TraversalEntry> stack;
   uint32_t stack_entries = 0;
 };
@@ -704,58 +658,6 @@ inline uint32_t pause_private_candidate(Memory &mem, reg_t slot,
 }
 
 template <typename Memory>
-inline uint32_t trace_private_triangle_list(Memory &mem, reg_t slot,
-                                            uint64_t key)
-{
-  RtPrivateContext &ctx = rt_private_contexts<Memory>().at(key);
-  for (uint32_t i = ctx.next_primitive; i < ctx.scene.primitive_count; ++i) {
-    ctx.next_primitive = i + 1;
-    Ray ray = ctx.ray;
-    ray.tmax = current_tmax(mem, slot);
-    const Triangle tri =
-        load_triangle(mem, ctx.scene.primitive_addr + i * ctx.scene.primitive_stride);
-    Hit candidate;
-    candidate.t = ray.tmax;
-    if (!intersect_triangle(ray, tri, candidate))
-      continue;
-
-    const bool opaque = effective_opaque(ray, tri.opaque);
-    if (!opaque)
-      return pause_private_candidate(mem, slot, ctx.scene, candidate,
-                                     traversal_candidate_non_opaque_triangle, opaque);
-
-    commit_hit(mem, slot, ctx.scene, candidate, opaque);
-    if (ray.flags & ray_flag_terminate_on_first_hit)
-      return finish_private_traversal(mem, slot, key);
-  }
-  return finish_private_traversal(mem, slot, key);
-}
-
-template <typename Memory>
-inline uint32_t trace_private_aabb_list(Memory &mem, reg_t slot,
-                                        uint64_t key)
-{
-  RtPrivateContext &ctx = rt_private_contexts<Memory>().at(key);
-  for (uint32_t i = ctx.next_primitive; i < ctx.scene.primitive_count; ++i) {
-    ctx.next_primitive = i + 1;
-    Ray ray = ctx.ray;
-    ray.tmax = current_tmax(mem, slot);
-    const ProceduralAabb aabb =
-        load_aabb(mem, ctx.scene.primitive_addr + i * ctx.scene.primitive_stride);
-    float hit_t = 0.0f;
-    if (!intersect_aabb(ray, aabb, hit_t))
-      continue;
-    if (!private_candidate_is_before_tmax(mem, slot, hit_t))
-      continue;
-    const bool opaque = effective_opaque(ray, aabb.opaque);
-    return pause_private_candidate(mem, slot, ctx.scene,
-                                   hit_from_aabb(aabb, hit_t),
-                                   traversal_candidate_procedural_aabb, opaque);
-  }
-  return finish_private_traversal(mem, slot, key);
-}
-
-template <typename Memory>
 inline uint32_t trace_private_vtas(Memory &mem, reg_t slot, uint64_t key)
 {
   RtPrivateContext &ctx = rt_private_contexts<Memory>().at(key);
@@ -803,6 +705,7 @@ inline uint32_t trace_private_vtas(Memory &mem, reg_t slot, uint64_t key)
         continue;
       const uint64_t blas = load_u64(mem, node_addr + instance_blas_addr_lo);
       if (!blas || mem.load32(blas + as_header_magic) != as_magic ||
+          (mem.load32(blas + as_header_version) & 0xffffu) != as_version ||
           mem.load32(blas + as_header_type) != as_type_blas)
         continue;
       Ray object_ray = entry.ray;
@@ -875,14 +778,7 @@ inline uint32_t traverse(Memory &mem, reg_t slot)
     }
     store_word(mem, slot, abi_candidate_hit_record_base_bytes, hit_record_status, 0);
     clear_control(mem, slot);
-    switch (it->second.kind) {
-    case RtPrivateTraversalKind::triangle_list:
-      return trace_private_triangle_list(mem, slot, key);
-    case RtPrivateTraversalKind::aabb_list:
-      return trace_private_aabb_list(mem, slot, key);
-    case RtPrivateTraversalKind::vtas:
-      return trace_private_vtas(mem, slot, key);
-    }
+    return trace_private_vtas(mem, slot, key);
   }
 
   if (load_word(mem, slot, 0, slot_status) != slot_status_trace_request)
@@ -896,51 +792,23 @@ inline uint32_t traverse(Memory &mem, reg_t slot)
   if (accel_addr == 0)
     return finish_private_traversal(mem, slot, key);
 
-  if (mem.load32(accel_addr + 0) == as_magic) {
-    if ((mem.load32(accel_addr + as_header_version) & 0xffffu) != as_version ||
-        mem.load32(accel_addr + as_header_type) != as_type_tlas)
-      return finish_private_traversal(mem, slot, key);
-    RtPrivateContext ctx = {};
-    ctx.kind = RtPrivateTraversalKind::vtas;
-    ctx.ray = ray;
-    ctx.scene.hit_sbt_base = 0;
-    ctx.scene.shader_group_handle_size = 32;
-    const uint32_t root_ref = load_node_ref(mem, accel_addr);
-    if (!push_private_entry(ctx, {accel_addr, root_ref, ray, 0, 0, 0, 0})) {
-      clear_control(mem, slot);
-      return traversal_terminated;
-    }
-    contexts.emplace(key, std::move(ctx));
-    return trace_private_vtas(mem, slot, key);
-  }
-
-  Scene scene;
-  const uint32_t magic = mem.load32(accel_addr + 0);
-  const uint32_t version = mem.load32(accel_addr + 4);
-  const uint32_t geometry_type = mem.load32(accel_addr + 8);
-  scene.primitive_count = mem.load32(accel_addr + 12);
-  scene.primitive_addr = load_u64(mem, accel_addr + 16);
-  scene.primitive_stride = mem.load32(accel_addr + 24);
-  scene.hit_sbt_base = load_u64(mem, accel_addr + 28);
-  scene.shader_group_handle_size = mem.load32(accel_addr + 36);
-  if (magic != bvh_magic || version != bvh_version ||
-      scene.primitive_count == 0 || scene.primitive_addr == 0 ||
-      scene.primitive_stride == 0)
+  if (mem.load32(accel_addr + as_header_magic) != as_magic ||
+      (mem.load32(accel_addr + as_header_version) & 0xffffu) != as_version ||
+      mem.load32(accel_addr + as_header_type) != as_type_tlas)
     return finish_private_traversal(mem, slot, key);
 
   RtPrivateContext ctx = {};
   ctx.ray = ray;
-  ctx.scene = scene;
-  ctx.kind = geometry_type == geometry_triangle_list
-                 ? RtPrivateTraversalKind::triangle_list
-                 : RtPrivateTraversalKind::aabb_list;
-  if (geometry_type != geometry_triangle_list &&
-      geometry_type != geometry_procedural_aabb_list)
-    return finish_private_traversal(mem, slot, key);
+  ctx.scene.hit_sbt_base = 0;
+  ctx.scene.shader_group_handle_size = 32;
+  ctx.kind = RtPrivateTraversalKind::vtas;
+  const uint32_t root_ref = load_node_ref(mem, accel_addr);
+  if (!push_private_entry(ctx, {accel_addr, root_ref, ray, 0, 0, 0, 0})) {
+    clear_control(mem, slot);
+    return traversal_terminated;
+  }
   contexts.emplace(key, std::move(ctx));
-  return geometry_type == geometry_triangle_list
-             ? trace_private_triangle_list(mem, slot, key)
-             : trace_private_aabb_list(mem, slot, key);
+  return trace_private_vtas(mem, slot, key);
 }
 
 template <typename Memory>

@@ -53,6 +53,12 @@ def main() -> int:
            if (ROOT / "riscv" / "ventus_mma.h").exists() else "")
         + ((ROOT / "riscv" / "ventus_rt.h").read_text(encoding="utf-8")
            if (ROOT / "riscv" / "ventus_rt.h").exists() else "")
+        + ((ROOT / "riscv" / "ventus_rt_abi_generated.h").read_text(encoding="utf-8")
+           if (ROOT / "riscv" / "ventus_rt_abi_generated.h").exists() else "")
+        + ((ROOT / "riscv" / "ventus_vtas_abi_generated.h").read_text(encoding="utf-8")
+           if (ROOT / "riscv" / "ventus_vtas_abi_generated.h").exists() else "")
+        + ((ROOT / "riscv" / "ventus_rt.cc").read_text(encoding="utf-8")
+           if (ROOT / "riscv" / "ventus_rt.cc").exists() else "")
     )
 
     require("0x0a ? 4" in decode or "0x0a ||" in decode,
@@ -156,16 +162,15 @@ def main() -> int:
 
     for symbol in [
         "pds_physical_addr",
-        "candidate_hit_record_base",
-        "committed_hit_record_base",
+        "abi_candidate_hit_record_base_bytes",
+        "abi_committed_hit_record_base_bytes",
         "traversal_candidate_non_opaque_triangle",
         "traversal_candidate_procedural_aabb",
-        "geometry_procedural_aabb_list",
-        "trace_triangle_list",
-        "trace_aabb_list",
+        "as_header_root_node_ref",
+        "trace_private_vtas",
         "make_hybrid_memory",
-        "ventus_rt::traverse(mem, slot)",
-        "ventus_rt::release(mem, slot)",
+        "uint32_t traverse(RtMemory &memory, reg_t slot)",
+        "void release(RtMemory &memory, reg_t slot)",
     ]:
         require(symbol in custom, f"local RT model symbol missing: {symbol}", failures)
 

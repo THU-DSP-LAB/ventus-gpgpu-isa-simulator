@@ -37,30 +37,46 @@ static void write_vec3(TestMemory &memory, uint64_t address, float x, float y,
 static void write_triangle(TestMemory &memory, uint64_t address, float z,
                            uint32_t opaque)
 {
-  write_vec3(memory, address + 0, -1.0f, -1.0f, z);
-  write_vec3(memory, address + 12, 1.0f, -1.0f, z);
-  write_vec3(memory, address + 24, 0.0f, 1.0f, z);
-  memory.store_u32(address + 36, 77);
-  memory.store_u32(address + 40, 11);
-  memory.store_u32(address + 44, 5);
-  memory.store_u32(address + 48, 4);
-  memory.store_u32(address + 52, 0xfe);
-  memory.store_u32(address + 56, opaque);
+  address += as_header_size;
+  write_vec3(memory, address + triangle_v0, -1.0f, -1.0f, z);
+  write_vec3(memory, address + triangle_v1, 1.0f, -1.0f, z);
+  write_vec3(memory, address + triangle_v2, 0.0f, 1.0f, z);
+  memory.store_u32(address + triangle_primitive_id, 77);
+  memory.store_u32(address + triangle_geometry_id, 5);
+  memory.store_u32(address + triangle_sbt_record_offset, 4);
+  memory.store_u32(address + triangle_flags, opaque);
+}
+
+static void write_identity_transform(TestMemory &memory, uint64_t address)
+{
+  for (uint32_t row = 0; row < 3; ++row)
+    for (uint32_t column = 0; column < 4; ++column)
+      memory.store_u32(address + 4 * (row * 4 + column),
+                       bit_cast_u32(row == column ? 1.0f : 0.0f));
 }
 
 static void write_scene(TestMemory &memory, uint64_t accel, uint64_t triangles)
 {
   constexpr uint64_t hit_sbt = 0x50000;
-  memory.store_u32(accel + 0, bvh_magic);
-  memory.store_u32(accel + 4, bvh_version);
-  memory.store_u32(accel + 8, geometry_triangle_list);
-  memory.store_u32(accel + 12, 1);
-  memory.store_u32(accel + 16, uint32_t(triangles));
-  memory.store_u32(accel + 20, uint32_t(triangles >> 32));
-  memory.store_u32(accel + 24, 80);
-  memory.store_u32(accel + 28, uint32_t(hit_sbt));
-  memory.store_u32(accel + 32, 0);
-  memory.store_u32(accel + 36, 32);
+  memory.store_u32(accel + as_header_magic, as_magic);
+  memory.store_u32(accel + as_header_version, as_version);
+  memory.store_u32(accel + as_header_type, as_type_tlas);
+  memory.store_u32(accel + as_header_root_node_ref,
+                   uint32_t(as_header_size) | node_instance);
+  const uint64_t instance = accel + as_header_size;
+  memory.store_u32(instance + instance_blas_addr_lo, uint32_t(triangles));
+  memory.store_u32(instance + instance_blas_addr_hi, uint32_t(triangles >> 32));
+  memory.store_u32(instance + instance_mask, 0xff);
+  memory.store_u32(instance + instance_sbt_record_offset, 0);
+  memory.store_u32(instance + instance_instance_id, 11);
+  write_identity_transform(memory, instance + instance_object_to_world);
+  write_identity_transform(memory, instance + instance_world_to_object);
+
+  memory.store_u32(triangles + as_header_magic, as_magic);
+  memory.store_u32(triangles + as_header_version, as_version);
+  memory.store_u32(triangles + as_header_type, as_type_blas);
+  memory.store_u32(triangles + as_header_root_node_ref,
+                   uint32_t(as_header_size) | node_triangle);
   /* Trace SBT offset 2 plus triangle SBT index 4 selects record 6. */
   memory.store_u32(hit_sbt + 6 * 96 + 4, 7);
 }
@@ -205,17 +221,6 @@ static void check_non_finite_triangle_is_miss(TestMemory &memory)
   const CompletionRecord *completion_record = completion.find(record.ray_ref);
   assert(completion_record &&
          completion_record->state == CompletionState::CompleteMiss);
-}
-
-static void
-write_identity_transform(TestMemory &memory, uint64_t address)
-{
-  for (uint32_t row = 0; row < 3; row++) {
-    for (uint32_t column = 0; column < 4; column++) {
-      memory.store_u32(address + 4 * (row * 4 + column),
-                       bit_cast_u32(row == column ? 1.0f : 0.0f));
-    }
-  }
 }
 
 static void check_vtas_aabb_candidate(TestMemory &memory)

@@ -25,65 +25,9 @@ constexpr reg_t lanes = 32;
  * compiler continuation storage remain shader-owned and are not constants. */
 #include "ventus_rt_abi_generated.h"
 
-constexpr uint32_t bvh_magic = 0x56545254; // "VTRT"
-constexpr uint32_t bvh_version = 1;
-constexpr uint32_t geometry_triangle_list = 1;
-constexpr uint32_t geometry_procedural_aabb_list = 2;
-
-constexpr uint32_t as_magic = 0x53415456; // "VTAS"
-constexpr uint32_t as_version = 1;
-constexpr uint32_t as_type_blas = 1;
-constexpr uint32_t as_type_tlas = 2;
-constexpr uint32_t as_header_size = 0x50;
-constexpr uint32_t as_header_magic = 0x00;
-constexpr uint32_t as_header_version = 0x04;
-constexpr uint32_t as_header_type = 0x08;
-constexpr uint32_t as_header_root_node_ref = 0x10;
-
-constexpr uint32_t node_ref_type_mask = 0x7;
-constexpr uint32_t node_ref_offset_mask = ~node_ref_type_mask;
-constexpr uint32_t node_box4 = 1;
-constexpr uint32_t node_triangle = 2;
-constexpr uint32_t node_instance = 3;
-constexpr uint32_t node_aabb = 4;
-constexpr uint32_t invalid_node_ref = 0xffffffffu;
-
-constexpr uint32_t box4_child_ref = 0x00;
-constexpr uint32_t box4_min_x = 0x10;
-constexpr uint32_t box4_min_y = 0x20;
-constexpr uint32_t box4_min_z = 0x30;
-constexpr uint32_t box4_max_x = 0x40;
-constexpr uint32_t box4_max_y = 0x50;
-constexpr uint32_t box4_max_z = 0x60;
-
-constexpr uint32_t triangle_v0 = 0x00;
-constexpr uint32_t triangle_v1 = 0x0c;
-constexpr uint32_t triangle_v2 = 0x18;
-constexpr uint32_t triangle_primitive_id = 0x24;
-constexpr uint32_t triangle_geometry_id = 0x28;
-constexpr uint32_t triangle_sbt_record_offset = 0x2c;
-constexpr uint32_t triangle_flags = 0x30;
-constexpr uint32_t triangle_instance_id = 0x34;
-constexpr uint32_t triangle_primitive_addr_lo = 0x38;
-
-constexpr uint32_t aabb_min = 0x00;
-constexpr uint32_t aabb_max = 0x0c;
-constexpr uint32_t aabb_primitive_id = 0x18;
-constexpr uint32_t aabb_geometry_id = 0x1c;
-constexpr uint32_t aabb_sbt_record_offset = 0x20;
-constexpr uint32_t aabb_hit_kind = 0x24;
-constexpr uint32_t aabb_flags = 0x28;
-constexpr uint32_t aabb_primitive_addr_lo = 0x30;
-constexpr uint32_t aabb_instance_addr_lo = 0x38;
-
-constexpr uint32_t instance_blas_addr_lo = 0x00;
-constexpr uint32_t instance_custom_index = 0x08;
-constexpr uint32_t instance_mask = 0x0c;
-constexpr uint32_t instance_sbt_record_offset = 0x10;
-constexpr uint32_t instance_flags = 0x14;
-constexpr uint32_t instance_instance_id = 0x18;
-constexpr uint32_t instance_object_to_world = 0x20;
-constexpr uint32_t instance_world_to_object = 0x50;
+/* Generated from Mesa's canonical VTAS binary ABI.  Spike owns traversal
+ * behavior, but not a second handwritten copy of the memory layout. */
+#include "ventus_vtas_abi_generated.h"
 
 constexpr uint32_t ray_flag_force_opaque = 1u << 0;
 constexpr uint32_t ray_flag_force_non_opaque = 1u << 1;
