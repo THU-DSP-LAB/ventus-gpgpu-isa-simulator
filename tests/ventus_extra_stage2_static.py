@@ -161,7 +161,7 @@ def main() -> int:
             "ventus_exec_mma must use explicit MMA encoding decode", failures)
 
     for symbol in [
-        "pds_physical_addr",
+        "pds_header_word_addr",
         "abi_candidate_hit_record_base_bytes",
         "abi_committed_hit_record_base_bytes",
         "traversal_candidate_non_opaque_triangle",

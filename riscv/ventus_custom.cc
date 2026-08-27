@@ -42,28 +42,33 @@ bool reserve_rt_traverse_operand_log(uint64_t *sequence)
 
 void log_rt_traverse_operands(processor_t *p, uint64_t sequence, reg_t vd,
                               reg_t vs2, reg_t vl,
-                              const std::array<uint32_t, VENTUS_CUSTOM_LANES> &slots)
+                              const std::array<uint32_t, VENTUS_CUSTOM_LANES> &pds_warp_tid_bases)
 {
   const reg_t pds = p->get_csr(CSR_PDS);
   const reg_t num_warps = p->get_csr(CSR_NUMW);
   const reg_t num_threads = p->get_csr(CSR_NUMT);
-  const reg_t tid = p->get_csr(CSR_TID);
+  const reg_t csr_tid = p->get_csr(CSR_TID);
+  const reg_t pds_warp_tid_base = vl ? pds_warp_tid_bases[0] : 0;
   std::fprintf(stderr,
                "VENTUS_RT_TRAVERSE_OPERANDS seq=%llu pc=0x%llx vd=v%llu "
-               "vs2=v%llu vl=%llu lanes=",
+               "vs2=v%llu vl=%llu csr_tid=%llu pds_warp_tid_base=%llu lanes=",
                static_cast<unsigned long long>(sequence),
                static_cast<unsigned long long>(p->get_state()->pc),
                static_cast<unsigned long long>(vd),
                static_cast<unsigned long long>(vs2),
-               static_cast<unsigned long long>(vl));
+               static_cast<unsigned long long>(vl),
+               static_cast<unsigned long long>(csr_tid),
+               static_cast<unsigned long long>(pds_warp_tid_base));
   for (reg_t lane = 0; lane < vl; ++lane) {
-    const reg_t physical = ventus_rt::pds_physical_addr(
-        pds, num_warps, num_threads, tid, lane, slots[lane]);
-    std::fprintf(stderr, "%s%llu%s:slot=0x%08x,pds=0x%llx",
+    const reg_t physical = ventus_rt::pds_header_word_addr(
+        pds, num_warps, num_threads, pds_warp_tid_base, lane, 0);
+    std::fprintf(stderr, "%s%llu%s:base=0x%08x,header0=0x%llx%s",
                  lane ? " " : "",
                  static_cast<unsigned long long>(lane),
-                 lane_active(p, lane) ? "" : "(inactive)", slots[lane],
-                 static_cast<unsigned long long>(physical));
+                 lane_active(p, lane) ? "" : "(inactive)",
+                 pds_warp_tid_bases[lane],
+                 static_cast<unsigned long long>(physical),
+                 pds_warp_tid_bases[lane] == pds_warp_tid_base ? "" : "(mismatch)");
   }
   std::fputc('\n', stderr);
 }
@@ -277,24 +282,27 @@ void ventus_exec_rt_traverse(processor_t *p, insn_t insn)
   const reg_t vs2_num = insn.rs2();
   uint64_t sequence = 0;
   const bool log_operands = reserve_rt_traverse_operand_log(&sequence);
-  std::array<uint32_t, VENTUS_CUSTOM_LANES> slots{};
+  std::array<uint32_t, VENTUS_CUSTOM_LANES> pds_warp_tid_bases{};
 
   if (log_operands) {
     for (reg_t lane = 0; lane < vl; ++lane)
-      slots[lane] = p->VU.elt<uint32_t>(2, vs2_num, lane);
+      pds_warp_tid_bases[lane] = p->VU.elt<uint32_t>(2, vs2_num, lane);
     log_rt_traverse_operands(p, sequence, vd_num | p->ext_rd(),
-                             vs2_num | p->ext_rs2(), vl, slots);
+                             vs2_num | p->ext_rs2(), vl, pds_warp_tid_bases);
   }
+
+  /* `vs2` is a uniform VGPR carrying CSR_TID, including when lane zero is
+   * inactive.  The per-lane PDS header index is derived only inside RTcore. */
+  const reg_t pds_warp_tid_base =
+      vl ? p->VU.elt<uint32_t>(2, vs2_num, 0) : 0;
 
   for (reg_t lane = p->VU.vstart->read(); lane < vl; ++lane) {
     if (!lane_active(p, lane))
       continue;
 
-    const reg_t slot = log_operands ? slots[lane]
-                                    : p->VU.elt<uint32_t>(2, vs2_num, lane);
     const uint32_t status = ventus_rt::traverse_spike(
         *p->get_mmu(), p->get_csr(CSR_PDS), p->get_csr(CSR_NUMW),
-        p->get_csr(CSR_NUMT), p->get_csr(CSR_TID), lane, slot);
+        p->get_csr(CSR_NUMT), pds_warp_tid_base, lane);
     p->VU.elt<uint32_t>(0, vd_num, lane, true) = status;
   }
 
@@ -307,15 +315,16 @@ void ventus_exec_rt_release(processor_t *p, insn_t insn)
 
   const reg_t vl = p->VU.vl->read();
   const reg_t vs2_num = insn.rs2();
+  const reg_t pds_warp_tid_base =
+      vl ? p->VU.elt<uint32_t>(2, vs2_num, 0) : 0;
 
   for (reg_t lane = p->VU.vstart->read(); lane < vl; ++lane) {
     if (!lane_active(p, lane))
       continue;
 
-    const reg_t slot = p->VU.elt<uint32_t>(2, vs2_num, lane);
     ventus_rt::release_spike(*p->get_mmu(), p->get_csr(CSR_PDS),
                               p->get_csr(CSR_NUMW), p->get_csr(CSR_NUMT),
-                              p->get_csr(CSR_TID), lane, slot);
+                              pds_warp_tid_base, lane);
   }
 
   p->VU.vstart->write(0);

@@ -252,13 +252,16 @@ seed_worker_slot(WorkerLocalMemory<Memory> &memory,
   };
 
   store_slot(slot_status, slot_status_trace_request);
+  store_slot(slot_trace_meta0,
+             pack_trace_meta0(field(TraceField::Flags),
+                              field(TraceField::CullMask),
+                              field(TraceField::SbtOffset),
+                              field(TraceField::SbtStride)));
   store_slot(slot_accel_lo, field(TraceField::TlasAddrLo));
   store_slot(slot_accel_hi, field(TraceField::TlasAddrHi));
-  store_slot(slot_flags, field(TraceField::Flags));
-  store_slot(slot_cull_mask, field(TraceField::CullMask));
-  store_slot(slot_sbt_offset, field(TraceField::SbtOffset));
-  store_slot(slot_sbt_stride, field(TraceField::SbtStride));
-  store_slot(slot_miss_index, field(TraceField::MissIndex));
+  store_slot(slot_trace_meta1,
+             pack_trace_meta1(field(TraceField::MissIndex),
+                              field(TraceField::Depth)));
   store_slot(slot_origin_x, field(TraceField::OriginX));
   store_slot(slot_origin_y, field(TraceField::OriginY));
   store_slot(slot_origin_z, field(TraceField::OriginZ));
@@ -269,10 +272,6 @@ seed_worker_slot(WorkerLocalMemory<Memory> &memory,
   store_slot(slot_tmax, field(TraceField::Tmax));
   store_slot(slot_payload_ptr_lo, field(TraceField::PayloadLo));
   store_slot(slot_payload_ptr_hi, field(TraceField::PayloadHi));
-  store_word(memory, 0, abi_cps_header_base_bytes, cps_frame_base,
-             field(TraceField::CpsFrame));
-  store_word(memory, 0, abi_cps_header_base_bytes, cps_active_level,
-             field(TraceField::Depth));
 }
 
 template <typename Memory>
@@ -346,7 +345,7 @@ route_completion(uint32_t ray_ref, uint32_t status,
     break;
   case traversal_terminated:
     /* AcceptTerminate commits first; it is a closest-hit result, not a miss. */
-    if (completion.committed_hit[hit_record_status] == hit_record_status_valid) {
+    if (hit_record_valid(completion.committed_hit[hit_record_meta0])) {
       completion.state = CompletionState::CompleteHit;
       result.traversal_status = traversal_complete_hit;
       result.target = TraversalDispatchTarget::ClosestHit;
@@ -365,7 +364,11 @@ route_completion(uint32_t ray_ref, uint32_t status,
     result.primitive_id = completion.committed_hit[hit_record_primitive_id];
     result.instance_id = completion.committed_hit[hit_record_instance_id];
     result.geometry_id = completion.committed_hit[hit_record_geometry_id];
-    result.sbt_index = completion.committed_hit[hit_record_sbt_index];
+    result.sbt_index = hit_record_sbt_index(
+        completion.committed_hit[hit_record_meta1],
+        completion.committed_hit[hit_record_geometry_id],
+        completion.trace_input.fields[
+            static_cast<uint32_t>(TraceField::SbtOffset)]);
     result.hit_t_bits = completion.committed_hit[hit_record_hit_t];
   }
   return result;
@@ -577,14 +580,14 @@ resolve_callback_group(Memory &memory, const CompletionPlaneLayout &layout,
     return false;
   std::array<uint32_t, kHitRecordWordCount> &hit = candidate
       ? completion.candidate_hit : completion.committed_hit;
-  const uint32_t sbt_index = hit[ventus_rt::hit_record_sbt_index];
+  const uint32_t sbt_index = ventus_rt::hit_record_sbt_index(
+      hit[ventus_rt::hit_record_meta1],
+      hit[ventus_rt::hit_record_geometry_id],
+      completion.trace_input.fields[
+          static_cast<uint32_t>(TraceField::SbtOffset)]);
   const uint64_t shader_record = layout.hit_sbt_base_address +
     (uint64_t)sbt_index * layout.hit_sbt_stride_bytes +
     kShaderGroupHandleSize;
-  hit[ventus_rt::hit_record_shader_record_ptr_lo] =
-    uint32_t(shader_record);
-  hit[ventus_rt::hit_record_shader_record_ptr_hi] =
-    uint32_t(shader_record >> 32);
   *group = memory.load_u32(shader_record - kShaderGroupHandleSize +
                            kShaderGroupHandleIndexOffset);
   return true;

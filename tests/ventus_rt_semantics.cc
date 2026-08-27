@@ -126,9 +126,10 @@ static void write_ray(TestMemory &mem, reg_t slot, reg_t tlas)
 {
   store_slot(mem, slot, 0, slot_accel_lo, uint32_t(tlas));
   store_slot(mem, slot, 0, slot_accel_hi, uint32_t(tlas >> 32));
-  store_slot(mem, slot, 0, slot_cull_mask, 0xff);
-  store_slot(mem, slot, 0, slot_sbt_offset, 2);
-  store_slot(mem, slot, 0, slot_sbt_stride, 96);
+  store_slot(mem, slot, 0, slot_trace_meta0,
+             pack_trace_meta0(0, 0xff, 2, 0));
+  store_slot(mem, slot, 0, slot_trace_meta1,
+             pack_trace_meta1(0, 0));
   store_slot(mem, slot, 0, slot_direction_z, bit_cast_u32(1.0f));
   store_slot(mem, slot, 0, slot_tmax, bit_cast_u32(100.0f));
   store_slot(mem, slot, 0, slot_status, slot_status_trace_request);
@@ -159,10 +160,15 @@ static void check_triangle_hit_and_candidate()
                    hit_record_primitive_id) == 77);
   assert(load_slot(mem, slot, abi_committed_hit_record_base_bytes,
                    hit_record_instance_id) == 13);
-  assert(load_slot(mem, slot, abi_committed_hit_record_base_bytes,
-                   hit_record_instance_custom_index) == 29);
-  assert(load_slot(mem, slot, abi_committed_hit_record_base_bytes,
-                   hit_record_sbt_index) == 8);
+  assert(hit_record_instance_custom_index(
+             load_slot(mem, slot, abi_committed_hit_record_base_bytes,
+                       hit_record_meta0)) == 29);
+  assert(hit_record_sbt_index(
+             load_slot(mem, slot, abi_committed_hit_record_base_bytes,
+                       hit_record_meta1),
+             load_slot(mem, slot, abi_committed_hit_record_base_bytes,
+                       hit_record_geometry_id),
+             /* TraceRay SBT offset */ 2) == 11);
 
   TestMemory candidate;
   write_tlas_blas(candidate, tlas, blas, node_triangle);
@@ -200,8 +206,45 @@ static void check_invalid_tlas_is_miss()
 static void check_pds_formula()
 {
   constexpr reg_t pds = 0x80000000;
-  assert(pds_physical_addr(pds, 8, 32, 64, 3, 112) ==
-         pds + 8 * 32 * 112 + ((64 + 3) << 2));
+  constexpr reg_t warp_tid_base = 64;
+  constexpr reg_t thread_count = 8 * 32;
+  constexpr reg_t tid = warp_tid_base + 3;
+  constexpr reg_t prefix_words = abi_pds_field_major_prefix_word_count;
+  constexpr reg_t record_words = abi_pds_lane_major_hit_record_word_count;
+  constexpr reg_t candidate_word = abi_candidate_hit_record_base_bytes / 4;
+  constexpr reg_t committed_word = abi_committed_hit_record_base_bytes / 4;
+
+  assert(pds_header_word_addr(pds, 8, 32, warp_tid_base, 3, 3) ==
+         pds + 4 * (3 * thread_count + tid));
+  assert(pds_header_word_addr(
+             pds, 8, 32, warp_tid_base, 3,
+             candidate_word + hit_record_geometry_id) ==
+         pds + 4 * (prefix_words * thread_count + tid * record_words +
+                    hit_record_geometry_id));
+  assert(pds_header_word_addr(
+             pds, 8, 32, warp_tid_base, 3,
+             committed_word + hit_record_hit_kind) ==
+         pds + 4 * ((prefix_words + record_words) * thread_count +
+                    tid * record_words + hit_record_hit_kind));
+  assert(pds_header_word_addr(pds, 8, 32, warp_tid_base, 31, 0) ==
+         pds + 4 * (warp_tid_base + 31));
+}
+
+static void check_packed_hit_metadata()
+{
+  const uint32_t meta0 = pack_hit_record_meta0(
+      /* valid */ true, traversal_candidate_procedural_aabb,
+      /* front face */ true, /* opaque */ false,
+      /* need software opacity test */ true, 0x00abcdefu);
+  assert(hit_record_valid(meta0));
+  assert(hit_record_status(meta0) == traversal_candidate_procedural_aabb);
+  assert(hit_record_front_face(meta0));
+  assert(!hit_record_opaque(meta0));
+  assert(hit_record_needs_software_opacity_test(meta0));
+  assert(hit_record_instance_custom_index(meta0) == 0x00abcdefu);
+
+  const uint32_t meta1 = pack_hit_record_meta1(0x00fedcbau);
+  assert(hit_record_instance_sbt_record_offset(meta1) == 0x00fedcbau);
 }
 
 int main()
@@ -210,5 +253,6 @@ int main()
   check_aabb_candidate();
   check_invalid_tlas_is_miss();
   check_pds_formula();
+  check_packed_hit_metadata();
   return 0;
 }

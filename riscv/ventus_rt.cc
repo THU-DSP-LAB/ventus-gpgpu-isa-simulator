@@ -78,11 +78,6 @@ struct Ray {
   uint32_t sbt_stride = 0;
 };
 
-struct Scene {
-  uint64_t hit_sbt_base = 0;
-  uint32_t shader_group_handle_size = 0;
-};
-
 inline bool effective_opaque(const Ray &ray, uint32_t geometry_opaque,
                              uint32_t instance_flags = 0)
 {
@@ -268,10 +263,15 @@ template <typename Memory>
 inline Ray load_ray(Memory &mem, reg_t slot)
 {
   Ray ray;
-  ray.flags = load_word(mem, slot, 0, slot_flags);
-  ray.cull_mask = load_word(mem, slot, 0, slot_cull_mask);
-  ray.sbt_offset = load_word(mem, slot, 0, slot_sbt_offset);
-  ray.sbt_stride = load_word(mem, slot, 0, slot_sbt_stride);
+  const uint32_t trace_meta0 = load_word(mem, slot, 0, slot_trace_meta0);
+  ray.flags = unpack_trace_meta_field(
+      trace_meta0, trace_meta0_flags_shift, trace_meta0_flags_bits);
+  ray.cull_mask = unpack_trace_meta_field(
+      trace_meta0, trace_meta0_cull_mask_shift, trace_meta0_cull_mask_bits);
+  ray.sbt_offset = unpack_trace_meta_field(
+      trace_meta0, trace_meta0_sbt_offset_shift, trace_meta0_sbt_offset_bits);
+  ray.sbt_stride = unpack_trace_meta_field(
+      trace_meta0, trace_meta0_sbt_stride_shift, trace_meta0_sbt_stride_bits);
   ray.origin = {
       bit_cast_f32(load_word(mem, slot, 0, slot_origin_x)),
       bit_cast_f32(load_word(mem, slot, 0, slot_origin_y)),
@@ -303,64 +303,41 @@ inline void clear_control(Memory &mem, reg_t slot)
 
 template <typename Memory>
 inline void write_hit_record(Memory &mem, reg_t slot, reg_t base,
-                             const Scene &scene, const Hit &hit,
+                             const Hit &hit,
                              uint32_t status, bool opaque)
 {
-  const uint32_t sbt_index =
-      hit.tri.instance_sbt_record_offset + hit.tri.sbt_index +
-      load_word(mem, slot, 0, slot_sbt_offset);
-  const uint64_t shader_record_ptr =
-      scene.hit_sbt_base +
-      uint64_t(sbt_index) * uint64_t(load_word(mem, slot, 0, slot_sbt_stride)) +
-      scene.shader_group_handle_size;
-
-  store_word(mem, slot, base, hit_record_status, status);
+  store_word(mem, slot, base, hit_record_meta0,
+             pack_hit_record_meta0(/* valid */ true, status, hit.front_face,
+                                   hit.tri.opaque != 0,
+                                   /* need software opacity test */ !opaque,
+                                   hit.tri.instance_custom_index));
+  store_word(mem, slot, base, hit_record_meta1,
+             pack_hit_record_meta1(hit.tri.instance_sbt_record_offset));
   store_word(mem, slot, base, hit_record_hit_t, bit_cast_u32(hit.t));
-  store_word(mem, slot, base, hit_record_sbt_index, sbt_index);
-  store_word(mem, slot, base, hit_record_shader_record_ptr_lo,
-             uint32_t(shader_record_ptr));
-  store_word(mem, slot, base, hit_record_shader_record_ptr_hi,
-             uint32_t(shader_record_ptr >> 32));
   store_word(mem, slot, base, hit_record_primitive_id, hit.tri.primitive_id);
   store_word(mem, slot, base, hit_record_instance_id, hit.tri.instance_id);
-  store_word(mem, slot, base, hit_record_instance_custom_index,
-             hit.tri.instance_custom_index);
   store_word(mem, slot, base, hit_record_geometry_id, hit.tri.geometry_id);
   store_word(mem, slot, base, hit_record_hit_kind, hit.tri.hit_kind);
   store_word(mem, slot, base, hit_record_barycentrics_x,
              bit_cast_u32(hit.bary_x));
   store_word(mem, slot, base, hit_record_barycentrics_y,
              bit_cast_u32(hit.bary_y));
-  store_word(mem, slot, base, hit_record_primitive_addr_lo,
-             uint32_t(hit.tri.primitive_addr));
-  store_word(mem, slot, base, hit_record_primitive_addr_hi,
-             uint32_t(hit.tri.primitive_addr >> 32));
-  store_word(mem, slot, base, hit_record_instance_addr_lo,
-             uint32_t(hit.tri.instance_addr));
-  store_word(mem, slot, base, hit_record_instance_addr_hi,
-             uint32_t(hit.tri.instance_addr >> 32));
-  store_word(mem, slot, base, hit_record_front_face, hit.front_face ? 1 : 0);
-  store_word(mem, slot, base, hit_record_opaque, hit.tri.opaque ? 1 : 0);
-  store_word(mem, slot, base, hit_record_need_software_opacity_test,
-             opaque ? 0 : 1);
-  store_word(mem, slot, base, hit_record_instance_sbt_record_offset,
-             hit.tri.instance_sbt_record_offset);
 }
 
 template <typename Memory>
 inline void copy_hit_record(Memory &mem, reg_t slot, reg_t dst_base,
                             reg_t src_base)
 {
-  for (reg_t word = hit_record_status; word <= hit_record_instance_sbt_record_offset;
-       ++word)
+  for (reg_t word = 0; word < hit_record_word_count; ++word)
     store_word(mem, slot, dst_base, word, load_word(mem, slot, src_base, word));
 }
 
 template <typename Memory>
 inline bool committed_hit_valid(Memory &mem, reg_t slot)
 {
-  return load_word(mem, slot, abi_committed_hit_record_base_bytes, hit_record_status) ==
-         hit_record_status_valid;
+  return hit_record_valid(load_word(mem, slot,
+                                    abi_committed_hit_record_base_bytes,
+                                    hit_record_meta0));
 }
 
 template <typename Memory>
@@ -510,15 +487,10 @@ struct TraversalEntry {
 };
 
 template <typename Memory>
-inline void commit_hit(Memory &mem, reg_t slot, const Scene &scene,
-                       const Hit &hit, bool opaque)
+inline void commit_hit(Memory &mem, reg_t slot, const Hit &hit, bool opaque)
 {
-  write_hit_record(mem, slot, abi_committed_hit_record_base_bytes, scene, hit,
-                   hit_record_status_valid, opaque);
-  store_word(mem, slot, 0, slot_hit_t, bit_cast_u32(hit.t));
-  store_word(mem, slot, 0, slot_sbt_index,
-             hit.tri.instance_sbt_record_offset + hit.tri.sbt_index +
-                 load_word(mem, slot, 0, slot_sbt_offset));
+  write_hit_record(mem, slot, abi_committed_hit_record_base_bytes, hit,
+                   traversal_complete_hit, opaque);
 }
 
 enum class RtPrivateTraversalKind : uint8_t {
@@ -533,7 +505,6 @@ constexpr uint32_t rt_private_stack_limit = 4096;
 struct RtPrivateContext {
   RtPrivateTraversalKind kind;
   Ray ray;
-  Scene scene;
   std::vector<TraversalEntry> stack;
   uint32_t stack_entries = 0;
 };
@@ -610,8 +581,7 @@ inline void commit_private_candidate(Memory &mem, reg_t slot)
     /* reportIntersectionEXT commits the reported candidate before traversal
      * resumes.  Treat that commit as authoritative only when every record
      * word matches; an equal-distance stale candidate must not be accepted. */
-    for (reg_t word = hit_record_status;
-         word <= hit_record_instance_sbt_record_offset; ++word) {
+    for (reg_t word = 0; word < hit_record_word_count; ++word) {
       if (load_word(mem, slot, abi_candidate_hit_record_base_bytes, word) !=
           load_word(mem, slot, abi_committed_hit_record_base_bytes, word)) {
         compiler_committed = false;
@@ -627,10 +597,6 @@ inline void commit_private_candidate(Memory &mem, reg_t slot)
       copy_hit_record(mem, slot, abi_committed_hit_record_base_bytes,
                       abi_candidate_hit_record_base_bytes);
     }
-    store_word(mem, slot, 0, slot_hit_t, bit_cast_u32(hit_t));
-    store_word(mem, slot, 0, slot_sbt_index,
-               load_word(mem, slot, abi_candidate_hit_record_base_bytes,
-                         hit_record_sbt_index));
   }
 }
 
@@ -649,7 +615,8 @@ inline uint32_t finish_private_traversal(Memory &mem, reg_t slot,
 {
   const bool hit = committed_hit_valid(mem, slot);
   if (!hit)
-    store_word(mem, slot, abi_committed_hit_record_base_bytes, hit_record_status, 0);
+    store_word(mem, slot, abi_committed_hit_record_base_bytes,
+               hit_record_meta0, 0);
   clear_control(mem, slot);
   rt_private_contexts<Memory>().erase(key);
   return hit ? traversal_complete_hit : traversal_complete_miss;
@@ -657,12 +624,11 @@ inline uint32_t finish_private_traversal(Memory &mem, reg_t slot,
 
 template <typename Memory>
 inline uint32_t pause_private_candidate(Memory &mem, reg_t slot,
-                                        const Scene &scene,
                                         const Hit &candidate,
                                         uint32_t status, bool opaque)
 {
-  write_hit_record(mem, slot, abi_candidate_hit_record_base_bytes, scene, candidate,
-                   hit_record_status_valid, opaque);
+  write_hit_record(mem, slot, abi_candidate_hit_record_base_bytes, candidate,
+                   status, opaque);
   clear_control(mem, slot);
   return status;
 }
@@ -745,8 +711,7 @@ inline uint32_t trace_private_vtas(Memory &mem, reg_t slot, uint64_t key)
         continue;
       const bool opaque = effective_opaque(entry.ray, aabb.opaque,
                                            entry.instance_flags);
-      return pause_private_candidate(mem, slot, ctx.scene,
-                                     hit_from_aabb(aabb, hit_t),
+      return pause_private_candidate(mem, slot, hit_from_aabb(aabb, hit_t),
                                      traversal_candidate_procedural_aabb, opaque);
     }
 
@@ -764,9 +729,9 @@ inline uint32_t trace_private_vtas(Memory &mem, reg_t slot, uint64_t key)
     const bool opaque = effective_opaque(entry.ray, tri.opaque,
                                          entry.instance_flags);
     if (!opaque)
-      return pause_private_candidate(mem, slot, ctx.scene, candidate,
+      return pause_private_candidate(mem, slot, candidate,
                                      traversal_candidate_non_opaque_triangle, opaque);
-    commit_hit(mem, slot, ctx.scene, candidate, opaque);
+    commit_hit(mem, slot, candidate, opaque);
     if (entry.ray.flags & ray_flag_terminate_on_first_hit)
       return finish_private_traversal(mem, slot, key);
   }
@@ -790,7 +755,8 @@ inline uint32_t traverse(Memory &mem, reg_t slot)
       contexts.erase(it);
       return traversal_terminated;
     }
-    store_word(mem, slot, abi_candidate_hit_record_base_bytes, hit_record_status, 0);
+    store_word(mem, slot, abi_candidate_hit_record_base_bytes,
+               hit_record_meta0, 0);
     clear_control(mem, slot);
     return trace_private_vtas(mem, slot, key);
   }
@@ -799,8 +765,10 @@ inline uint32_t traverse(Memory &mem, reg_t slot)
     return traversal_terminated;
 
   clear_control(mem, slot);
-  store_word(mem, slot, abi_candidate_hit_record_base_bytes, hit_record_status, 0);
-  store_word(mem, slot, abi_committed_hit_record_base_bytes, hit_record_status, 0);
+  store_word(mem, slot, abi_candidate_hit_record_base_bytes,
+             hit_record_meta0, 0);
+  store_word(mem, slot, abi_committed_hit_record_base_bytes,
+             hit_record_meta0, 0);
   const Ray ray = load_ray(mem, slot);
   const uint64_t accel_addr = load_accel_addr(mem, slot);
   if (accel_addr == 0)
@@ -813,8 +781,6 @@ inline uint32_t traverse(Memory &mem, reg_t slot)
 
   RtPrivateContext ctx = {};
   ctx.ray = ray;
-  ctx.scene.hit_sbt_base = 0;
-  ctx.scene.shader_group_handle_size = 32;
   ctx.kind = RtPrivateTraversalKind::vtas;
   const uint32_t root_ref = load_node_ref(mem, accel_addr);
   if (!push_private_entry(ctx, {accel_addr, root_ref, ray, 0, 0, 0, 0, 0})) {
@@ -838,13 +804,18 @@ struct SpikePdsMemory {
   reg_t pds_base;
   reg_t num_warps;
   reg_t num_threads;
-  reg_t tid;
+  reg_t pds_warp_tid_base;
   reg_t lane;
 
-  reg_t pds_addr(reg_t logical_addr) const
+  reg_t pds_word_addr(reg_t word) const
   {
-    return pds_physical_addr(pds_base, num_warps, num_threads, tid, lane,
-                             logical_addr);
+    return pds_header_word_addr(pds_base, num_warps, num_threads,
+                                pds_warp_tid_base, lane, word);
+  }
+
+  reg_t pds_addr(reg_t logical_byte_addr) const
+  {
+    return pds_word_addr(logical_byte_addr / sizeof(uint32_t));
   }
 
   uint32_t load32(reg_t logical_addr)
@@ -873,34 +844,34 @@ struct RawMemory {
 };
 
 struct HybridMemory {
-  SpikePdsMemory slot;
+  SpikePdsMemory header;
   RawMemory raw;
 
-  uint64_t rt_context_key(reg_t logical_slot) const
+  uint64_t rt_context_key(reg_t) const
   {
-    return slot.pds_addr(logical_slot);
+    return header.pds_word_addr(0);
   }
 
   uint32_t load32(reg_t addr)
   {
     if (addr < abi_fixed_header_size_bytes)
-      return slot.load32(addr);
+      return header.load32(addr);
     return raw.load32(addr);
   }
 
   void store32(reg_t addr, uint32_t value)
   {
     if (addr < abi_fixed_header_size_bytes) {
-      slot.store32(addr, value);
+      header.store32(addr, value);
       return;
     }
     raw.store32(addr, value);
   }
 };
 
-/* Megakernel traversal contexts are keyed by a physical PDS slot.  The same
- * slot address is valid again for each sim_t batch, so its RTcore-private
- * state must not survive the simulator that created it. */
+/* Megakernel traversal contexts are keyed by PDS header word zero.  The same
+ * address is valid again for each sim_t batch, so its RTcore-private state
+ * must not survive the simulator that created it. */
 void reset_private_contexts_for_simulation()
 {
   clear_private_contexts<HybridMemory>();
@@ -908,9 +879,10 @@ void reset_private_contexts_for_simulation()
 
 inline HybridMemory make_hybrid_memory(mmu_t &mmu, reg_t pds_base,
                                        reg_t num_warps, reg_t num_threads,
-                                       reg_t tid, reg_t lane)
+                                       reg_t pds_warp_tid_base, reg_t lane)
 {
-  return {{mmu, pds_base, num_warps, num_threads, tid, lane}, {mmu}};
+  return {{mmu, pds_base, num_warps, num_threads, pds_warp_tid_base, lane},
+          {mmu}};
 }
 #endif
 
@@ -945,19 +917,22 @@ void release(RtMemory &memory, reg_t slot)
 
 #ifndef VENTUS_RT_STANDALONE
 uint32_t traverse_spike(mmu_t &mmu, reg_t pds_base, reg_t num_warps,
-                        reg_t num_threads, reg_t tid, reg_t lane, reg_t slot)
+                        reg_t num_threads, reg_t pds_warp_tid_base,
+                        reg_t lane)
 {
   HybridMemory memory =
-      make_hybrid_memory(mmu, pds_base, num_warps, num_threads, tid, lane);
-  return traverse(memory, slot);
+      make_hybrid_memory(mmu, pds_base, num_warps, num_threads,
+                         pds_warp_tid_base, lane);
+  return traverse(memory, 0);
 }
 
 void release_spike(mmu_t &mmu, reg_t pds_base, reg_t num_warps,
-                   reg_t num_threads, reg_t tid, reg_t lane, reg_t slot)
+                   reg_t num_threads, reg_t pds_warp_tid_base, reg_t lane)
 {
   HybridMemory memory =
-      make_hybrid_memory(mmu, pds_base, num_warps, num_threads, tid, lane);
-  release(memory, slot);
+      make_hybrid_memory(mmu, pds_base, num_warps, num_threads,
+                         pds_warp_tid_base, lane);
+  release(memory, 0);
 }
 #endif
 

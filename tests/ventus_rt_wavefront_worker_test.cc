@@ -77,8 +77,8 @@ static void write_scene(TestMemory &memory, uint64_t accel, uint64_t triangles)
   memory.store_u32(triangles + as_header_type, as_type_blas);
   memory.store_u32(triangles + as_header_root_node_ref,
                    uint32_t(as_header_size) | node_triangle);
-  /* Trace SBT offset 2 plus triangle SBT index 4 selects record 6. */
-  memory.store_u32(hit_sbt + 6 * 96 + 4, 7);
+  /* Trace SBT offset 2 plus geometry ID 5 selects record 7. */
+  memory.store_u32(hit_sbt + 7 * 96 + 4, 7);
 }
 
 static void write_trace_mailbox(TestMemory &memory, uint64_t mailbox,
@@ -164,7 +164,7 @@ static void check_candidate_actions(TestMemory &memory, uint64_t candidate_accel
   result = ignored.front();
   assert(result.target == TraversalDispatchTarget::Miss);
   assert(record->state == CompletionState::CompleteMiss);
-  assert(record->committed_hit[hit_record_status] == 0);
+  assert(!hit_record_valid(record->committed_hit[hit_record_meta0]));
   assert(record->metadata.return_continuation_id == 19 &&
          record->metadata.launch_id_x == 4 && record->metadata.launch_id_y == 5 &&
          record->metadata.launch_id_z == 6);
@@ -267,10 +267,14 @@ static void check_vtas_aabb_candidate(TestMemory &memory)
   assert(candidate && candidate->state == CompletionState::Candidate);
   assert(candidate->candidate_hit[hit_record_primitive_id] == primitive_id);
   assert(candidate->candidate_hit[hit_record_instance_id] == 13);
-  assert(candidate->candidate_hit[hit_record_instance_custom_index] == 23);
-  assert(candidate->candidate_hit[hit_record_sbt_index] == 14);
-  assert(candidate->candidate_hit[hit_record_instance_sbt_record_offset] == 5);
-  assert(candidate->candidate_hit[hit_record_opaque] == 1);
+  assert(hit_record_instance_custom_index(
+             candidate->candidate_hit[hit_record_meta0]) == 23);
+  assert(hit_record_sbt_index(candidate->candidate_hit[hit_record_meta1],
+                              candidate->candidate_hit[hit_record_geometry_id],
+                              /* TraceRay SBT offset */ 2) == 10);
+  assert(hit_record_instance_sbt_record_offset(
+             candidate->candidate_hit[hit_record_meta1]) == 5);
+  assert(hit_record_opaque(candidate->candidate_hit[hit_record_meta0]));
 
   std::array<uint32_t, kHitRecordWordCount> report = candidate->candidate_hit;
   report[hit_record_hit_t] = bit_cast_u32(4.5f);
@@ -403,7 +407,7 @@ int main()
   assert(results[0].traversal_status == traversal_complete_hit);
   assert(results[0].target == TraversalDispatchTarget::ClosestHit);
   assert(results[0].primitive_id == 77 && results[0].instance_id == 11 &&
-         results[0].geometry_id == 5 && results[0].sbt_index == 6);
+         results[0].geometry_id == 5 && results[0].sbt_index == 7);
   const CompletionRecord *opaque = completion.find(0);
   assert(opaque && opaque->state == CompletionState::CompleteHit);
   assert(opaque->committed_hit[hit_record_primitive_id] == 77);

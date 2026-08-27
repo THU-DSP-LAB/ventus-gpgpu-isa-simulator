@@ -35,12 +35,71 @@ constexpr uint32_t ray_flag_terminate_on_first_hit = 1u << 2;
 constexpr uint32_t instance_flag_force_opaque = 1u << 2;
 constexpr uint32_t instance_flag_force_non_opaque = 1u << 3;
 
-inline reg_t pds_physical_addr(reg_t pds_base, reg_t num_warps,
-                               reg_t num_threads, reg_t tid, reg_t lane,
-                               reg_t logical_addr)
+inline uint32_t unpack_trace_meta_field(uint32_t word, uint32_t shift,
+                                        uint32_t bits)
 {
-  const reg_t aligned = (logical_addr >> 2) << 2;
-  return pds_base + num_warps * num_threads * aligned + ((tid + lane) << 2);
+  return (word >> shift) & ((1u << bits) - 1u);
+}
+
+inline uint32_t pack_trace_meta0(uint32_t flags, uint32_t cull_mask,
+                                 uint32_t sbt_offset, uint32_t sbt_stride)
+{
+  return ((flags & ((1u << trace_meta0_flags_bits) - 1u))
+          << trace_meta0_flags_shift) |
+         ((cull_mask & ((1u << trace_meta0_cull_mask_bits) - 1u))
+          << trace_meta0_cull_mask_shift) |
+         ((sbt_offset & ((1u << trace_meta0_sbt_offset_bits) - 1u))
+          << trace_meta0_sbt_offset_shift) |
+         ((sbt_stride & ((1u << trace_meta0_sbt_stride_bits) - 1u))
+          << trace_meta0_sbt_stride_shift);
+}
+
+inline uint32_t pack_trace_meta1(uint32_t miss_index, uint32_t active_level)
+{
+  return ((miss_index & ((1u << trace_meta1_miss_index_bits) - 1u))
+          << trace_meta1_miss_index_shift) |
+         ((active_level & ((1u << trace_meta1_active_level_bits) - 1u))
+          << trace_meta1_active_level_shift);
+}
+
+/* The fixed RT header begins at PDS logical word zero.  `pds_warp_tid_base`
+ * is the smallest PDS thread ID in the issuing warp; `lane` is always the
+ * local hardware lane (0..31), including for a partially active warp.
+ *
+ * Ray state and the control word are field-major.  Candidate and committed
+ * records switch to lane-major storage so an independently completing lane
+ * owns one contiguous compact record.  Keep this translation at the PDS
+ * boundary: compiler and traversal code continue to use lane-private logical
+ * ABI offsets. */
+inline reg_t pds_header_word_addr(reg_t pds_base, reg_t num_warps,
+                                  reg_t num_threads,
+                                  reg_t pds_warp_tid_base, reg_t lane,
+                                  reg_t word)
+{
+  const reg_t pds_thread_count = num_warps * num_threads;
+  const reg_t tid = pds_warp_tid_base + lane;
+  const reg_t prefix_words = abi_pds_field_major_prefix_word_count;
+  const reg_t record_words = abi_pds_lane_major_hit_record_word_count;
+  const reg_t candidate_word = abi_candidate_hit_record_base_bytes /
+                               sizeof(uint32_t);
+  const reg_t committed_word = abi_committed_hit_record_base_bytes /
+                               sizeof(uint32_t);
+
+  if (word < prefix_words)
+    return pds_base + sizeof(uint32_t) * (word * pds_thread_count + tid);
+  if (word >= candidate_word && word < candidate_word + record_words)
+    return pds_base + sizeof(uint32_t) *
+       (prefix_words * pds_thread_count + tid * record_words +
+        (word - candidate_word));
+  if (word >= committed_word && word < committed_word + record_words)
+    return pds_base + sizeof(uint32_t) *
+       ((prefix_words + record_words) * pds_thread_count +
+        tid * record_words + (word - committed_word));
+
+  /* Only fixed-header words reach this helper.  Preserve a deterministic
+   * field-major fallback for diagnostics instead of silently aliasing a
+   * record. */
+  return pds_base + sizeof(uint32_t) * (word * pds_thread_count + tid);
 }
 
 inline reg_t word_addr(reg_t slot, reg_t byte_base, reg_t word)
@@ -62,6 +121,81 @@ inline float bit_cast_f32(uint32_t bits)
   static_assert(sizeof(bits) == sizeof(value), "float must be 32-bit");
   std::memcpy(&value, &bits, sizeof(value));
   return value;
+}
+
+/* The candidate and committed records share this compact representation.
+ * `valid` has its own bit so the three-bit status can distinguish the
+ * candidate kind without affecting record lifetime. */
+inline uint32_t pack_hit_record_meta0(bool valid, uint32_t status,
+                                      bool front_face, bool opaque,
+                                      bool need_software_opacity_test,
+                                      uint32_t instance_custom_index)
+{
+  constexpr uint32_t custom_index_mask =
+      (1u << hit_record_meta0_instance_custom_index_bits) - 1u;
+  return (valid ? (1u << hit_record_meta0_valid_shift) : 0u) |
+         ((status & ((1u << hit_record_meta0_status_bits) - 1u))
+          << hit_record_meta0_status_shift) |
+         (front_face ? (1u << hit_record_meta0_front_face_shift) : 0u) |
+         (opaque ? (1u << hit_record_meta0_opaque_shift) : 0u) |
+         (need_software_opacity_test
+              ? (1u << hit_record_meta0_need_software_opacity_test_shift)
+              : 0u) |
+         ((instance_custom_index & custom_index_mask)
+          << hit_record_meta0_instance_custom_index_shift);
+}
+
+inline bool hit_record_valid(uint32_t meta0)
+{
+  return (meta0 & (1u << hit_record_meta0_valid_shift)) != 0;
+}
+
+inline uint32_t hit_record_status(uint32_t meta0)
+{
+  return (meta0 >> hit_record_meta0_status_shift) &
+         ((1u << hit_record_meta0_status_bits) - 1u);
+}
+
+inline bool hit_record_front_face(uint32_t meta0)
+{
+  return (meta0 & (1u << hit_record_meta0_front_face_shift)) != 0;
+}
+
+inline bool hit_record_opaque(uint32_t meta0)
+{
+  return (meta0 & (1u << hit_record_meta0_opaque_shift)) != 0;
+}
+
+inline bool hit_record_needs_software_opacity_test(uint32_t meta0)
+{
+  return (meta0 &
+          (1u << hit_record_meta0_need_software_opacity_test_shift)) != 0;
+}
+
+inline uint32_t hit_record_instance_custom_index(uint32_t meta0)
+{
+  return (meta0 >> hit_record_meta0_instance_custom_index_shift) &
+         ((1u << hit_record_meta0_instance_custom_index_bits) - 1u);
+}
+
+inline uint32_t pack_hit_record_meta1(uint32_t instance_sbt_record_offset)
+{
+  return (instance_sbt_record_offset &
+          ((1u << hit_record_meta1_instance_sbt_record_offset_bits) - 1u))
+         << hit_record_meta1_instance_sbt_record_offset_shift;
+}
+
+inline uint32_t hit_record_instance_sbt_record_offset(uint32_t meta1)
+{
+  return (meta1 >> hit_record_meta1_instance_sbt_record_offset_shift) &
+         ((1u << hit_record_meta1_instance_sbt_record_offset_bits) - 1u);
+}
+
+inline uint32_t hit_record_sbt_index(uint32_t meta1, uint32_t geometry_id,
+                                     uint32_t trace_sbt_offset)
+{
+  return hit_record_instance_sbt_record_offset(meta1) + geometry_id +
+         trace_sbt_offset;
 }
 
 /* A stable, non-template bridge into libspike_main's RTcore implementation.
@@ -112,10 +246,10 @@ VENTUS_RT_API void release(RtMemory &memory, reg_t slot);
 #ifndef VENTUS_RT_STANDALONE
 VENTUS_RT_API uint32_t traverse_spike(mmu_t &mmu, reg_t pds_base,
                                       reg_t num_warps, reg_t num_threads,
-                                      reg_t tid, reg_t lane, reg_t slot);
+                                      reg_t pds_warp_tid_base, reg_t lane);
 VENTUS_RT_API void release_spike(mmu_t &mmu, reg_t pds_base,
                                  reg_t num_warps, reg_t num_threads,
-                                 reg_t tid, reg_t lane, reg_t slot);
+                                 reg_t pds_warp_tid_base, reg_t lane);
 VENTUS_RT_API void reset_private_contexts_for_simulation();
 #endif
 
