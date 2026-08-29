@@ -4,7 +4,7 @@
 // Do not edit: update the Mesa ABI header and regenerate.
 // Fixed PDS-header constants for namespace ventus_rt.
 
-constexpr reg_t abi_version = 9;
+constexpr reg_t abi_version = 10;
 constexpr reg_t abi_word_bytes = 4;
 constexpr reg_t abi_alignment_bytes = 16;
 constexpr reg_t trace_meta0_flags_shift = 0;
@@ -40,8 +40,12 @@ constexpr reg_t abi_committed_hit_record_base_bytes = 112;
 constexpr reg_t abi_committed_hit_record_size_bytes = 36;
 constexpr reg_t abi_pds_field_major_prefix_size_bytes = 76;
 constexpr reg_t abi_pds_field_major_prefix_word_count = 19;
+constexpr reg_t abi_pds_lane_major_hit_record_body_word_count = 8;
+constexpr reg_t abi_pds_lane_major_hit_record_body_record_count = 2;
 constexpr reg_t abi_pds_lane_major_hit_record_word_count = 9;
 constexpr reg_t abi_pds_lane_major_hit_record_count = 2;
+constexpr reg_t abi_pds_candidate_hit_kind_base_word_count = 35;
+constexpr reg_t abi_pds_committed_hit_kind_base_word_count = 36;
 constexpr reg_t abi_hit_record_addr_tag = -2147483648;
 constexpr reg_t abi_hit_attrib_base_bytes = 148;
 constexpr reg_t abi_shader_region_base_bytes = 148;

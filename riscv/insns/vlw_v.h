@@ -1,9 +1,5 @@
-/*
- * RT hit-record loads use the private-address high bit as a PDS-layout tag.
- * Clear it before addressing memory and translate only the two fixed records
- * to [lane][word].  All untagged private accesses retain the long-standing
- * field-major PDS mapping.
- */
+/* The high address bit is reserved for the existing lane-major hit-record
+ * body path. hit_kind is an ordinary untagged field-major PDS access. */
 #include "ventus_rt.h"
 
 VI_GPU_LD_INDEX(e32,true,({
@@ -17,21 +13,23 @@ VI_GPU_LD_INDEX(e32,true,({
         ventus_rt::abi_candidate_hit_record_base_bytes / sizeof(uint32_t);
     const reg_t committedWord =
         ventus_rt::abi_committed_hit_record_base_bytes / sizeof(uint32_t);
-    const reg_t recordWords = ventus_rt::abi_pds_lane_major_hit_record_word_count;
-    const bool candidate = logicalWord >= candidateWord &&
-        logicalWord < candidateWord + recordWords;
-    const bool committed = logicalWord >= committedWord &&
-        logicalWord < committedWord + recordWords;
-    const bool laneMajor = taggedHitRecord && (candidate || committed);
-    const reg_t recordBase = candidate
-        ? ventus_rt::abi_pds_field_major_prefix_word_count
-        : ventus_rt::abi_pds_field_major_prefix_word_count + recordWords;
-    const reg_t recordWord = candidate ? logicalWord - candidateWord
-                                       : logicalWord - committedWord;
-    const reg_t baseBias = laneMajor
-        ? P.get_csr(CSR_PDS) + ((recordBase * threadCount) << 2)
-        : P.get_csr(CSR_PDS) + (threadCount * (baseAddr & ~reg_t(3)));
-    MMU.load_int32(baseBias + (laneMajor
-        ? ((baseTid + vreg_inx) * recordWords + recordWord) << 2
-        : (baseTid + vreg_inx) << 2));}
+    const reg_t bodyWords =
+        ventus_rt::abi_pds_lane_major_hit_record_body_word_count;
+    const reg_t bodyRecordCount =
+        ventus_rt::abi_pds_lane_major_hit_record_body_record_count;
+    const bool candidateBody = logicalWord >= candidateWord &&
+        logicalWord < candidateWord + bodyWords;
+    const bool committedBody = logicalWord >= committedWord &&
+        logicalWord < committedWord + bodyWords;
+    const bool body = candidateBody || committedBody;
+    const reg_t tid = baseTid + vreg_inx;
+    const reg_t bodyWord = candidateBody ? logicalWord - candidateWord
+                                         : logicalWord - committedWord;
+    const reg_t bodyAddr = P.get_csr(CSR_PDS) +
+        ((ventus_rt::abi_pds_field_major_prefix_word_count * threadCount +
+          tid * bodyWords * bodyRecordCount +
+          (committedBody ? bodyWords : 0) + bodyWord) << 2);
+    const reg_t fieldMajorAddr = P.get_csr(CSR_PDS) +
+        (threadCount * (baseAddr & ~reg_t(3))) + (tid << 2);
+    MMU.load_int32(taggedHitRecord && body ? bodyAddr : fieldMajorAddr);}
 ));
