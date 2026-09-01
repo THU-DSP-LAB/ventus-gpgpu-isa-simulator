@@ -19,6 +19,8 @@ bool lane_active(processor_t *p, reg_t lane)
   return p->gpgpu_unit.simt_stack.lane_active(lane);
 }
 
+uint32_t active_lanes_from_vstart(processor_t *p);
+
 /* Opt-in, bounded full-app tracing.  Unlike VENTUS_SPIKE_LOG this records
  * only traverse operands, so a 160x96 image remains inspectable. */
 bool reserve_rt_traverse_operand_log(uint64_t *sequence)
@@ -38,6 +40,38 @@ bool reserve_rt_traverse_operand_log(uint64_t *sequence)
   static std::atomic<uint64_t> next_sequence{0};
   *sequence = next_sequence.fetch_add(1, std::memory_order_relaxed);
   return *sequence < limit;
+}
+
+bool reserve_rt_control_log(uint64_t *sequence)
+{
+  const char *enabled = std::getenv("VENTUS_RT_TRACE_CONTROL");
+  if (!enabled || !enabled[0] || enabled[0] == '0')
+    return false;
+
+  uint64_t limit = 64;
+  if (const char *limit_env = std::getenv("VENTUS_RT_TRACE_CONTROL_MAX")) {
+    char *end = nullptr;
+    const unsigned long long parsed = std::strtoull(limit_env, &end, 10);
+    if (end != limit_env && *end == '\0')
+      limit = parsed;
+  }
+
+  static std::atomic<uint64_t> next_sequence{0};
+  *sequence = next_sequence.fetch_add(1, std::memory_order_relaxed);
+  return *sequence < limit;
+}
+
+void log_rt_control(processor_t *p, const char *op, uint64_t sequence,
+                    reg_t pds_warp_tid_base, reg_t vl, uint32_t active_mask)
+{
+  std::fprintf(stderr,
+               "VENTUS_RT_CONTROL op=%s seq=%llu pc=0x%llx vl=%llu "
+               "active_mask=0x%08x csr_tid=%llu pds_warp_tid_base=%llu\n",
+               op, static_cast<unsigned long long>(sequence),
+               static_cast<unsigned long long>(p->get_state()->pc),
+               static_cast<unsigned long long>(vl), active_mask,
+               static_cast<unsigned long long>(p->get_csr(CSR_TID)),
+               static_cast<unsigned long long>(pds_warp_tid_base));
 }
 
 void log_rt_traverse_operands(processor_t *p, uint64_t sequence, reg_t vd,
@@ -295,6 +329,10 @@ void ventus_exec_rt_traverse(processor_t *p, insn_t insn)
    * inactive.  The per-lane PDS header index is derived only inside RTcore. */
   const reg_t pds_warp_tid_base =
       vl ? p->VU.elt<uint32_t>(2, vs2_num, 0) : 0;
+  uint64_t control_sequence = 0;
+  if (reserve_rt_control_log(&control_sequence))
+    log_rt_control(p, "traverse", control_sequence, pds_warp_tid_base, vl,
+                   active_lanes_from_vstart(p));
 
   for (reg_t lane = p->VU.vstart->read(); lane < vl; ++lane) {
     if (!lane_active(p, lane))
@@ -317,6 +355,10 @@ void ventus_exec_rt_release(processor_t *p, insn_t insn)
   const reg_t vs2_num = insn.rs2();
   const reg_t pds_warp_tid_base =
       vl ? p->VU.elt<uint32_t>(2, vs2_num, 0) : 0;
+  uint64_t control_sequence = 0;
+  if (reserve_rt_control_log(&control_sequence))
+    log_rt_control(p, "release", control_sequence, pds_warp_tid_base, vl,
+                   active_lanes_from_vstart(p));
 
   for (reg_t lane = p->VU.vstart->read(); lane < vl; ++lane) {
     if (!lane_active(p, lane))
