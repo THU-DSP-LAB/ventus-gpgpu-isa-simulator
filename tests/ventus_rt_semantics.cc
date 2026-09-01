@@ -1,4 +1,6 @@
+#ifndef VENTUS_RT_STANDALONE
 #define VENTUS_RT_STANDALONE
+#endif
 #include "ventus_rt.h"
 
 #include <cassert>
@@ -209,35 +211,27 @@ static void check_pds_formula()
   constexpr reg_t warp_tid_base = 64;
   constexpr reg_t thread_count = 8 * 32;
   constexpr reg_t tid = warp_tid_base + 3;
-  constexpr reg_t prefix_words = abi_pds_field_major_prefix_word_count;
-  constexpr reg_t body_words = abi_pds_lane_major_hit_record_body_word_count;
-  constexpr reg_t body_record_count =
-      abi_pds_lane_major_hit_record_body_record_count;
   constexpr reg_t candidate_word = abi_candidate_hit_record_base_bytes / 4;
   constexpr reg_t committed_word = abi_committed_hit_record_base_bytes / 4;
 
   assert(pds_header_word_addr(pds, 8, 32, warp_tid_base, 3, 3) ==
          pds + 4 * (3 * thread_count + tid));
   assert(pds_header_word_addr(
-             pds, 8, 32, warp_tid_base, 3,
+         pds, 8, 32, warp_tid_base, 3,
              candidate_word + hit_record_geometry_id) ==
-         pds + 4 * (prefix_words * thread_count +
-                    tid * body_words * body_record_count +
-                    hit_record_geometry_id));
+         pds + 4 * ((candidate_word + hit_record_geometry_id) * thread_count + tid));
   assert(pds_header_word_addr(
              pds, 8, 32, warp_tid_base, 3,
              committed_word + hit_record_geometry_id) ==
-         pds + 4 * (prefix_words * thread_count +
-                    tid * body_words * body_record_count + body_words +
-                    hit_record_geometry_id));
+         pds + 4 * ((committed_word + hit_record_geometry_id) * thread_count + tid));
   assert(pds_header_word_addr(
              pds, 8, 32, warp_tid_base, 3,
              candidate_word + hit_record_hit_kind) ==
-         pds + 4 * (abi_pds_candidate_hit_kind_base_word_count * thread_count + tid));
+         pds + 4 * ((candidate_word + hit_record_hit_kind) * thread_count + tid));
   assert(pds_header_word_addr(
              pds, 8, 32, warp_tid_base, 3,
              committed_word + hit_record_hit_kind) ==
-         pds + 4 * (abi_pds_committed_hit_kind_base_word_count * thread_count + tid));
+         pds + 4 * ((committed_word + hit_record_hit_kind) * thread_count + tid));
   assert(pds_header_word_addr(pds, 8, 32, warp_tid_base, 31, 0) ==
          pds + 4 * (warp_tid_base + 31));
 }

@@ -66,11 +66,9 @@ inline uint32_t pack_trace_meta1(uint32_t miss_index, uint32_t active_level)
  * is the smallest PDS thread ID in the issuing warp; `lane` is always the
  * local hardware lane (0..31), including for a partially active warp.
  *
- * Ray state and the control word are field-major.  The first eight words of
- * candidate and committed records form one lane-major 64-byte body, while
- * the final hit_kind word of each record stays in its own field-major array.
- * Keep this translation at the PDS boundary: compiler and traversal code
- * continue to use lane-private logical ABI offsets. */
+ * Every fixed-header field, including candidate and committed hit records, is
+ * field-major.  Keep this translation at the PDS boundary: compiler and
+ * traversal code continue to use lane-private logical ABI offsets. */
 inline reg_t pds_header_word_addr(reg_t pds_base, reg_t num_warps,
                                   reg_t num_threads,
                                   reg_t pds_warp_tid_base, reg_t lane,
@@ -78,35 +76,6 @@ inline reg_t pds_header_word_addr(reg_t pds_base, reg_t num_warps,
 {
   const reg_t pds_thread_count = num_warps * num_threads;
   const reg_t tid = pds_warp_tid_base + lane;
-  const reg_t prefix_words = abi_pds_field_major_prefix_word_count;
-  const reg_t body_words = abi_pds_lane_major_hit_record_body_word_count;
-  const reg_t body_record_count =
-      abi_pds_lane_major_hit_record_body_record_count;
-  const reg_t candidate_word = abi_candidate_hit_record_base_bytes /
-                               sizeof(uint32_t);
-  const reg_t committed_word = abi_committed_hit_record_base_bytes /
-                               sizeof(uint32_t);
-
-  if (word < prefix_words)
-    return pds_base + sizeof(uint32_t) * (word * pds_thread_count + tid);
-  if (word >= candidate_word && word < candidate_word + body_words)
-    return pds_base + sizeof(uint32_t) *
-       (prefix_words * pds_thread_count + tid * body_words * body_record_count +
-        (word - candidate_word));
-  if (word >= committed_word && word < committed_word + body_words)
-    return pds_base + sizeof(uint32_t) *
-       (prefix_words * pds_thread_count + tid * body_words * body_record_count +
-        body_words + (word - committed_word));
-  if (word == candidate_word + hit_record_hit_kind)
-    return pds_base + sizeof(uint32_t) *
-       (abi_pds_candidate_hit_kind_base_word_count * pds_thread_count + tid);
-  if (word == committed_word + hit_record_hit_kind)
-    return pds_base + sizeof(uint32_t) *
-       (abi_pds_committed_hit_kind_base_word_count * pds_thread_count + tid);
-
-  /* Only fixed-header words reach this helper.  Preserve a deterministic
-   * field-major fallback for diagnostics instead of silently aliasing a
-   * record. */
   return pds_base + sizeof(uint32_t) * (word * pds_thread_count + tid);
 }
 
