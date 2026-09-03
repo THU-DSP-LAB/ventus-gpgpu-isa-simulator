@@ -30,6 +30,11 @@ RT = [
      "ventus_exec_rt_enqueue(p, insn);", "add_ventus_rt_enqueue_insn"),
 ]
 
+RT_LOCAL = [
+    ("vlrt_w", "vlrt.w", "0x0200305f", "0x0200707f"),
+    ("vsrt_w", "vsrt.w", "0x0200405f", "0x0200707f"),
+]
+
 
 def read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
@@ -63,6 +68,8 @@ def main() -> int:
 
     require("0x0a ? 4" in decode or "0x0a ||" in decode,
             "insn_length does not force opcode 0x0a to 32 bits", failures)
+    require("0x5f ? 4" in decode or "0x5f ||" in decode,
+            "insn_length does not force RT Local opcode 0x5f to 32 bits", failures)
     require("ventus_mma.h" in riscv_mk, "ventus_mma.h missing from riscv headers", failures)
     require("ventus_rt.h" in riscv_mk, "ventus_rt.h missing from riscv headers", failures)
     require("tests/ventus_rt_semantics.cc" in "\n".join(
@@ -118,6 +125,28 @@ def main() -> int:
         require(f'"{disasm_name}"' in disasm, f"disassembler missing {disasm_name}", failures)
         require(f'{formatter}(this, "{disasm_name}"' in disasm,
                 f"{disasm_name} does not use RT-specific formatter", failures)
+
+    for insn, disasm_name, match, mask in RT_LOCAL:
+        macro = insn.upper()
+        require(f"#define MATCH_{macro} {match}" in encoding,
+                f"MATCH_{macro} missing or changed", failures)
+        require(f"#define MASK_{macro} {mask}" in encoding,
+                f"MASK_{macro} missing or changed", failures)
+        require(f"DECLARE_INSN({insn}, MATCH_{macro}, MASK_{macro})" in encoding,
+                f"DECLARE_INSN({insn}) missing", failures)
+        require(f'"{disasm_name}"' in disasm,
+                f"disassembler missing {disasm_name}", failures)
+        formatter = ("add_ventus_rt_local_load_insn" if insn == "vlrt_w"
+                     else "add_ventus_rt_local_store_insn")
+        require(f'{formatter}(this, "{disasm_name}"' in disasm,
+                f"{disasm_name} does not use RT Local formatter", failures)
+
+        local_match = int(match, 16)
+        for field in range(37):
+            encoded = local_match | (field << 26)
+            for mma_insn, _, mma_match, mma_mask in MMA:
+                require((encoded & int(mma_mask, 16)) != int(mma_match, 16),
+                        f"{insn} field {field} aliases {mma_insn}", failures)
 
     require("add_ventus_mma_insn" in disasm,
             "disassembler missing MMA-specific formatter", failures)
