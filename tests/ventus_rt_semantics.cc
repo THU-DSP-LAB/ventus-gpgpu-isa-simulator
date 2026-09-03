@@ -205,37 +205,6 @@ static void check_invalid_tlas_is_miss()
   assert(traverse(mem, slot) == traversal_complete_miss);
 }
 
-static void check_pds_formula()
-{
-  constexpr reg_t pds = 0x80000000;
-  constexpr reg_t warp_tid_base = 64;
-  constexpr reg_t thread_count = 8 * 32;
-  constexpr reg_t tid = warp_tid_base + 3;
-  constexpr reg_t candidate_word = abi_candidate_hit_record_base_bytes / 4;
-  constexpr reg_t committed_word = abi_committed_hit_record_base_bytes / 4;
-
-  assert(pds_header_word_addr(pds, 8, 32, warp_tid_base, 3, 3) ==
-         pds + 4 * (3 * thread_count + tid));
-  assert(pds_header_word_addr(
-         pds, 8, 32, warp_tid_base, 3,
-             candidate_word + hit_record_geometry_id) ==
-         pds + 4 * ((candidate_word + hit_record_geometry_id) * thread_count + tid));
-  assert(pds_header_word_addr(
-             pds, 8, 32, warp_tid_base, 3,
-             committed_word + hit_record_geometry_id) ==
-         pds + 4 * ((committed_word + hit_record_geometry_id) * thread_count + tid));
-  assert(pds_header_word_addr(
-             pds, 8, 32, warp_tid_base, 3,
-             candidate_word + hit_record_hit_kind) ==
-         pds + 4 * ((candidate_word + hit_record_hit_kind) * thread_count + tid));
-  assert(pds_header_word_addr(
-             pds, 8, 32, warp_tid_base, 3,
-             committed_word + hit_record_hit_kind) ==
-         pds + 4 * ((committed_word + hit_record_hit_kind) * thread_count + tid));
-  assert(pds_header_word_addr(pds, 8, 32, warp_tid_base, 31, 0) ==
-         pds + 4 * (warp_tid_base + 31));
-}
-
 static void check_packed_hit_metadata()
 {
   const uint32_t meta0 = pack_hit_record_meta0(
@@ -258,7 +227,6 @@ int main()
   check_triangle_hit_and_candidate();
   check_aabb_candidate();
   check_invalid_tlas_is_miss();
-  check_pds_formula();
   check_packed_hit_metadata();
   return 0;
 }

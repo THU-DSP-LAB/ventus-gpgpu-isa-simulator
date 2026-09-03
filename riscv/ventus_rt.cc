@@ -1,4 +1,7 @@
 #include "ventus_rt.h"
+#ifndef VENTUS_RT_STANDALONE
+#include "processor.h"
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -799,33 +802,21 @@ inline void release(Memory &mem, reg_t slot)
 }
 
 #ifndef VENTUS_RT_STANDALONE
-struct SpikePdsMemory {
-  mmu_t &mmu;
-  reg_t pds_base;
-  reg_t num_warps;
-  reg_t num_threads;
-  reg_t pds_warp_tid_base;
+struct SpikeRtLocalMemory {
+  warp_schedule_t &schedule;
+  reg_t wid;
   reg_t lane;
-
-  reg_t pds_word_addr(reg_t word) const
-  {
-    return pds_header_word_addr(pds_base, num_warps, num_threads,
-                                pds_warp_tid_base, lane, word);
-  }
-
-  reg_t pds_addr(reg_t logical_byte_addr) const
-  {
-    return pds_word_addr(logical_byte_addr / sizeof(uint32_t));
-  }
 
   uint32_t load32(reg_t logical_addr)
   {
-    return uint32_t(mmu.load_uint32(pds_addr(logical_addr)));
+    assert(logical_addr % sizeof(uint32_t) == 0);
+    return schedule.rt_local_load(wid, logical_addr / sizeof(uint32_t), lane);
   }
 
   void store32(reg_t logical_addr, uint32_t value)
   {
-    mmu.store_uint32(pds_addr(logical_addr), value);
+    assert(logical_addr % sizeof(uint32_t) == 0);
+    schedule.rt_local_store(wid, logical_addr / sizeof(uint32_t), lane, value);
   }
 };
 
@@ -844,12 +835,13 @@ struct RawMemory {
 };
 
 struct HybridMemory {
-  SpikePdsMemory header;
+  SpikeRtLocalMemory header;
   RawMemory raw;
 
   uint64_t rt_context_key(reg_t) const
   {
-    return header.pds_word_addr(0);
+    return uint64_t(reinterpret_cast<uintptr_t>(&header.schedule)) ^
+           ((uint64_t(header.wid) << 5) | header.lane);
   }
 
   uint32_t load32(reg_t addr)
@@ -869,20 +861,17 @@ struct HybridMemory {
   }
 };
 
-/* Megakernel traversal contexts are keyed by PDS header word zero.  The same
- * address is valid again for each sim_t batch, so its RTcore-private state
- * must not survive the simulator that created it. */
+/* RT Local SRAM is reset with its workgroup schedule.  Retained contexts are
+ * keyed by warp/lane, so they must not survive the simulator that created it. */
 void reset_private_contexts_for_simulation()
 {
   clear_private_contexts<HybridMemory>();
 }
 
-inline HybridMemory make_hybrid_memory(mmu_t &mmu, reg_t pds_base,
-                                       reg_t num_warps, reg_t num_threads,
-                                       reg_t pds_warp_tid_base, reg_t lane)
+inline HybridMemory make_hybrid_memory(mmu_t &mmu, warp_schedule_t &schedule,
+                                       reg_t wid, reg_t lane)
 {
-  return {{mmu, pds_base, num_warps, num_threads, pds_warp_tid_base, lane},
-          {mmu}};
+  return {{schedule, wid, lane}, {mmu}};
 }
 #endif
 
@@ -916,22 +905,27 @@ void release(RtMemory &memory, reg_t slot)
 }
 
 #ifndef VENTUS_RT_STANDALONE
-uint32_t traverse_spike(mmu_t &mmu, reg_t pds_base, reg_t num_warps,
-                        reg_t num_threads, reg_t pds_warp_tid_base,
+uint32_t traverse_spike(mmu_t &mmu, warp_schedule_t &schedule,
+                        reg_t warp_first_tid, reg_t warp_lane_count,
                         reg_t lane)
 {
-  HybridMemory memory =
-      make_hybrid_memory(mmu, pds_base, num_warps, num_threads,
-                         pds_warp_tid_base, lane);
+  assert(warp_lane_count == warp_schedule_t::rt_local_lane_count);
+  assert(warp_first_tid % warp_lane_count == 0);
+  const reg_t wid = warp_first_tid / warp_lane_count;
+  assert(wid < warp_schedule_t::rt_local_warp_count);
+  HybridMemory memory = make_hybrid_memory(mmu, schedule, wid, lane);
   return traverse(memory, 0);
 }
 
-void release_spike(mmu_t &mmu, reg_t pds_base, reg_t num_warps,
-                   reg_t num_threads, reg_t pds_warp_tid_base, reg_t lane)
+void release_spike(mmu_t &mmu, warp_schedule_t &schedule,
+                   reg_t warp_first_tid, reg_t warp_lane_count,
+                   reg_t lane)
 {
-  HybridMemory memory =
-      make_hybrid_memory(mmu, pds_base, num_warps, num_threads,
-                         pds_warp_tid_base, lane);
+  assert(warp_lane_count == warp_schedule_t::rt_local_lane_count);
+  assert(warp_first_tid % warp_lane_count == 0);
+  const reg_t wid = warp_first_tid / warp_lane_count;
+  assert(wid < warp_schedule_t::rt_local_warp_count);
+  HybridMemory memory = make_hybrid_memory(mmu, schedule, wid, lane);
   release(memory, 0);
 }
 #endif

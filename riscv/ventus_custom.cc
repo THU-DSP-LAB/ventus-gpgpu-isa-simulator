@@ -62,47 +62,48 @@ bool reserve_rt_control_log(uint64_t *sequence)
 }
 
 void log_rt_control(processor_t *p, const char *op, uint64_t sequence,
-                    reg_t pds_warp_tid_base, reg_t vl, uint32_t active_mask)
+                    reg_t warp_first_tid, reg_t vl, uint32_t active_mask)
 {
   std::fprintf(stderr,
                "VENTUS_RT_CONTROL op=%s seq=%llu pc=0x%llx vl=%llu "
-               "active_mask=0x%08x csr_tid=%llu pds_warp_tid_base=%llu\n",
+               "active_mask=0x%08x csr_tid=%llu warp_first_tid=%llu\n",
                op, static_cast<unsigned long long>(sequence),
                static_cast<unsigned long long>(p->get_state()->pc),
                static_cast<unsigned long long>(vl), active_mask,
                static_cast<unsigned long long>(p->get_csr(CSR_TID)),
-               static_cast<unsigned long long>(pds_warp_tid_base));
+               static_cast<unsigned long long>(warp_first_tid));
 }
 
 void log_rt_traverse_operands(processor_t *p, uint64_t sequence, reg_t vd,
                               reg_t vs2, reg_t vl,
-                              const std::array<uint32_t, VENTUS_CUSTOM_LANES> &pds_warp_tid_bases)
+                              const std::array<uint32_t, VENTUS_CUSTOM_LANES> &warp_first_tids)
 {
-  const reg_t pds = p->get_csr(CSR_PDS);
-  const reg_t num_warps = p->get_csr(CSR_NUMW);
-  const reg_t num_threads = p->get_csr(CSR_NUMT);
   const reg_t csr_tid = p->get_csr(CSR_TID);
-  const reg_t pds_warp_tid_base = vl ? pds_warp_tid_bases[0] : 0;
+  const reg_t wid = p->get_csr(CSR_WID);
+  const reg_t warp_first_tid = vl ? warp_first_tids[0] : 0;
   std::fprintf(stderr,
                "VENTUS_RT_TRAVERSE_OPERANDS seq=%llu pc=0x%llx vd=v%llu "
-               "vs2=v%llu vl=%llu csr_tid=%llu pds_warp_tid_base=%llu lanes=",
+               "vs2=v%llu vl=%llu csr_tid=%llu warp_first_tid=%llu lanes=",
                static_cast<unsigned long long>(sequence),
                static_cast<unsigned long long>(p->get_state()->pc),
                static_cast<unsigned long long>(vd),
                static_cast<unsigned long long>(vs2),
                static_cast<unsigned long long>(vl),
                static_cast<unsigned long long>(csr_tid),
-               static_cast<unsigned long long>(pds_warp_tid_base));
+               static_cast<unsigned long long>(warp_first_tid));
   for (reg_t lane = 0; lane < vl; ++lane) {
-    const reg_t physical = ventus_rt::pds_header_word_addr(
-        pds, num_warps, num_threads, pds_warp_tid_base, lane, 0);
-    std::fprintf(stderr, "%s%llu%s:base=0x%08x,header0=0x%llx%s",
+    const reg_t physical =
+        ((wid * warp_schedule_t::rt_local_field_count) *
+             warp_schedule_t::rt_local_lane_count +
+         lane) *
+        sizeof(uint32_t);
+    std::fprintf(stderr, "%s%llu%s:first_tid=%u,rtlocal[f0]=0x%llx%s",
                  lane ? " " : "",
                  static_cast<unsigned long long>(lane),
                  lane_active(p, lane) ? "" : "(inactive)",
-                 pds_warp_tid_bases[lane],
+                 warp_first_tids[lane],
                  static_cast<unsigned long long>(physical),
-                 pds_warp_tid_bases[lane] == pds_warp_tid_base ? "" : "(mismatch)");
+                 warp_first_tids[lane] == warp_first_tid ? "" : "(mismatch)");
   }
   std::fputc('\n', stderr);
 }
@@ -314,24 +315,37 @@ void ventus_exec_rt_traverse(processor_t *p, insn_t insn)
   const reg_t vl = p->VU.vl->read();
   const reg_t vd_num = insn.rd();
   const reg_t vs2_num = insn.rs2();
+  if (vl == 0) {
+    p->VU.vstart->write(0);
+    return;
+  }
   uint64_t sequence = 0;
   const bool log_operands = reserve_rt_traverse_operand_log(&sequence);
-  std::array<uint32_t, VENTUS_CUSTOM_LANES> pds_warp_tid_bases{};
+  std::array<uint32_t, VENTUS_CUSTOM_LANES> warp_first_tids{};
 
   if (log_operands) {
     for (reg_t lane = 0; lane < vl; ++lane)
-      pds_warp_tid_bases[lane] = p->VU.elt<uint32_t>(2, vs2_num, lane);
+      warp_first_tids[lane] = p->VU.elt<uint32_t>(2, vs2_num, lane);
     log_rt_traverse_operands(p, sequence, vd_num | p->ext_rd(),
-                             vs2_num | p->ext_rs2(), vl, pds_warp_tid_bases);
+                             vs2_num | p->ext_rs2(), vl, warp_first_tids);
   }
 
-  /* `vs2` is a uniform VGPR carrying CSR_TID, including when lane zero is
-   * inactive.  The per-lane PDS header index is derived only inside RTcore. */
-  const reg_t pds_warp_tid_base =
+  /* `vs2` is a uniform VGPR carrying the first hardware thread ID in this
+   * warp, including when lane zero is inactive.  It selects the RT Local
+   * SRAM bank; CSR_WID is checked as the matching hardware identity. */
+  const reg_t warp_first_tid =
       vl ? p->VU.elt<uint32_t>(2, vs2_num, 0) : 0;
+  const reg_t wid = p->get_csr(CSR_WID);
+  const reg_t warp_lane_count = p->get_csr(CSR_NUMT);
+  if (!p->gpgpu_unit.w ||
+      warp_lane_count != warp_schedule_t::rt_local_lane_count ||
+      warp_first_tid % warp_lane_count != 0 ||
+      warp_first_tid / warp_lane_count != wid ||
+      wid >= warp_schedule_t::rt_local_warp_count)
+    throw trap_illegal_instruction(insn.bits());
   uint64_t control_sequence = 0;
   if (reserve_rt_control_log(&control_sequence))
-    log_rt_control(p, "traverse", control_sequence, pds_warp_tid_base, vl,
+    log_rt_control(p, "traverse", control_sequence, warp_first_tid, vl,
                    active_lanes_from_vstart(p));
 
   for (reg_t lane = p->VU.vstart->read(); lane < vl; ++lane) {
@@ -339,8 +353,8 @@ void ventus_exec_rt_traverse(processor_t *p, insn_t insn)
       continue;
 
     const uint32_t status = ventus_rt::traverse_spike(
-        *p->get_mmu(), p->get_csr(CSR_PDS), p->get_csr(CSR_NUMW),
-        p->get_csr(CSR_NUMT), pds_warp_tid_base, lane);
+        *p->get_mmu(), *p->gpgpu_unit.w, warp_first_tid,
+        warp_lane_count, lane);
     p->VU.elt<uint32_t>(0, vd_num, lane, true) = status;
   }
 
@@ -353,22 +367,81 @@ void ventus_exec_rt_release(processor_t *p, insn_t insn)
 
   const reg_t vl = p->VU.vl->read();
   const reg_t vs2_num = insn.rs2();
-  const reg_t pds_warp_tid_base =
+  if (vl == 0) {
+    p->VU.vstart->write(0);
+    return;
+  }
+  const reg_t warp_first_tid =
       vl ? p->VU.elt<uint32_t>(2, vs2_num, 0) : 0;
+  const reg_t wid = p->get_csr(CSR_WID);
+  const reg_t warp_lane_count = p->get_csr(CSR_NUMT);
+  if (!p->gpgpu_unit.w ||
+      warp_lane_count != warp_schedule_t::rt_local_lane_count ||
+      warp_first_tid % warp_lane_count != 0 ||
+      warp_first_tid / warp_lane_count != wid ||
+      wid >= warp_schedule_t::rt_local_warp_count)
+    throw trap_illegal_instruction(insn.bits());
   uint64_t control_sequence = 0;
   if (reserve_rt_control_log(&control_sequence))
-    log_rt_control(p, "release", control_sequence, pds_warp_tid_base, vl,
+    log_rt_control(p, "release", control_sequence, warp_first_tid, vl,
                    active_lanes_from_vstart(p));
 
   for (reg_t lane = p->VU.vstart->read(); lane < vl; ++lane) {
     if (!lane_active(p, lane))
       continue;
 
-    ventus_rt::release_spike(*p->get_mmu(), p->get_csr(CSR_PDS),
-                              p->get_csr(CSR_NUMW), p->get_csr(CSR_NUMT),
-                              pds_warp_tid_base, lane);
+    ventus_rt::release_spike(*p->get_mmu(), *p->gpgpu_unit.w,
+                             warp_first_tid, warp_lane_count, lane);
   }
 
+  p->VU.vstart->write(0);
+}
+
+/* RT Local instructions encode their field-major row in funct6.  A single
+ * instruction addresses the current warp's 32-word row; SIMT lane masking is
+ * retained so partially active warps neither read nor overwrite inactive
+ * lanes.  The SRAM is not MMU-backed and cannot participate in cache
+ * coherence. */
+static reg_t rt_local_field_or_trap(processor_t *p, insn_t insn)
+{
+  require_ventus_custom_state(p, insn);
+  const reg_t wid = p->get_csr(CSR_WID);
+  const reg_t field = insn.bits() >> 26;
+  if (!p->gpgpu_unit.w || wid >= warp_schedule_t::rt_local_warp_count ||
+      field >= warp_schedule_t::rt_local_field_count)
+    throw trap_illegal_instruction(insn.bits());
+  return field;
+}
+
+void ventus_exec_rt_local_load(processor_t *p, insn_t insn)
+{
+  const reg_t field = rt_local_field_or_trap(p, insn);
+  const reg_t wid = p->get_csr(CSR_WID);
+  const reg_t vd = insn.rd();
+  const reg_t vl = p->VU.vl->read();
+  for (reg_t lane = p->VU.vstart->read(); lane < vl; ++lane) {
+    if (!lane_active(p, lane))
+      continue;
+    p->VU.vstart->write(lane);
+    p->VU.elt<uint32_t>(0, vd, lane, true) =
+        p->gpgpu_unit.w->rt_local_load(wid, field, lane);
+  }
+  p->VU.vstart->write(0);
+}
+
+void ventus_exec_rt_local_store(processor_t *p, insn_t insn)
+{
+  const reg_t field = rt_local_field_or_trap(p, insn);
+  const reg_t wid = p->get_csr(CSR_WID);
+  const reg_t vs2 = insn.rs2();
+  const reg_t vl = p->VU.vl->read();
+  for (reg_t lane = p->VU.vstart->read(); lane < vl; ++lane) {
+    if (!lane_active(p, lane))
+      continue;
+    p->VU.vstart->write(lane);
+    p->gpgpu_unit.w->rt_local_store(
+        wid, field, lane, p->VU.elt<uint32_t>(2, vs2, lane));
+  }
   p->VU.vstart->write(0);
 }
 

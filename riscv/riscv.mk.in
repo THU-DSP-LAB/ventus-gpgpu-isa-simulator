@@ -951,6 +951,8 @@ riscv_insn_ext_v_gpgpu = \
 	vt_rt_traverse \
 	vt_rt_release \
 	vt_rt_enqueue \
+	vlrt_w \
+	vsrt_w \
 	vadd_f16x2 \
 	vmul_f16x2 \
 	vfma_f16x2 \

@@ -10,6 +10,7 @@
 #else
 using reg_t = uint64_t;
 class mmu_t;
+class warp_schedule_t;
 #endif
 namespace ventus_rt {
 
@@ -21,9 +22,21 @@ namespace ventus_rt {
 
 constexpr reg_t lanes = 32;
 
-/* Generated from Mesa's canonical fixed PDS-header ABI.  Shader payload and
+/* Generated from Mesa's canonical fixed RT Local header ABI.  Shader payload and
  * compiler continuation storage remain shader-owned and are not constants. */
 #include "ventus_rt_abi_generated.h"
+
+/* Functional traversal code addresses the same RT Local fields by byte
+ * offsets.  Keep these local aliases at the adapter boundary; they are not
+ * PDS offsets and no PDS header is reserved. */
+constexpr reg_t abi_control_base_bytes = local_control_base_bytes;
+constexpr reg_t abi_candidate_hit_record_base_bytes =
+    local_candidate_hit_record_base_bytes;
+constexpr reg_t abi_committed_hit_record_base_bytes =
+    local_committed_hit_record_base_bytes;
+constexpr reg_t abi_fixed_header_size_bytes = local_header_size_bytes;
+constexpr reg_t abi_hit_attrib_base_bytes =
+    pds_candidate_hit_attrib_base_bytes;
 
 /* Generated from Mesa's canonical VTAS binary ABI.  Spike owns traversal
  * behavior, but not a second handwritten copy of the memory layout. */
@@ -60,23 +73,6 @@ inline uint32_t pack_trace_meta1(uint32_t miss_index, uint32_t active_level)
           << trace_meta1_miss_index_shift) |
          ((active_level & ((1u << trace_meta1_active_level_bits) - 1u))
           << trace_meta1_active_level_shift);
-}
-
-/* The fixed RT header begins at PDS logical word zero.  `pds_warp_tid_base`
- * is the smallest PDS thread ID in the issuing warp; `lane` is always the
- * local hardware lane (0..31), including for a partially active warp.
- *
- * Every fixed-header field, including candidate and committed hit records, is
- * field-major.  Keep this translation at the PDS boundary: compiler and
- * traversal code continue to use lane-private logical ABI offsets. */
-inline reg_t pds_header_word_addr(reg_t pds_base, reg_t num_warps,
-                                  reg_t num_threads,
-                                  reg_t pds_warp_tid_base, reg_t lane,
-                                  reg_t word)
-{
-  const reg_t pds_thread_count = num_warps * num_threads;
-  const reg_t tid = pds_warp_tid_base + lane;
-  return pds_base + sizeof(uint32_t) * (word * pds_thread_count + tid);
 }
 
 inline reg_t word_addr(reg_t slot, reg_t byte_base, reg_t word)
@@ -221,12 +217,12 @@ VENTUS_RT_API uint32_t traverse(RtMemory &memory, reg_t slot);
 VENTUS_RT_API void release(RtMemory &memory, reg_t slot);
 
 #ifndef VENTUS_RT_STANDALONE
-VENTUS_RT_API uint32_t traverse_spike(mmu_t &mmu, reg_t pds_base,
-                                      reg_t num_warps, reg_t num_threads,
-                                      reg_t pds_warp_tid_base, reg_t lane);
-VENTUS_RT_API void release_spike(mmu_t &mmu, reg_t pds_base,
-                                 reg_t num_warps, reg_t num_threads,
-                                 reg_t pds_warp_tid_base, reg_t lane);
+VENTUS_RT_API uint32_t traverse_spike(mmu_t &mmu, warp_schedule_t &schedule,
+                                      reg_t warp_first_tid,
+                                      reg_t warp_lane_count, reg_t lane);
+VENTUS_RT_API void release_spike(mmu_t &mmu, warp_schedule_t &schedule,
+                                 reg_t warp_first_tid,
+                                 reg_t warp_lane_count, reg_t lane);
 VENTUS_RT_API void reset_private_contexts_for_simulation();
 #endif
 

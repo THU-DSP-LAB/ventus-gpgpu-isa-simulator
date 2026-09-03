@@ -147,7 +147,7 @@ STOW          := @stow@
 
 # Tests
 bintests = $(src_dir)/tests/ebreak.py ventus_launch_geometry_test \
-	ventus_rt_semantics_test
+	ventus_rt_semantics_test ventus_rt_local_sram_test
 
 ventus_launch_geometry_test: $(src_dir)/tests/ventus_launch_geometry_test.cc \
 	$(src_dir)/riscv/ventus_launch_geometry.h
@@ -158,6 +158,10 @@ ventus_rt_semantics_test: $(src_dir)/tests/ventus_rt_semantics.cc \
 	$(src_dir)/riscv/ventus_rt_abi_generated.h
 	$(COMPILE) -DVENTUS_RT_STANDALONE $(src_dir)/tests/ventus_rt_semantics.cc \
 		$(src_dir)/riscv/ventus_rt.cc -o $@
+
+ventus_rt_local_sram_test: $(src_dir)/tests/ventus_rt_local_sram_test.cc \
+	$(src_dir)/riscv/processor.h
+	$(COMPILE) $< -o $@
 
 #-------------------------------------------------------------------------
 # Include subproject makefile fragments
