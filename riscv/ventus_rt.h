@@ -13,6 +13,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "ventus_rt_rcp_coeffs.h"
 #include "ventus_rt_vtas_v2_codec.h"
 
 #ifndef VENTUS_RT_STANDALONE
@@ -330,6 +331,84 @@ inline float bit_cast_f32(uint32_t bits)
   return value;
 }
 
+inline int64_t vtas_v2_arithmetic_shift_right(int64_t value, unsigned shift)
+{
+  if (value >= 0)
+    return value >> shift;
+  const uint64_t magnitude = uint64_t(-(value + 1)) + 1;
+  return -int64_t((magnitude + ((uint64_t{1} << shift) - 1)) >> shift);
+}
+
+inline uint32_t vtas_v2_round_to_nearest_even_shift(uint32_t value,
+                                                     unsigned shift)
+{
+  const uint32_t base = value >> shift;
+  const uint32_t remainder = value & ((uint32_t{1} << shift) - 1);
+  const uint32_t half = uint32_t{1} << (shift - 1);
+  return base + (remainder > half ||
+                 (remainder == half && (base & 1u) != 0));
+}
+
+/* Bit-accurate functional model of the RTCore reciprocal adapter.  The
+ * 128-interval quadratic is evaluated with exactly the same fixed-point
+ * truncation points as RtFp32Reciprocal. */
+inline uint32_t vtas_v2_rtcore_reciprocal_bits(uint32_t input)
+{
+  constexpr uint32_t sign_mask = 0x80000000u;
+  constexpr uint32_t abs_mask = 0x7fffffffu;
+  constexpr uint32_t max_finite = 0x7f7fffffu;
+  const uint32_t sign = input & sign_mask;
+  const uint32_t magnitude = input & abs_mask;
+  const uint32_t raw_exponent = (magnitude >> 23) & 0xffu;
+  uint32_t mantissa = magnitude & 0x7fffffu;
+
+  if (magnitude == 0)
+    return sign | max_finite;
+  if (raw_exponent == 0xffu)
+    return mantissa == 0 ? sign : 0x7fc00000u;
+
+  int unbiased_exponent = int(raw_exponent) - 127;
+  if (raw_exponent == 0) {
+    unsigned leading_zeros = 0;
+    for (uint32_t bit = uint32_t{1} << 22;
+         (mantissa & bit) == 0; bit >>= 1)
+      ++leading_zeros;
+    const unsigned shift = leading_zeros + 1;
+    mantissa = (mantissa << shift) & 0x7fffffu;
+    unbiased_exponent = -127 - int(leading_zeros);
+  }
+
+  const uint32_t index = mantissa >> 16;
+  const uint32_t xl = mantissa & 0xffffu;
+  const uint32_t xl2 = uint32_t((uint64_t(xl) * xl) >> 17);
+  const VtasV2RcpCoefficient &coefficient =
+      vtas_v2_rcp_coefficients[index];
+  const int64_t linear = -int64_t(coefficient.c1) * xl;
+  const int64_t quadratic = int64_t(coefficient.c2) * xl2;
+  const int64_t polynomial = int64_t(coefficient.c0) +
+      vtas_v2_arithmetic_shift_right(linear, 13) +
+      vtas_v2_arithmetic_shift_right(quadratic, 15);
+  const int biased_exponent = 126 - unbiased_exponent;
+
+  if (biased_exponent >= 255)
+    return sign | max_finite;
+  if (biased_exponent > 0) {
+    const uint32_t fraction = (uint32_t(polynomial) >> 2) & 0x7fffffu;
+    return sign | (uint32_t(biased_exponent) << 23) | fraction;
+  }
+
+  const unsigned shift = unsigned(3 - biased_exponent);
+  const uint32_t fraction = std::min(
+      vtas_v2_round_to_nearest_even_shift(uint32_t(polynomial), shift),
+      uint32_t{0x00800000});
+  return sign | fraction;
+}
+
+inline float vtas_v2_rtcore_reciprocal(float input)
+{
+  return bit_cast_f32(vtas_v2_rtcore_reciprocal_bits(bit_cast_u32(input)));
+}
+
 template <typename Memory>
 inline uint32_t load_word(Memory &mem, reg_t slot, reg_t byte_base, reg_t word)
 {
@@ -490,17 +569,21 @@ inline float dot(Vec3 a, Vec3 b)
   return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
-inline bool intersect_triangle(const Ray &ray, const Triangle &tri, Hit &hit)
+inline bool intersect_triangle(const Ray &ray, const Triangle &tri, Hit &hit,
+                               bool use_rtcore_reciprocal = false)
 {
-  constexpr float eps = 1.0e-7f;
   const Vec3 e1 = sub(tri.v1, tri.v0);
   const Vec3 e2 = sub(tri.v2, tri.v0);
   const Vec3 p = cross(ray.direction, e2);
   const float det = dot(e1, p);
-  if (!std::isfinite(det) || std::fabs(det) < eps)
+  // Degeneracy is an exact FP32 zero test.  A decimal epsilon would reject
+  // finite nonzero determinants that the RTL is required to traverse.
+  if (!std::isfinite(det) || det == 0.0f)
     return false;
 
-  const float inv_det = 1.0f / det;
+  const float inv_det = use_rtcore_reciprocal
+                            ? vtas_v2_rtcore_reciprocal(det)
+                            : 1.0f / det;
   const Vec3 tvec = sub(ray.origin, tri.v0);
   const float u = dot(tvec, p) * inv_det;
   if (!std::isfinite(u) || u < 0.0f || u > 1.0f)
@@ -514,7 +597,7 @@ inline bool intersect_triangle(const Ray &ray, const Triangle &tri, Hit &hit)
   const float t = dot(e2, q) * inv_det;
   /* A NaN bypasses ordinary ordered comparisons.  Treat it as a miss and
    * keep the upper interval exclusive, matching the committed-hit rule. */
-  if (!std::isfinite(t) || t < ray.tmin || t >= ray.tmax || t >= hit.t)
+  if (!std::isfinite(t) || t <= ray.tmin || t >= ray.tmax || t >= hit.t)
     return false;
 
   hit.valid = true;
@@ -1982,6 +2065,8 @@ struct RtPrivateContext {
   uint64_t v2_tlas_base = 0;
   uint64_t v2_active_as_base = 0;
   Ray v2_active_ray;
+  uint32_t v2_inverse_direction_bits[3] = {};
+  uint32_t v2_parallel_axis_mask = 0;
   uint32_t v2_instance_id = 0;
   uint32_t v2_instance_sbt_offset = 0;
   uint64_t v2_instance_addr = 0;
@@ -2058,7 +2143,7 @@ inline bool private_candidate_is_before_tmax(Memory &mem, reg_t slot,
 {
   const Ray ray = load_ray(mem, slot);
   return std::isfinite(hit_t) && hit_t >= ray.tmin &&
-         hit_t < current_tmax(mem, slot);
+         hit_t <= current_tmax(mem, slot);
 }
 
 template <typename Memory>
@@ -2213,7 +2298,7 @@ inline uint32_t vtas_v2_parallel_axis_mask(const Ray &ray)
       ray.direction.x, ray.direction.y, ray.direction.z};
   uint32_t mask = 0;
   for (uint32_t axis = 0; axis < 3; ++axis) {
-    if (direction[axis] == 0.0f)
+    if ((bit_cast_u32(direction[axis]) & 0x7fffffffu) == 0)
       mask |= uint32_t{1} << (14 + axis);
   }
   return mask;
@@ -2221,11 +2306,100 @@ inline uint32_t vtas_v2_parallel_axis_mask(const Ray &ray)
 
 inline float vtas_v2_inverse_direction(float direction)
 {
+  const uint32_t bits = bit_cast_u32(direction);
+  const uint32_t sign = bits & 0x80000000u;
+  if ((bits & 0x7fffffffu) == 0)
+    return bit_cast_f32(sign | 0x7f7fffffu);
   const float reciprocal = 1.0f / direction;
   if (std::isfinite(reciprocal))
     return reciprocal;
-  return direction < 0.0f ? -std::numeric_limits<float>::max()
-                          : std::numeric_limits<float>::max();
+  if (std::isinf(reciprocal))
+    return bit_cast_f32(sign | 0x7f7fffffu);
+  return reciprocal;
+}
+
+inline void update_vtas_v2_ray_projection(RtPrivateContext &ctx,
+                                           bool use_rtcore_reciprocal)
+{
+  const float direction[3] = {ctx.v2_active_ray.direction.x,
+                              ctx.v2_active_ray.direction.y,
+                              ctx.v2_active_ray.direction.z};
+  ctx.v2_parallel_axis_mask =
+      vtas_v2_parallel_axis_mask(ctx.v2_active_ray);
+  for (uint32_t axis = 0; axis < 3; ++axis) {
+    ctx.v2_inverse_direction_bits[axis] =
+        use_rtcore_reciprocal
+            ? vtas_v2_rtcore_reciprocal_bits(bit_cast_u32(direction[axis]))
+            : bit_cast_u32(vtas_v2_inverse_direction(direction[axis]));
+  }
+}
+
+inline bool intersect_aabb_vtas_v2(const Ray &ray,
+                                   const uint32_t inverse_bits[3],
+                                   uint32_t parallel_axis_mask,
+                                   const ProceduralAabb &aabb, float &hit_t)
+{
+  float tmin = ray.tmin;
+  float tmax = ray.tmax;
+  const float origin[3] = {ray.origin.x, ray.origin.y, ray.origin.z};
+  const float bounds_min[3] = {aabb.min.x, aabb.min.y, aabb.min.z};
+  const float bounds_max[3] = {aabb.max.x, aabb.max.y, aabb.max.z};
+
+  for (uint32_t axis = 0; axis < 3; ++axis) {
+    if (parallel_axis_mask & (uint32_t{1} << (14 + axis))) {
+      if (origin[axis] < bounds_min[axis] || origin[axis] > bounds_max[axis])
+        return false;
+      continue;
+    }
+    const float inverse = bit_cast_f32(inverse_bits[axis]);
+    float t0 = (bounds_min[axis] - origin[axis]) * inverse;
+    float t1 = (bounds_max[axis] - origin[axis]) * inverse;
+    if (t0 > t1)
+      std::swap(t0, t1);
+    tmin = std::max(tmin, t0);
+    tmax = std::min(tmax, t1);
+  }
+  if (tmin > tmax)
+    return false;
+  hit_t = tmin;
+  return true;
+}
+
+template <typename Memory>
+inline bool intersect_box4_child_vtas_v2(
+    Memory &mem, uint64_t as_base, uint32_t node_ref, uint32_t child,
+    const Ray &ray, const uint32_t inverse_bits[3],
+    uint32_t parallel_axis_mask, float &t_near)
+{
+  const reg_t addr = as_base + node_ref_offset(node_ref);
+  float tmin = ray.tmin;
+  float tmax = ray.tmax;
+  const float origin[3] = {ray.origin.x, ray.origin.y, ray.origin.z};
+  const uint32_t min_off[3] = {box4_min_x, box4_min_y, box4_min_z};
+  const uint32_t max_off[3] = {box4_max_x, box4_max_y, box4_max_z};
+
+  for (uint32_t axis = 0; axis < 3; ++axis) {
+    const float bmin = bit_cast_f32(
+        mem.load32(addr + min_off[axis] + child * 4));
+    const float bmax = bit_cast_f32(
+        mem.load32(addr + max_off[axis] + child * 4));
+    if (parallel_axis_mask & (uint32_t{1} << (14 + axis))) {
+      if (origin[axis] < bmin || origin[axis] > bmax)
+        return false;
+      continue;
+    }
+    const float inverse = bit_cast_f32(inverse_bits[axis]);
+    float t0 = (bmin - origin[axis]) * inverse;
+    float t1 = (bmax - origin[axis]) * inverse;
+    if (t0 > t1)
+      std::swap(t0, t1);
+    tmin = std::max(tmin, t0);
+    tmax = std::min(tmax, t1);
+  }
+  if (tmin > tmax)
+    return false;
+  t_near = tmin;
+  return true;
 }
 
 template <typename Memory>
@@ -2242,7 +2416,7 @@ inline void sync_vtas_v2_private_state(Memory &mem, reg_t slot,
       (ctx.v2_active_ray.cull_mask & 0xffu) |
       (committed_hit_valid(mem, slot) ? uint32_t{1} << 8 : 0) |
       (ctx.v2_instance_addr != 0 ? uint32_t{1} << 9 : 0) |
-      vtas_v2_parallel_axis_mask(ctx.v2_active_ray);
+      ctx.v2_parallel_axis_mask;
   if (ctx.v2_instance_addr != 0)
     hot_control |=
         (mem.load32(ctx.v2_instance_addr + instance_flags) & 0xfu) << 10;
@@ -2258,8 +2432,7 @@ inline void sync_vtas_v2_private_state(Memory &mem, reg_t slot,
     store_private_u32(mem, rt_v5_private_origin + axis * 4,
                       bit_cast_u32(origin[axis]), 0);
     store_private_u32(mem, rt_v5_private_inv_direction + axis * 4,
-                      bit_cast_u32(vtas_v2_inverse_direction(direction[axis])),
-                      0);
+                      ctx.v2_inverse_direction_bits[axis], 0);
     store_private_u32(mem, rt_v5_private_direction + axis * 4,
                       bit_cast_u32(direction[axis]), 0);
   }
@@ -2595,8 +2768,10 @@ inline uint32_t collect_vtas_v2_box_hits(
     validate_vtas_v2_node_ref(mem, ctx.v2_active_as_base, child,
                               entry.domain);
     float t_near = 0.0f;
-    if (intersect_box4_child(mem, ctx.v2_active_as_base, entry.node_ref,
-                             child_slot, ctx.v2_active_ray, t_near))
+    if (intersect_box4_child_vtas_v2(
+            mem, ctx.v2_active_as_base, entry.node_ref, child_slot,
+            ctx.v2_active_ray, ctx.v2_inverse_direction_bits,
+            ctx.v2_parallel_axis_mask, t_near))
       all[all_count++] = {child, t_near, child_slot};
   }
   for (uint32_t index = 1; index < all_count; ++index) {
@@ -2626,7 +2801,7 @@ inline uint32_t collect_vtas_v2_box_hits(
     const bool selected_by_cursor =
         !entry.anchor_valid || index > uint32_t(anchor_index) ||
         (entry.inclusive && index == uint32_t(anchor_index));
-    if (selected_by_cursor && all[index].t_near < committed_tmax)
+    if (selected_by_cursor && all[index].t_near <= committed_tmax)
       filtered[filtered_count++] = all[index];
   }
   return filtered_count;
@@ -2848,6 +3023,7 @@ inline void enter_vtas_v2_blas(Memory &mem, RtPrivateContext &ctx,
       mem, instance_addr + instance_world_to_object, ctx.ray.origin);
   ctx.v2_active_ray.direction = transform_instance_vector(
       mem, instance_addr + instance_world_to_object, ctx.ray.direction);
+  update_vtas_v2_ray_projection(ctx, true);
   ctx.v2_instance_id = mem.load32(instance_addr + instance_instance_id);
   ctx.v2_instance_sbt_offset =
       mem.load32(instance_addr + instance_sbt_record_offset);
@@ -2882,6 +3058,7 @@ inline void return_vtas_v2_to_tlas(Memory &mem, RtPrivateContext &ctx)
       mem, ctx, return_entry.node_ref);
   ctx.v2_active_as_base = ctx.v2_tlas_base;
   ctx.v2_active_ray = ctx.ray;
+  update_vtas_v2_ray_projection(ctx, true);
   ctx.v2_instance_id = 0;
   ctx.v2_instance_sbt_offset = 0;
   ctx.v2_instance_addr = 0;
@@ -2989,7 +3166,9 @@ inline uint32_t trace_private_vtas_v2(Memory &mem, reg_t slot, uint64_t key,
           ctx.v2_instance_sbt_offset, ctx.v2_instance_addr,
           ray.sbt_stride);
       float hit_t = 0.0f;
-      if (!intersect_aabb(ray, aabb, hit_t) ||
+      if (!intersect_aabb_vtas_v2(
+              ray, ctx.v2_inverse_direction_bits,
+              ctx.v2_parallel_axis_mask, aabb, hit_t) ||
           !private_candidate_is_before_tmax(mem, slot, hit_t))
         continue;
       Hit candidate = hit_from_aabb(aabb, hit_t);
@@ -3007,7 +3186,7 @@ inline uint32_t trace_private_vtas_v2(Memory &mem, reg_t slot, uint64_t key,
         ctx.v2_instance_sbt_offset, ctx.v2_instance_addr, ray.sbt_stride);
     Hit candidate;
     candidate.t = ray.tmax;
-    if (!intersect_triangle(ray, tri, candidate) ||
+    if (!intersect_triangle(ray, tri, candidate, true) ||
         !prepare_triangle_candidate(ray, candidate))
       continue;
     if (!candidate.tri.opaque) {
@@ -3108,6 +3287,10 @@ inline uint32_t traverse(Memory &mem, reg_t slot,
       ctx.v2_tlas_base = accel_addr;
       ctx.v2_active_as_base = accel_addr;
       ctx.v2_active_ray = ray;
+      // The initial world-ray projection is produced by the compiler helper.
+      // Instance entry/return projections are subsequently produced by the
+      // RTCore reciprocal pipeline and therefore use its bit model instead.
+      update_vtas_v2_ray_projection(ctx, false);
       ctx.v2_tlas_node_count = v2_tlas_node_count;
       ctx.v2_operation_budget =
           std::max<uint64_t>(1024, uint64_t(v2_tlas_node_count) * 64);

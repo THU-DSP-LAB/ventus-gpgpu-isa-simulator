@@ -657,8 +657,10 @@ static void check_rtcore_model_v5_vtas_v2_private_frontier()
   assert((committed_metadata & rt_v5_hit_metadata_committed_valid) != 0);
   assert(mem.load32(pds + rt_v5_pds_committed_base +
                     rt_v5_hit_primitive_index) == 188);
+  // The RTCore quadratic reciprocal is one ULP below exact 1/4 for this
+  // triangle, so the otherwise exact t=5 product lands one FP32 ULP lower.
   assert(mem.load32(private_address + rt_v5_private_ray_tmax) ==
-         bit_cast_u32(5.0f));
+         0x409fffffu);
   assert((mem.load32(private_address + rt_v5_private_hot_control) &
           (uint32_t{1} << 8)) != 0);
   model.executeReleaseV5(hardware_warp_id, 1, pds_addresses, make_memory);
@@ -736,6 +738,143 @@ static void check_rtcore_model_v5_procedural_callback()
   assert(mem.load32(private_address + rt_v5_private_ray_tmax) ==
          bit_cast_u32(3.0f));
   model.executeReleaseV5(hardware_warp_id, 1, pds_addresses, make_memory);
+}
+
+static void check_exact_interval_boundaries()
+{
+  constexpr uint32_t u_minus_bits = 0x3f7fffff;
+  constexpr uint32_t u_equal_bits = 0x3f800000;
+  constexpr uint32_t u_plus_bits = 0x3f800001;
+  const float u_minus = bit_cast_f32(u_minus_bits);
+  const float u_equal = bit_cast_f32(u_equal_bits);
+  const float u_plus = bit_cast_f32(u_plus_bits);
+
+  const auto triangle_hits = [](float tmin, float tmax, float z) {
+    Ray ray;
+    ray.origin = {0.0f, 0.0f, 0.0f};
+    ray.direction = {0.0f, 0.0f, 1.0f};
+    ray.tmin = tmin;
+    ray.tmax = tmax;
+    Triangle triangle;
+    triangle.v0 = {-1.0f, -1.0f, z};
+    triangle.v1 = {1.0f, -1.0f, z};
+    triangle.v2 = {0.0f, 1.0f, z};
+    Hit hit;
+    hit.t = tmax;
+    return intersect_triangle(ray, triangle, hit);
+  };
+
+  assert(triangle_hits(0.0f, u_equal, u_minus));
+  assert(!triangle_hits(0.0f, u_equal, u_equal));
+  assert(!triangle_hits(0.0f, u_equal, u_plus));
+  assert(!triangle_hits(u_equal, 2.0f, u_minus));
+  assert(!triangle_hits(u_equal, 2.0f, u_equal));
+  assert(triangle_hits(u_equal, 2.0f, u_plus));
+
+  {
+    // A finite, exactly representable determinant of -2^-24 is not
+    // degenerate.  It sits below Spike's historical 1e-7 heuristic and
+    // therefore guards the architectural det==+/-0 rule directly.
+    const float quarter_edge = std::ldexp(1.0f, -26);
+    Ray ray;
+    ray.origin = {0.0f, 0.0f, 0.0f};
+    ray.direction = {0.0f, 0.0f, 1.0f};
+    ray.tmin = 0.0f;
+    ray.tmax = 2.0f;
+    Triangle triangle;
+    triangle.v0 = {-quarter_edge, -0.25f, 1.0f};
+    triangle.v1 = {3.0f * quarter_edge, -0.25f, 1.0f};
+    triangle.v2 = {-quarter_edge, 0.75f, 1.0f};
+    Hit hit;
+    hit.t = ray.tmax;
+    assert(intersect_triangle(ray, triangle, hit));
+    assert(hit.t == 1.0f && hit.bary_x == 0.25f && hit.bary_y == 0.25f);
+  }
+
+  {
+    TestMemory mem;
+    constexpr reg_t slot = 0;
+    constexpr reg_t accel = 0xb0000;
+    write_ray(mem, slot, accel);
+    store_slot(mem, slot, 0, slot_tmin, bit_cast_u32(0.0f));
+    store_slot(mem, slot, 0, slot_tmax, u_equal_bits);
+    assert(private_candidate_is_before_tmax(mem, slot, u_minus));
+    assert(private_candidate_is_before_tmax(mem, slot, u_equal));
+    assert(!private_candidate_is_before_tmax(mem, slot, u_plus));
+  }
+
+  {
+    TestMemory mem;
+    constexpr reg_t tlas = 0xc0000;
+    constexpr uint32_t root_ref = 0x80 | node_box4;
+    constexpr uint32_t child_ref = 0x100 | node_instance;
+    write_vtas_v2_header(mem, tlas, as_type_tlas, root_ref, 2, 0x130);
+    write_vtas_v2_box4(
+        mem, tlas, 0x80,
+        {child_ref, invalid_node_ref, invalid_node_ref, invalid_node_ref},
+        invalid_node_ref, 0xff, true);
+    write_vtas_instance(mem, tlas + 0x100, 0xd0000, 1, 0);
+
+    RtPrivateContext context{};
+    context.v2_active_as_base = tlas;
+    context.v2_active_ray.origin = {0.0f, 0.0f, 0.0f};
+    context.v2_active_ray.direction = {0.0f, 0.0f, 1.0f};
+    context.v2_active_ray.tmin = 0.0f;
+    context.v2_active_ray.tmax = u_equal;
+    update_vtas_v2_ray_projection(context, false);
+    vtas_v2::FrontierEntry entry;
+    entry.node_ref = root_ref;
+    entry.kind = vtas_v2::FrontierKind::direct_node;
+    entry.domain = vtas_v2::Domain::tlas;
+
+    VtasV2ChildHit hits[4];
+    mem.store32(tlas + 0x80 + box4_min_z, u_minus_bits);
+    assert(collect_vtas_v2_box_hits(
+               mem, context, entry, u_equal, hits) == 1);
+    mem.store32(tlas + 0x80 + box4_min_z, u_equal_bits);
+    assert(collect_vtas_v2_box_hits(
+               mem, context, entry, u_equal, hits) == 1);
+    mem.store32(tlas + 0x80 + box4_min_z, u_plus_bits);
+    assert(collect_vtas_v2_box_hits(
+               mem, context, entry, u_equal, hits) == 0);
+  }
+}
+
+static void check_vtas_v2_reciprocal_adapter()
+{
+  assert(bit_cast_u32(vtas_v2_inverse_direction(bit_cast_f32(0x00000000u))) ==
+         0x7f7fffffu);
+  assert(bit_cast_u32(vtas_v2_inverse_direction(bit_cast_f32(0x80000000u))) ==
+         0xff7fffffu);
+  assert(vtas_v2_rtcore_reciprocal_bits(0x00000000u) == 0x7f7fffffu);
+  assert(vtas_v2_rtcore_reciprocal_bits(0x80000000u) == 0xff7fffffu);
+  assert(vtas_v2_rtcore_reciprocal_bits(0x7f800000u) == 0x00000000u);
+  assert(vtas_v2_rtcore_reciprocal_bits(0xff800000u) == 0x80000000u);
+  assert(vtas_v2_rtcore_reciprocal_bits(0x7fc12345u) == 0x7fc00000u);
+
+  Ray mask_ray;
+  mask_ray.direction = {bit_cast_f32(0x80000000u),
+                        bit_cast_f32(0x00000001u), 1.0f};
+  assert(vtas_v2_parallel_axis_mask(mask_ray) == (uint32_t{1} << 14));
+
+  const uint32_t finite_inputs[] = {
+      0x00000001u, 0x00200000u, 0x00200001u, 0x007fffffu,
+      0x3f000000u, 0x3f800000u, 0x40000000u, 0x7f7fffffu,
+      0x80000001u, 0x80200000u, 0x80200001u, 0x807fffffu,
+      0xbf000000u, 0xbf800000u, 0xc0000000u, 0xff7fffffu,
+  };
+  for (uint32_t input : finite_inputs) {
+    const uint32_t actual = vtas_v2_rtcore_reciprocal_bits(input);
+    const uint32_t exact = bit_cast_u32(
+        vtas_v2_inverse_direction(bit_cast_f32(input)));
+    assert((actual >> 31) == (input >> 31));
+    const uint32_t actual_magnitude = actual & 0x7fffffffu;
+    const uint32_t exact_magnitude = exact & 0x7fffffffu;
+    const uint32_t ulp = actual_magnitude > exact_magnitude
+                             ? actual_magnitude - exact_magnitude
+                             : exact_magnitude - actual_magnitude;
+    assert(ulp <= 1);
+  }
 }
 
 static void check_triangle_facing_culling()
@@ -1558,5 +1697,7 @@ int main()
   check_rtcore_model_v5_lifecycle();
   check_rtcore_model_v5_vtas_v2_private_frontier();
   check_rtcore_model_v5_procedural_callback();
+  check_exact_interval_boundaries();
+  check_vtas_v2_reciprocal_adapter();
   return 0;
 }

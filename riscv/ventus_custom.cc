@@ -1,5 +1,6 @@
 #include "ventus_custom.h"
 #include "ventus_rtcore_model.h"
+#include "ventus_rt_replay_capture.h"
 
 #include "trap.h"
 #include <array>
@@ -268,13 +269,19 @@ void ventus_exec_rt_traverse_v5(processor_t *p, insn_t insn)
   }
 
   if (issue_mask != 0) {
+    auto &capture = ventus_rt::RtReplayCapture::instance();
+    const uint64_t capture_command = capture.beginTraverse(
+        resident_hardware_warp_id(p), issue_mask, pds_addresses,
+        private_state_addresses);
     const auto results = model->executeTraverseV5(
         resident_hardware_warp_id(p), issue_mask, pds_addresses,
         private_state_addresses,
-        [p](reg_t, reg_t pds_address) {
-          return ventus_rt::make_canonical_pds_memory(*p->get_mmu(),
-                                                       pds_address);
+        [p, &capture, capture_command](reg_t lane, reg_t pds_address) {
+          return ventus_rt::make_capturing_canonical_pds_memory(
+              *p->get_mmu(), pds_address, capture, capture_command,
+              uint32_t(lane));
         });
+    capture.endTraverse(capture_command, issue_mask, results);
     for (reg_t lane = p->VU.vstart->read(); lane < vl; ++lane) {
       if ((issue_mask & (uint32_t{1} << lane)) != 0)
         p->VU.elt<uint32_t>(0, vd_num, lane, true) = results[lane];
