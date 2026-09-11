@@ -92,18 +92,21 @@ void log_rt_traverse_operands(processor_t *p, uint64_t sequence, reg_t vd,
                static_cast<unsigned long long>(csr_tid),
                static_cast<unsigned long long>(warp_first_tid));
   for (reg_t lane = 0; lane < vl; ++lane) {
-    const reg_t physical =
-        ((wid * warp_schedule_t::rt_local_field_count) *
-             warp_schedule_t::rt_local_lane_count +
-         lane) *
-        sizeof(uint32_t);
-    std::fprintf(stderr, "%s%llu%s:first_tid=%u,rtlocal[f0]=0x%llx%s",
+    std::fprintf(stderr, "%s%llu%s:first_tid=%u,rtlocal={",
                  lane ? " " : "",
                  static_cast<unsigned long long>(lane),
                  lane_active(p, lane) ? "" : "(inactive)",
-                 warp_first_tids[lane],
-                 static_cast<unsigned long long>(physical),
-                 warp_first_tids[lane] == warp_first_tid ? "" : "(mismatch)");
+                 warp_first_tids[lane]);
+    // These are the field-major words consumed by ventus_rt::traverse_spike.
+    // Printing real contents (rather than their SRAM address) makes this
+    // bounded diagnostic useful for RTL/Spike ray-state differentials.
+    for (reg_t field = 0; field < warp_schedule_t::rt_local_field_count;
+         ++field) {
+      std::fprintf(stderr, "%s%08x", field ? "," : "",
+                   p->gpgpu_unit.w->rt_local_load(wid, field, lane));
+    }
+    std::fprintf(stderr, "}%s", warp_first_tids[lane] == warp_first_tid
+                                   ? "" : "(mismatch)");
   }
   std::fputc('\n', stderr);
 }

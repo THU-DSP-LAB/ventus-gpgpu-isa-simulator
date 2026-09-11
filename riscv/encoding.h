@@ -2850,7 +2850,7 @@
 #define MASK_VT_RT_RELEASE 0xfe00707f
 #define MATCH_VT_RT_ENQUEUE 0xe200200a
 #define MASK_VT_RT_ENQUEUE 0xfe00707f
-/* funct6 is the RT Local field index (0..36), hence it is intentionally not
+/* funct6 is the RT Local field index (0..39), hence it is intentionally not
  * part of these decoder masks. */
 #define MATCH_VLRT_W 0x0200305f
 #define MASK_VLRT_W 0x0200707f

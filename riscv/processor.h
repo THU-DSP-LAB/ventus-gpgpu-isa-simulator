@@ -4,6 +4,7 @@
 
 #include "decode.h"
 #include "config.h"
+#include "ventus_rt_abi_generated.h"
 #include "trap.h"
 #include "abstract_device.h"
 #include <string>
@@ -43,7 +44,8 @@ class warp_schedule_t
 {
   public:
     static constexpr size_t rt_local_warp_count = 8;
-    static constexpr size_t rt_local_field_count = 37;
+    static constexpr size_t rt_local_field_count =
+        ventus_rt::local_field_major_fixed_header_word_count;
     static constexpr size_t rt_local_lane_count = 32;
     static constexpr size_t rt_local_word_count =
         rt_local_warp_count * rt_local_field_count * rt_local_lane_count;
@@ -99,8 +101,8 @@ class warp_schedule_t
     uint64_t local_size_x,local_size_y,local_size_z;
     uint64_t global_offset_x,global_offset_y,global_offset_z;
     uint64_t work_dim_64;
-    // Software-managed RTCore-visible SRAM: 8 warp banks × 37 field-major
-    // rows × 32 lanes × 4 bytes = 37,888 bytes.  It is deliberately not MMU
+    // Software-managed RTCore-visible SRAM: 8 warp banks × ABI-defined
+    // field-major rows × 32 lanes × 4 bytes.  It is deliberately not MMU
     // backed, so RT local accesses cannot enter the cache hierarchy.
     std::array<uint32_t, rt_local_word_count> rt_local_sram;
 };

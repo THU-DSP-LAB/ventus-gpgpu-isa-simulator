@@ -12,6 +12,8 @@ using reg_t = uint64_t;
 class mmu_t;
 class warp_schedule_t;
 #endif
+#include "ventus_rt_abi_generated.h"
+
 namespace ventus_rt {
 
 #if defined(__GNUC__)
@@ -24,8 +26,6 @@ constexpr reg_t lanes = 32;
 
 /* Generated from Mesa's canonical fixed RT Local header ABI.  Shader payload and
  * compiler continuation storage remain shader-owned and are not constants. */
-#include "ventus_rt_abi_generated.h"
-
 /* Functional traversal code addresses the same RT Local fields by byte
  * offsets.  Keep these local aliases at the adapter boundary; they are not
  * PDS offsets and no PDS header is reserved. */

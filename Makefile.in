@@ -160,7 +160,7 @@ ventus_rt_semantics_test: $(src_dir)/tests/ventus_rt_semantics.cc \
 		$(src_dir)/riscv/ventus_rt.cc -o $@
 
 ventus_rt_local_sram_test: $(src_dir)/tests/ventus_rt_local_sram_test.cc \
-	$(src_dir)/riscv/processor.h
+	$(src_dir)/riscv/processor.h $(src_dir)/riscv/ventus_rt_abi_generated.h
 	$(COMPILE) $< -o $@
 
 #-------------------------------------------------------------------------
