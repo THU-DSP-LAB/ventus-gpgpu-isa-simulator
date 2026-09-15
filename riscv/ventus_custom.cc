@@ -61,6 +61,25 @@ bool reserve_rt_control_log(uint64_t *sequence)
   return *sequence < limit;
 }
 
+bool reserve_rt_traverse_result_log(uint64_t *sequence)
+{
+  const char *enabled = std::getenv("VENTUS_RT_TRACE_RESULTS");
+  if (!enabled || !enabled[0] || enabled[0] == '0')
+    return false;
+
+  uint64_t limit = 64;
+  if (const char *limit_env = std::getenv("VENTUS_RT_TRACE_RESULTS_MAX")) {
+    char *end = nullptr;
+    const unsigned long long parsed = std::strtoull(limit_env, &end, 10);
+    if (end != limit_env && *end == '\0')
+      limit = parsed;
+  }
+
+  static std::atomic<uint64_t> next_sequence{0};
+  *sequence = next_sequence.fetch_add(1, std::memory_order_relaxed);
+  return *sequence < limit;
+}
+
 void log_rt_control(processor_t *p, const char *op, uint64_t sequence,
                     reg_t warp_first_tid, reg_t vl, uint32_t active_mask)
 {
@@ -107,6 +126,31 @@ void log_rt_traverse_operands(processor_t *p, uint64_t sequence, reg_t vd,
     }
     std::fprintf(stderr, "}%s", warp_first_tids[lane] == warp_first_tid
                                    ? "" : "(mismatch)");
+  }
+  std::fputc('\n', stderr);
+}
+
+void log_rt_traverse_results(
+    processor_t *p, uint64_t sequence, reg_t vd, reg_t vl,
+    const std::array<uint32_t, VENTUS_CUSTOM_LANES> &warp_first_tids)
+{
+  const reg_t wid = p->get_csr(CSR_WID);
+  std::fprintf(stderr,
+               "VENTUS_RT_TRAVERSE_RESULTS seq=%llu active_mask=0x%08x lanes=",
+               static_cast<unsigned long long>(sequence),
+               active_lanes_from_vstart(p));
+  for (reg_t lane = 0; lane < vl; ++lane) {
+    const uint32_t status = p->VU.elt<uint32_t>(0, vd, lane, true);
+    std::fprintf(stderr, "%s%llu%s:first_tid=%u,status=%u,rtlocal={",
+                 lane ? " " : "", static_cast<unsigned long long>(lane),
+                 lane_active(p, lane) ? "" : "(inactive)",
+                 warp_first_tids[lane], status);
+    for (reg_t field = 0; field < warp_schedule_t::rt_local_field_count;
+         ++field) {
+      std::fprintf(stderr, "%s%08x", field ? "," : "",
+                   p->gpgpu_unit.w->rt_local_load(wid, field, lane));
+    }
+    std::fputc('}', stderr);
   }
   std::fputc('\n', stderr);
 }
@@ -359,6 +403,15 @@ void ventus_exec_rt_traverse(processor_t *p, insn_t insn)
         *p->get_mmu(), *p->gpgpu_unit.w, warp_first_tid,
         warp_lane_count, lane);
     p->VU.elt<uint32_t>(0, vd_num, lane, true) = status;
+  }
+
+  uint64_t result_sequence = 0;
+  if (reserve_rt_traverse_result_log(&result_sequence)) {
+    if (!log_operands) {
+      for (reg_t lane = 0; lane < vl; ++lane)
+        warp_first_tids[lane] = p->VU.elt<uint32_t>(2, vs2_num, lane);
+    }
+    log_rt_traverse_results(p, result_sequence, vd_num, vl, warp_first_tids);
   }
 
   p->VU.vstart->write(0);

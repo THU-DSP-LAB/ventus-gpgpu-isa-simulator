@@ -222,11 +222,57 @@ static void check_packed_hit_metadata()
   assert(hit_record_instance_sbt_record_offset(meta1) == 0x00fedcbau);
 }
 
+/* A lossless replay of primitive 0x173c from the 16x9 reflections trace.
+ * The vertex words are after the sample's glTF node transform and FlipY
+ * preprocessing; the ray is the matching identity-instance object ray. */
+static void check_reflections_scene_triangle_replay()
+{
+  TestMemory mem;
+  constexpr reg_t slot = 0;
+  constexpr reg_t tlas = 0x50000;
+  constexpr reg_t blas = 0x51000;
+  constexpr reg_t triangle = blas + as_header_size;
+  write_tlas_blas(mem, tlas, blas, node_triangle);
+  write_vec3(mem, triangle + triangle_v0,
+             bit_cast_f32(0xbecf7f87u), bit_cast_f32(0xbef35f5du),
+             bit_cast_f32(0x3f2f5d7eu));
+  write_vec3(mem, triangle + triangle_v1,
+             bit_cast_f32(0xbed72703u), bit_cast_f32(0xbf00ab08u),
+             bit_cast_f32(0x3f319cecu));
+  write_vec3(mem, triangle + triangle_v2,
+             bit_cast_f32(0xbeea12bbu), bit_cast_f32(0xbf00ab08u),
+             bit_cast_f32(0x3f1e862cu));
+  mem.store32(triangle + triangle_primitive_id, 0x173cu);
+  mem.store32(triangle + triangle_geometry_id, 0);
+  mem.store32(triangle + triangle_flags, 1);
+  write_ray(mem, slot, tlas);
+  store_slot(mem, slot, 0, slot_origin_x, 0x00000000u);
+  store_slot(mem, slot, 0, slot_origin_y, 0xbf000000u);
+  store_slot(mem, slot, 0, slot_origin_z, 0x40000000u);
+  store_slot(mem, slot, 0, slot_direction_x, 0xbe9c607du);
+  store_slot(mem, slot, 0, slot_direction_y, 0x00000000u);
+  store_slot(mem, slot, 0, slot_direction_z, 0xbf73c477u);
+  store_slot(mem, slot, 0, slot_inv_x, 0xc0518b86u);
+  store_slot(mem, slot, 0, slot_inv_y, 0x7f800000u);
+  store_slot(mem, slot, 0, slot_inv_z, 0xbf866c57u);
+  store_slot(mem, slot, 0, slot_tmin, 0x3a83126fu);
+  store_slot(mem, slot, 0, slot_tmax, 0x461c4000u);
+
+  assert(traverse(mem, slot) == traversal_complete_hit);
+  assert(load_slot(mem, slot, abi_committed_hit_record_base_bytes,
+                   hit_record_hit_t) == 0x3fb009b7u);
+  assert(load_slot(mem, slot, abi_committed_hit_record_base_bytes,
+                   hit_record_barycentrics_x) == 0x3f5ec7f3u);
+  assert(load_slot(mem, slot, abi_committed_hit_record_base_bytes,
+                   hit_record_barycentrics_y) == 0x3d0b8eb0u);
+}
+
 int main()
 {
   check_triangle_hit_and_candidate();
   check_aabb_candidate();
   check_invalid_tlas_is_miss();
   check_packed_hit_metadata();
+  check_reflections_scene_triangle_replay();
   return 0;
 }

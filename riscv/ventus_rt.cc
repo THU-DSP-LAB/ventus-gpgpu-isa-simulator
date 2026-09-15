@@ -4,6 +4,8 @@
 #endif
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <cmath>
 #include <limits>
 #include <unordered_map>
@@ -73,6 +75,7 @@ struct Hit {
 struct Ray {
   Vec3 origin;
   Vec3 direction;
+  Vec3 inv_direction;
   float tmin = 0.0f;
   float tmax = std::numeric_limits<float>::infinity();
   uint32_t flags = 0;
@@ -114,26 +117,44 @@ inline float dot(Vec3 a, Vec3 b)
 
 inline bool intersect_triangle(const Ray &ray, const Triangle &tri, Hit &hit)
 {
-  constexpr float eps = 1.0e-7f;
-  const Vec3 e1 = sub(tri.v1, tri.v0);
-  const Vec3 e2 = sub(tri.v2, tri.v0);
-  const Vec3 p = cross(ray.direction, e2);
-  const float det = dot(e1, p);
-  if (!std::isfinite(det) || std::fabs(det) < eps)
+  // Mirror the RayFlex RTL sequence exactly: select a dominant axis, shear
+  // translated vertices with the shader-provided reciprocal, then evaluate
+  // three watertight edge functions.  Do not use Moller--Trumbore here: its
+  // different rounding path changes secondary rays even when it chooses the
+  // same primitive.
+  const float d[3] = {ray.direction.x, ray.direction.y, ray.direction.z};
+  const float inv[3] = {ray.inv_direction.x, ray.inv_direction.y, ray.inv_direction.z};
+  const float a[3] = {tri.v0.x - ray.origin.x, tri.v0.y - ray.origin.y, tri.v0.z - ray.origin.z};
+  const float b[3] = {tri.v1.x - ray.origin.x, tri.v1.y - ray.origin.y, tri.v1.z - ray.origin.z};
+  const float c[3] = {tri.v2.x - ray.origin.x, tri.v2.y - ray.origin.y, tri.v2.z - ray.origin.z};
+  const uint32_t bits[3] = {bit_cast_u32(d[0]), bit_cast_u32(d[1]), bit_cast_u32(d[2])};
+  const uint32_t magnitude[3] = {bits[0] & 0x7fffffffU, bits[1] & 0x7fffffffU, bits[2] & 0x7fffffffU};
+  const int kz = magnitude[0] >= magnitude[1] && magnitude[0] >= magnitude[2] ? 0 :
+                 (magnitude[1] >= magnitude[2] ? 1 : 2);
+  const int positive_kx = kz == 2 ? 0 : kz + 1;
+  const int positive_ky = positive_kx == 2 ? 0 : positive_kx + 1;
+  const int kx = bits[kz] >> 31 ? positive_ky : positive_kx;
+  const int ky = bits[kz] >> 31 ? positive_kx : positive_ky;
+  const float sx = d[kx] * inv[kz];
+  const float sy = d[ky] * inv[kz];
+  const float ax = a[kx] + (-sx) * a[kz], ay = a[ky] + (-sy) * a[kz], az = inv[kz] * a[kz];
+  const float bx = b[kx] + (-sx) * b[kz], by = b[ky] + (-sy) * b[kz], bz = inv[kz] * b[kz];
+  const float cx = c[kx] + (-sx) * c[kz], cy = c[ky] + (-sy) * c[kz], cz = inv[kz] * c[kz];
+  float u_num = cx * by - cy * bx;
+  float v_num = ax * cy - ay * cx;
+  float w_num = bx * ay - by * ax;
+  float denominator = (u_num + v_num) + w_num;
+  float t_num = (u_num * az + v_num * bz) + w_num * cz;
+  if (!std::isfinite(denominator) || denominator == 0.0f)
     return false;
-
-  const float inv_det = 1.0f / det;
-  const Vec3 tvec = sub(ray.origin, tri.v0);
-  const float u = dot(tvec, p) * inv_det;
-  if (!std::isfinite(u) || u < 0.0f || u > 1.0f)
+  const bool negative = std::signbit(denominator);
+  if (negative ? (u_num > 0.0f || v_num > 0.0f || w_num > 0.0f || t_num > 0.0f)
+               : (u_num < 0.0f || v_num < 0.0f || w_num < 0.0f || t_num < 0.0f))
     return false;
-
-  const Vec3 q = cross(tvec, e1);
-  const float v = dot(ray.direction, q) * inv_det;
-  if (!std::isfinite(v) || v < 0.0f || u + v > 1.0f)
-    return false;
-
-  const float t = dot(e2, q) * inv_det;
+  if (negative) { u_num = -u_num; v_num = -v_num; w_num = -w_num; t_num = -t_num; denominator = -denominator; }
+  const float u = v_num / denominator;
+  const float v = w_num / denominator;
+  const float t = t_num / denominator;
   /* A NaN bypasses ordinary ordered comparisons.  Treat it as a miss and
    * keep the upper interval exclusive, matching the committed-hit rule. */
   if (!std::isfinite(t) || t < ray.tmin || t >= ray.tmax || t >= hit.t)
@@ -143,7 +164,7 @@ inline bool intersect_triangle(const Ray &ray, const Triangle &tri, Hit &hit)
   hit.t = t;
   hit.bary_x = u;
   hit.bary_y = v;
-  hit.front_face = det < 0.0f;
+  hit.front_face = negative;
   hit.tri = tri;
   return true;
 }
@@ -285,6 +306,11 @@ inline Ray load_ray(Memory &mem, reg_t slot)
       bit_cast_f32(load_word(mem, slot, 0, slot_direction_x)),
       bit_cast_f32(load_word(mem, slot, 0, slot_direction_y)),
       bit_cast_f32(load_word(mem, slot, 0, slot_direction_z)),
+  };
+  ray.inv_direction = {
+      bit_cast_f32(load_word(mem, slot, 0, slot_inv_x)),
+      bit_cast_f32(load_word(mem, slot, 0, slot_inv_y)),
+      bit_cast_f32(load_word(mem, slot, 0, slot_inv_z)),
   };
   ray.tmax = bit_cast_f32(load_word(mem, slot, 0, slot_tmax));
   return ray;
@@ -693,6 +719,20 @@ inline uint32_t trace_private_vtas(Memory &mem, reg_t slot, uint64_t key)
           mem, node_addr + instance_world_to_object, entry.ray.origin);
       object_ray.direction = transform_instance_vector(
           mem, node_addr + instance_world_to_object, entry.ray.direction);
+      object_ray.inv_direction = {
+          1.0f / object_ray.direction.x, 1.0f / object_ray.direction.y,
+          1.0f / object_ray.direction.z,
+      };
+      if (const char *trace = std::getenv("VENTUS_RT_TRACE_OBJECT_RAYS");
+          trace && trace[0] != '0') {
+        std::fprintf(stderr,
+                     "VENTUS_RT_OBJECT_RAY o=[%08x,%08x,%08x] d=[%08x,%08x,%08x] inv=[%08x,%08x,%08x]\\n",
+                     bit_cast_u32(object_ray.origin.x), bit_cast_u32(object_ray.origin.y),
+                     bit_cast_u32(object_ray.origin.z), bit_cast_u32(object_ray.direction.x),
+                     bit_cast_u32(object_ray.direction.y), bit_cast_u32(object_ray.direction.z),
+                     bit_cast_u32(object_ray.inv_direction.x), bit_cast_u32(object_ray.inv_direction.y),
+                     bit_cast_u32(object_ray.inv_direction.z));
+      }
       if (!push_private_entry(
               ctx, {blas, load_node_ref(mem, blas), object_ray,
                     mem.load32(node_addr + instance_instance_id),
