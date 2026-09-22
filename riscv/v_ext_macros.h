@@ -1619,25 +1619,13 @@ reg_t index[P.VU.vlmax]; \
   float vemul = ((float)idx_type / P.VU.vsew * P.VU.vflmul); \
   require(vemul >= 0.125 && vemul <= 8); \
   require_align(insn.rs2(), vemul); \
-  if (insn.v_wd()) { \
-    require_vm; \
-    if (idx_type > P.VU.vsew) { \
-      if (insn.rd() != insn.rs2()) \
-        require_noover(insn.rd(), P.VU.vflmul, insn.rs2(), vemul); \
-    } else if (idx_type < P.VU.vsew) { \
-      if (vemul < 1) { \
-        require_noover(insn.rd(), P.VU.vflmul, insn.rs2(), vemul); \
-      } else { \
-        require_noover_widen(insn.rd(), P.VU.vflmul, insn.rs2(), vemul); \
-      } \
-    } \
-  } \
+  /* bits 26/25 are aq/rl here, not wd/vm: no v0 masking */ \
   VI_DUPLICATE_VREG(1, insn.rs1(), idx_type); /* store vrs1 in index */ \
   const reg_t vl = P.VU.vl->read(); \
   const reg_t baseAddr = RS1; \
   const reg_t vd = insn.rd(); \
   for (reg_t i = P.VU.vstart->read(); i < vl; ++i) { \
-    VI_ELEMENT_SKIP(i); \
+    VI12_ELEMENT_SKIP(i); /* SIMT (divergence) mask only */ \
     VI_STRIP(i); /* let vreg_inx = i */ \
     P.VU.vstart->write(i); \
     switch (P.VU.vsew) { \
