@@ -194,6 +194,7 @@ public:
     }
 
   // template for functions that perform an atomic memory operation
+  // 对 addr 地址的值进行 f 操作，返回原值
   #define amo_func(type) \
     template<typename op> \
     type##_t amo_##type(reg_t addr, op f) { \
