@@ -15,6 +15,30 @@ static gvmref_t* ref = nullptr;
 
 namespace {
 
+constexpr uint64_t DEFAULT_START_PC = 0x80000000;
+
+int gvmref_vt_start_with_pc(void* metaData, uint64_t taskID,
+                            uint64_t start_pc) {
+  if(ref->num_workgroup != 0){
+    // 移动 base_wg
+    ref->wg.insert({ref->wg_id_base + ref->num_workgroup, std::make_unique<workgroup_t>(*ref->wg[ref->wg_id_base], true)});
+  }
+  ref->wg_id_base = ref->wg_id_base + ref->num_workgroup;
+  auto knl_data = (gvmref_meta_data *) metaData;
+  ref->num_workgroup = (knl_data->kernel_size[0]) * (knl_data->kernel_size[1]) * (knl_data->kernel_size[2]);
+  ref->num_warp = knl_data->wg_size;
+  auto log_file = std::make_shared<log_file_t>(ref->wg[ref->wg_id_base]->get_logfilename());
+  // 调用拷贝构造函数
+  for (int i = ref->wg_id_base + 1; i < ref->wg_id_base + ref->num_workgroup; i++) {
+    ref->wg.insert({i, std::make_unique<workgroup_t>(*ref->wg[ref->wg_id_base], false)});
+  }
+  for (int i = ref->wg_id_base; i < ref->wg_id_base + ref->num_workgroup; i++) {
+    ref->wg[i]->init_sim(knl_data, start_pc, i - ref->wg_id_base, log_file);
+  }
+  ref->on_kernel_started(ref->wg_id_base, ref->num_workgroup);
+  return 0;
+}
+
 workgroup_t& get_workgroup_or_die(uint32_t software_wg_id) {
   if (ref == nullptr) {
     std::fprintf(stderr, "GVMREF INTERNAL error: reference model is not initialized.\n");
@@ -84,24 +108,12 @@ int gvmref_vt_upload_kernel_file(const char* filename, int taskID) {
   return 0;
 }
 int gvmref_vt_start(void* metaData, uint64_t taskID) {
-  if(ref->num_workgroup != 0){
-    // 移动 base_wg
-    ref->wg.insert({ref->wg_id_base + ref->num_workgroup, std::make_unique<workgroup_t>(*ref->wg[ref->wg_id_base], true)});
-  }
-  ref->wg_id_base = ref->wg_id_base + ref->num_workgroup;
-  auto knl_data = (gvmref_meta_data *) metaData;
-  ref->num_workgroup = (knl_data->kernel_size[0]) * (knl_data->kernel_size[1]) * (knl_data->kernel_size[2]);
-  ref->num_warp = knl_data->wg_size;
-  auto log_file = std::make_shared<log_file_t>(ref->wg[ref->wg_id_base]->get_logfilename());
-  // 调用拷贝构造函数
-  for (int i = ref->wg_id_base + 1; i < ref->wg_id_base + ref->num_workgroup; i++) {
-    ref->wg.insert({i, std::make_unique<workgroup_t>(*ref->wg[ref->wg_id_base], false)});
-  }
-  for (int i = ref->wg_id_base; i < ref->wg_id_base + ref->num_workgroup; i++) {
-    ref->wg[i]->init_sim(knl_data, 0x80000000, i - ref->wg_id_base, log_file);
-  }
-  ref->on_kernel_started(ref->wg_id_base, ref->num_workgroup);
-  return 0;
+  return gvmref_vt_start_with_pc(metaData, taskID, DEFAULT_START_PC);
+}
+
+int gvmref_vt_start_at_pc(void* metaData, uint64_t taskID,
+                          uint64_t start_pc) {
+  return gvmref_vt_start_with_pc(metaData, taskID, start_pc);
 }
 
 int gvmref_vt_kernel_finish() {

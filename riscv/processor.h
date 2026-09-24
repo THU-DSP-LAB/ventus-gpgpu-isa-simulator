@@ -405,6 +405,7 @@ public:
       state.regext_info.ext_rs2 = (imm>>6)&7;
       state.regext_info.ext_rs3 = (imm>>9)&7;
       state.regext_info.ext_imm = 0;
+      state.regext_info.validi = 0;
     }
   }
   void ext_clear(){
