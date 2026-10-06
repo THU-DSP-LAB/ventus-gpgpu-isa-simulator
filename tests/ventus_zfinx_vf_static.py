@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import os
 import pathlib
+import shutil
 import subprocess
 import sys
+import tempfile
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -79,6 +82,10 @@ def main() -> int:
         type=pathlib.Path,
         help="also exercise the built ISA parser through spike-dasm",
     )
+    parser.add_argument(
+        "--spike-build", type=pathlib.Path,
+        help="compile and run VF regext instruction regression against this local build",
+    )
     args = parser.parse_args()
 
     failures: list[str] = []
@@ -132,6 +139,29 @@ def main() -> int:
             failures.append(f"spike-dasm not found: {args.spike_dasm}")
         else:
             check_parser(args.spike_dasm.resolve(), failures)
+
+    if args.spike_build:
+        build = args.spike_build.resolve()
+        compiler = shutil.which("c++")
+        if compiler is None or not (build / "libspike_main.so").is_file():
+            failures.append("VF regext regression requires c++ and built libspike_main.so")
+        else:
+            with tempfile.TemporaryDirectory(prefix="ventus-vf-regext-") as temporary:
+                binary = pathlib.Path(temporary) / "vf-regext"
+                include_dirs = [build, ROOT, *(ROOT / name for name in
+                                ("riscv", "fesvr", "softfloat", "fdt", "disasm"))]
+                command = [compiler, "-std=c++17", "-O2",
+                           *(f"-I{path}" for path in include_dirs),
+                           str(ROOT / "tests/ventus_zfinx_vf_regext_test.cc"),
+                           f"-L{build}", f"-Wl,-rpath,{build}",
+                           "-lspike_main", "-lsoftfloat", "-o", str(binary)]
+                env = os.environ.copy()
+                env["LD_LIBRARY_PATH"] = str(build) + ":" + env.get("LD_LIBRARY_PATH", "")
+                result = subprocess.run(command, env=env, check=False)
+                if result.returncode:
+                    failures.append("VF regext regression failed to compile")
+                elif subprocess.run([str(binary)], env=env, check=False).returncode:
+                    failures.append("VF regext instruction regression failed")
 
     if failures:
         for failure in failures:

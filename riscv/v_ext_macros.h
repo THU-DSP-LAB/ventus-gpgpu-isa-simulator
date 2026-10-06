@@ -510,10 +510,12 @@ static inline bool is_aligned(const unsigned val, const unsigned pos)
    (p->extension_enabled(EXT_ZFINX) && \
     p->extension_enabled(EXT_ZVE32F)))
 
+// VF instructions encode the scalar input in rs1, just like integer VX.
+// Apply regext before choosing XPR (Zfinx) or FPR (standard floating point).
 #define VFP_SCALAR(width, reg_num) \
   (p->extension_enabled(EXT_ZFINX) \
-    ? f##width(static_cast<uint##width##_t>(READ_REG(reg_num))) \
-    : f##width(READ_FREG(reg_num)))
+    ? f##width(static_cast<uint##width##_t>(READ_REG((reg_num) | p->ext_rs1()))) \
+    : f##width(READ_FREG((reg_num) | p->ext_rs1())))
 
 #define VFP_VF_PARAMS(width) \
   float##width##_t &vd = P.VU.elt<float##width##_t>(0,rd_num, i, true); \
