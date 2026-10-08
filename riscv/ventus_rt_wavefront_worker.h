@@ -270,8 +270,8 @@ seed_worker_slot(WorkerLocalMemory<Memory> &memory,
   store_slot(slot_direction_y, field(TraceField::DirectionY));
   store_slot(slot_direction_z, field(TraceField::DirectionZ));
   store_slot(slot_tmax, field(TraceField::Tmax));
-  store_slot(slot_payload_ptr_lo, field(TraceField::PayloadLo));
-  store_slot(slot_payload_ptr_hi, field(TraceField::PayloadHi));
+  // Payload address remains in record.metadata. Reserved RT Local words
+  // belong solely to the RTcore continuation pointer, not worker payload.
 }
 
 template <typename Memory>

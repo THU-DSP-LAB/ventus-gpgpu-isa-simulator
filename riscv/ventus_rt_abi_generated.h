@@ -5,7 +5,7 @@
 // Fixed RT Local header constants for namespace ventus_rt.
 namespace ventus_rt {
 
-constexpr reg_t abi_version = 12;
+constexpr reg_t abi_version = 13;
 constexpr reg_t abi_word_bytes = 4;
 constexpr reg_t abi_alignment_bytes = 16;
 constexpr reg_t trace_meta0_flags_shift = 0;
@@ -58,8 +58,8 @@ constexpr reg_t slot_tmax = 12;
 constexpr reg_t slot_inv_x = 13;
 constexpr reg_t slot_inv_y = 14;
 constexpr reg_t slot_inv_z = 15;
-constexpr reg_t slot_payload_ptr_lo = 16;
-constexpr reg_t slot_payload_ptr_hi = 17;
+constexpr reg_t slot_reserved_lo = 16;
+constexpr reg_t slot_reserved_hi = 17;
 constexpr reg_t slot_launch_id_x = 18;
 constexpr reg_t slot_launch_id_y = 19;
 constexpr reg_t slot_launch_id_z = 20;

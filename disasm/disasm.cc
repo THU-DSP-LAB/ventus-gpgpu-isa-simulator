@@ -921,6 +921,7 @@ void disassembler_t::add_instructions(const isa_parser_t* isa)
    * RT encodings first so their more-specific opcode wins over overlapping
    * MMA encodings in commit logs. */
   add_ventus_rt_traverse_insn(this, "vt.rt.traverse", match_vt_rt_traverse, mask_vt_rt_traverse);
+  add_ventus_rt_traverse_insn(this, "vt.rt.group_traverse", match_vt_rt_group_traverse, mask_vt_rt_group_traverse);
   add_ventus_rt_release_insn(this, "vt.rt.release", match_vt_rt_release, mask_vt_rt_release);
   add_ventus_rt_enqueue_insn(this, "vt.rt.enqueue", match_vt_rt_enqueue, mask_vt_rt_enqueue);
   add_ventus_rt_local_load_insn(this, "vlrt.w", match_vlrt_w, mask_vlrt_w);

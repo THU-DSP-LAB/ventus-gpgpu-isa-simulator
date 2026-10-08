@@ -13,6 +13,7 @@ void ventus_exec_sfu(processor_t *p, insn_t insn, VentusSFUOp op,
                      VentusSFUMode mode);
 void ventus_exec_mma(processor_t *p, insn_t insn);
 void ventus_exec_rt_traverse(processor_t *p, insn_t insn);
+void ventus_exec_rt_group_traverse(processor_t *p, insn_t insn);
 void ventus_exec_rt_release(processor_t *p, insn_t insn);
 void ventus_exec_rt_enqueue(processor_t *p, insn_t insn);
 void ventus_exec_rt_local_load(processor_t *p, insn_t insn);

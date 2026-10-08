@@ -417,6 +417,32 @@ void ventus_exec_rt_traverse(processor_t *p, insn_t insn)
   p->VU.vstart->write(0);
 }
 
+void ventus_exec_rt_group_traverse(processor_t *p, insn_t insn)
+{
+  require_ventus_custom_state(p, insn);
+  const reg_t vl = p->VU.vl->read();
+  const reg_t lane_count = p->get_csr(CSR_NUMT);
+  const reg_t member_count = p->get_csr(CSR_NUMW);
+  if (!p->gpgpu_unit.w || lane_count != warp_schedule_t::rt_local_lane_count)
+    throw trap_illegal_instruction(insn.bits());
+
+  // The locator is a workgroup-local logical TID, not a physical SRAM row.
+  // Spike keeps all member RT Local rows in this workgroup's warp scheduler.
+  for (reg_t lane = p->VU.vstart->read(); lane < vl; ++lane) {
+    if (!lane_active(p, lane))
+      continue;
+    const uint32_t tid = p->VU.elt<uint32_t>(2, insn.rs2(), lane);
+    const uint32_t member = tid / lane_count;
+    if (member >= member_count || member >= warp_schedule_t::rt_local_warp_count)
+      throw trap_illegal_instruction(insn.bits());
+    const uint32_t status = ventus_rt::traverse_spike(
+        *p->get_mmu(), *p->gpgpu_unit.w, member * lane_count,
+        lane_count, tid % lane_count);
+    p->VU.elt<uint32_t>(0, insn.rd(), lane, true) = status;
+  }
+  p->VU.vstart->write(0);
+}
+
 void ventus_exec_rt_release(processor_t *p, insn_t insn)
 {
   require_ventus_custom_state(p, insn);
