@@ -147,7 +147,11 @@ STOW          := @stow@
 
 # Tests
 bintests = $(src_dir)/tests/ebreak.py ventus_launch_geometry_test \
-	ventus_rt_semantics_test ventus_rt_local_sram_test
+	ventus_rt_semantics_test ventus_rt_local_sram_test ventus_vf_scalar_test
+
+ventus_vf_scalar_test: $(src_dir)/tests/ventus_vf_scalar_test.cc \
+	$(src_dir)/riscv/v_ext_macros.h
+	$(CXX) -std=c++17 -I$(src_dir)/riscv $< -o $@
 
 ventus_launch_geometry_test: $(src_dir)/tests/ventus_launch_geometry_test.cc \
 	$(src_dir)/riscv/ventus_launch_geometry.h
