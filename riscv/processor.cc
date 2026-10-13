@@ -1145,7 +1145,7 @@ void processor_t::gpgpu_unit_t::reset(processor_t *const proc)
 void processor_t::gpgpu_unit_t::simt_stack_t::pop_join()
 {
   npc = _stack.back().else_pc;
-  mask = _stack.back().else_mask;
+  mask = _stack.back().else_mask & live_mask;
   _stack.pop_back();
   /*//else不用執行，if下來直接匯合點
   if(_stack.back().pair == 1){
@@ -1175,9 +1175,15 @@ int count_ones(uint64_t n){
   return count;
 }
 void processor_t::gpgpu_unit_t::simt_stack_t::push_branch
-    (reg_t r_pc,reg_t if_pc, uint64_t if_mask, 
+    (reg_t r_pc,reg_t if_pc, uint64_t if_mask,
                      uint64_t r_mask, reg_t else_pc, uint64_t else_mask)
 {
+  /* The vector branch is unpredicated, but it still only observes the
+   * currently executing SIMT lanes.  Clamp every saved/restored path to the
+   * launch-live mask so a join cannot revive a compact-dispatch tail lane. */
+  r_mask &= live_mask;
+  if_mask &= r_mask;
+  else_mask &= r_mask;
   if(all_zero(else_mask)){
     npc = if_pc;
     mask = if_mask & width_mask;
@@ -1270,7 +1276,7 @@ bool warp_schedule_t::get_barrier()
   return is_all_true;
 }
 
-void processor_t::gpgpu_unit_t::init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid,uint64_t _wgid, uint64_t _wid, uint64_t _pds, uint64_t _lds,uint64_t _knl,uint64_t _gidx,uint64_t _gidy,uint64_t _gidz, uint64_t _clprintf, uint64_t _gsx, uint64_t _gsy, uint64_t _gsz, uint64_t _lsx, uint64_t _lsy, uint64_t _lsz, uint64_t _gox, uint64_t _goy, uint64_t _goz, uint64_t _dim, uint64_t _num_active_thread) {
+void processor_t::gpgpu_unit_t::init_warp(uint64_t _numw, uint64_t _numt, uint64_t _tid,uint64_t _wgid, uint64_t _wid, uint64_t _pds, uint64_t _lds,uint64_t _knl,uint64_t _gidx,uint64_t _gidy,uint64_t _gidz, uint64_t _clprintf, uint64_t _gsx, uint64_t _gsy, uint64_t _gsz, uint64_t _lsx, uint64_t _lsy, uint64_t _lsz, uint64_t _gox, uint64_t _goy, uint64_t _goz, uint64_t _dim, uint64_t _live_lane_mask) {
   numw->write(_numw);
   numt->write(_numt);
   tid->write(_tid);
@@ -1285,7 +1291,7 @@ void processor_t::gpgpu_unit_t::init_warp(uint64_t _numw, uint64_t _numt, uint64
   clprintf->write(_clprintf);
 
   // init simt-stack
-  simt_stack.init_mask(_num_active_thread);
+  simt_stack.init_mask_bits(_numt, _live_lane_mask);
   
   // vector csr init、
   int lanes = _numt;
@@ -1350,6 +1356,7 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
   size_t numw = 0;
   size_t numt = 0;
   size_t numwg = 0;
+  size_t numres = 1;
   uint64_t ldssize=0;
   uint64_t ldsbase=0x70000000;
   uint64_t pdssize=0;
@@ -1379,6 +1386,8 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
       numw = get_int_token(str, ',', pos);
     else if (attr == "numwg")
       numwg = get_int_token(str, ',', pos);
+    else if (attr == "numres")
+      numres = get_int_token(str, ',', pos);
     else if (attr == "kernelx")
       kernel_size[0] = get_int_token(str, ',', pos);
     else if (attr == "kernely")
@@ -1430,6 +1439,7 @@ void warp_schedule_t::parse_gpgpuarch_string(const char *s)
   thread_number = numt;
   warp_number = numw;
   workgroup_number = numwg;
+  resident_workgroup_number = numres;
   lds_size = ldssize == 0 ? (numw * numt )<< 10 : ldssize;
   lds_base = ldsbase;
   pds_size = pdssize == 0 ? (numw * numt )<< 10 : pdssize;

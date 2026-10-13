@@ -454,6 +454,12 @@ struct : public arg_t {
 
 struct : public arg_t {
   std::string to_string(insn_t insn) const {
+    return std::to_string((int)insn.rt_local_field());
+  }
+} rt_local_field;
+
+struct : public arg_t {
+  std::string to_string(insn_t insn) const {
     return std::to_string((int)insn.bs());
   }
 } bs;
@@ -621,6 +627,31 @@ static void NOINLINE add_vector_vv_insn(disassembler_t* d, const char* name, uin
 static void NOINLINE add_ventus_mma_insn(disassembler_t* d, const char* name, uint32_t match, uint32_t mask)
 {
   d->add_insn(new disasm_insn_t(name, match, mask, {&vd, &vs2, &vs1}));
+}
+
+static void NOINLINE add_ventus_rt_traverse_insn(disassembler_t* d, const char* name, uint32_t match, uint32_t mask)
+{
+  d->add_insn(new disasm_insn_t(name, match, mask, {&vd, &vs2}));
+}
+
+static void NOINLINE add_ventus_rt_release_insn(disassembler_t* d, const char* name, uint32_t match, uint32_t mask)
+{
+  d->add_insn(new disasm_insn_t(name, match, mask, {&vs2}));
+}
+
+static void NOINLINE add_ventus_rt_enqueue_insn(disassembler_t* d, const char* name, uint32_t match, uint32_t mask)
+{
+  d->add_insn(new disasm_insn_t(name, match, mask, {&vs2}));
+}
+
+static void NOINLINE add_ventus_rt_local_load_insn(disassembler_t* d, const char* name, uint32_t match, uint32_t mask)
+{
+  d->add_insn(new disasm_insn_t(name, match, mask, {&vd, &rt_local_field}));
+}
+
+static void NOINLINE add_ventus_rt_local_store_insn(disassembler_t* d, const char* name, uint32_t match, uint32_t mask)
+{
+  d->add_insn(new disasm_insn_t(name, match, mask, {&vs2, &rt_local_field}));
 }
 
 static void NOINLINE add_vector_branch_insn(disassembler_t* d, const char*name, uint32_t match, uint32_t mask)
@@ -886,6 +917,15 @@ void disassembler_t::add_instructions(const isa_parser_t* isa)
   DEFINE_VSHUFFLE_TYPE("shuffle.up", shuffle_up);
   DEFINE_VSHUFFLE_TYPE("shuffle.down", shuffle_down);
   DEFINE_VSHUFFLE_TYPE("shuffle.bfly", shuffle_bfly);
+  /* The disassembler searches the reverse registration order.  Register the
+   * RT encodings first so their more-specific opcode wins over overlapping
+   * MMA encodings in commit logs. */
+  add_ventus_rt_traverse_insn(this, "vt.rt.traverse", match_vt_rt_traverse, mask_vt_rt_traverse);
+  add_ventus_rt_traverse_insn(this, "vt.rt.group_traverse", match_vt_rt_group_traverse, mask_vt_rt_group_traverse);
+  add_ventus_rt_release_insn(this, "vt.rt.release", match_vt_rt_release, mask_vt_rt_release);
+  add_ventus_rt_enqueue_insn(this, "vt.rt.enqueue", match_vt_rt_enqueue, mask_vt_rt_enqueue);
+  add_ventus_rt_local_load_insn(this, "vlrt.w", match_vlrt_w, mask_vlrt_w);
+  add_ventus_rt_local_store_insn(this, "vsrt.w", match_vsrt_w, mask_vsrt_w);
   add_ventus_mma_insn(this, "mma.m8n8k16", match_mma_m8n8k16, mask_mma_m8n8k16);
   add_ventus_mma_insn(this, "mma.m16n8k16", match_mma_m16n8k16, mask_mma_m16n8k16);
   add_ventus_mma_insn(this, "mma.m8n16k16", match_mma_m8n16k16, mask_mma_m8n16k16);

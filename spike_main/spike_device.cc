@@ -17,6 +17,7 @@
 #include <fstream>
 #include "../VERSION"
 #include "spike_main.h"
+#include "ventus_rt.h"
 
 inline std::optional<bool> parse_bool(std::string str) {
     // transform to lowercase safely (unsigned char cast to avoid UB)
@@ -30,6 +31,10 @@ inline std::optional<bool> parse_bool(std::string str) {
 inline std::optional<bool> parse_bool(const char *str) {
     if (str == nullptr) return std::nullopt;
     return parse_bool(std::string(str));
+}
+
+static bool spike_device_io_log_enabled() {
+  return parse_bool(std::getenv("VENTUS_SPIKE_DEVICE_IO_LOG")).value_or(false);
 }
 
 
@@ -201,10 +206,12 @@ static std::vector<int> parse_hartids(const char *s)
 
 #define ARGBASEADDR 0x90000000
 
+static constexpr size_t SPIKE_DEVICE_PATH_MAX = 4096;
+
 
 spike_device::spike_device():sim(NULL),buffer(),buffer_data(){
-  srcfilename=new char[128];
-  logfilename=new char[128];
+  srcfilename=new char[SPIKE_DEVICE_PATH_MAX];
+  logfilename=new char[SPIKE_DEVICE_PATH_MAX];
   uint64_t lds_vaddr;
   uint64_t pc_src_vaddr;
   fprintf(stderr, "spike device initialize: allocating local memory: ");
@@ -330,7 +337,8 @@ int spike_device::free_local_mem(uint64_t paddr) {
 
 int spike_device::copy_to_dev(uint64_t vaddr, uint64_t size,const void *data){
   uint64_t i=0;
-  fprintf(stderr, "to copy to 0x%lx with %ld bytes\n",vaddr,size);
+  if (spike_device_io_log_enabled())
+    fprintf(stderr, "to copy to 0x%lx with %ld bytes\n",vaddr,size);
   for (i=0; i<buffer.size(); ++i)
     if(vaddr>=buffer[i].base && vaddr<buffer[i].base +buffer[i].size){
       if( vaddr+size > buffer[i].base +buffer[i].size)
@@ -344,7 +352,8 @@ int spike_device::copy_to_dev(uint64_t vaddr, uint64_t size,const void *data){
 
 int spike_device::copy_from_dev(uint64_t vaddr, uint64_t size, void *data){
   uint64_t i=0;
-  fprintf(stderr, "to copy from 0x%lx with %ld bytes\n",vaddr,size);
+  if (spike_device_io_log_enabled())
+    fprintf(stderr, "to copy from 0x%lx with %ld bytes\n",vaddr,size);
   for (i=0; i<buffer.size(); ++i)
     if(vaddr>=buffer[i].base && vaddr<buffer[i].base +buffer[i].size){
       if( vaddr+size > buffer[i].base +buffer[i].size)
@@ -357,15 +366,18 @@ int spike_device::copy_from_dev(uint64_t vaddr, uint64_t size, void *data){
 }
 
 int spike_device::set_filename(const char* filename,const char* logname){
-  sprintf(srcfilename,"%s",filename);
+  int n = snprintf(srcfilename, SPIKE_DEVICE_PATH_MAX, "%s", filename);
+  if (n < 0 || (size_t)n >= SPIKE_DEVICE_PATH_MAX)
+    return -1;
   if(logname==nullptr)
-    sprintf(logfilename,"%s.log",filename);
+    n = snprintf(logfilename, SPIKE_DEVICE_PATH_MAX, "%s.log", filename);
   else
-    sprintf(logfilename,"%s",logname);  
+    n = snprintf(logfilename, SPIKE_DEVICE_PATH_MAX, "%s", logname);
+  if (n < 0 || (size_t)n >= SPIKE_DEVICE_PATH_MAX)
+    return -1;
   return 0;  
 }
 
-#define SPIKE_RUN_WG_NUM 1
 int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   uint64_t num_warp=knl_data->wg_size;
   uint64_t num_thread=knl_data->wf_size;
@@ -373,10 +385,12 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   uint64_t num_workgroup_y=knl_data->kernel_size[1];
   uint64_t num_workgroup_z=knl_data->kernel_size[2];
   uint64_t num_workgroup=num_workgroup_x*num_workgroup_y*num_workgroup_z;
-  uint64_t num_processor=num_warp*num_workgroup;
+  // A zero value is the ABI-compatible default for pre-residency callers.
+  const uint64_t resident_workgroup_capacity =
+      knl_data->pdsResidentWgCount ? knl_data->pdsResidentWgCount : 1;
+  uint64_t num_processor=num_warp*resident_workgroup_capacity;
   uint64_t ldssize=knl_data->ldsSize;
-  //uint64_t pdssize=knl_data->pdsSize * num_thread;
-  uint64_t pdssize = 0x10000000;
+  uint64_t pdssize = knl_data->pdsSize * num_thread * num_warp;
   uint64_t pdsbase=knl_data->pdsBaseAddr;
   uint64_t start_pc=knl_start_pc;
   uint64_t knlbase=knl_data->metaDataBaseAddr;
@@ -583,18 +597,18 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   char arg_num_core[16];
   char arg_vlen_elen[32];
   char arg_mem_scope[64];
-  char arg_gpgpu[256];
+  char arg_gpgpu[512];
   char arg_start_pc[32];;
-  char arg_logfilename[64];
-  sprintf(arg_logfilename,"--log=%s",logfilename);
-  sprintf(arg_num_core,"-p%ld",num_processor);
-  sprintf(arg_gpgpu,"numw:%ld,numt:%ld,numwg:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx,knlbase:0x%lx,currwgid:%lx,gsx:%ld,gsy:%ld,gsz:%ld,lsx:%ld,lsy:%ld,lsz:%ld,gox:%ld,goy:%ld,goz:%ld,dim:%ld",\
-        num_warp,num_thread,num_workgroup,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase,knlbase,currwgid,gsx,gsy,gsz,lsx,lsy,lsz,gox,goy,goz,work_dim_64);
+  char arg_logfilename[256];
+  snprintf(arg_logfilename, sizeof(arg_logfilename), "--log=%s", logfilename);
+  snprintf(arg_num_core, sizeof(arg_num_core), "-p%ld", num_processor);
+  snprintf(arg_gpgpu, sizeof(arg_gpgpu), "numw:%ld,numt:%ld,numwg:%ld,numres:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx,knlbase:0x%lx,currwgid:%lx,gsx:%ld,gsy:%ld,gsz:%ld,lsx:%ld,lsy:%ld,lsz:%ld,gox:%ld,goy:%ld,goz:%ld,dim:%ld",\
+        num_warp,num_thread,num_workgroup,resident_workgroup_capacity,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase,knlbase,currwgid,gsx,gsy,gsz,lsx,lsy,lsz,gox,goy,goz,work_dim_64);
   fprintf(stderr, "arg gpgpu is %s\n",arg_gpgpu);
-  sprintf(arg_vlen_elen,"vlen:%ld,elen:%d",num_thread*32,32);
-  sprintf(arg_mem_scope,"-m0x70000000:0x%lx",buffer.back().base+buffer.back().size);
+  snprintf(arg_vlen_elen, sizeof(arg_vlen_elen), "vlen:%ld,elen:%d", num_thread * 32, 32);
+  snprintf(arg_mem_scope, sizeof(arg_mem_scope), "-m0x70000000:0x%lx", buffer.back().base + buffer.back().size);
   fprintf(stderr, "vaddr mem scope is %s\n",arg_mem_scope);
-  sprintf(arg_start_pc,"--pc=0x%lx",start_pc);
+  snprintf(arg_start_pc, sizeof(arg_start_pc), "--pc=0x%lx", start_pc);
   char arg_log[16];
   char arg_commitlog[16];
   if (parse_bool(std::getenv("VENTUS_SPIKE_LOG")).value_or(true)) {
@@ -607,6 +621,9 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   //strcat(arg_mem_scope,temp);
   //--------------------------------------------------num_core-------------------pc------mem_scope   //mem_scope is unused now.
   //-------------vlen_elen-----------gpgpu-------------------log_file_output
+  const char *isa = std::getenv("VENTUS_SPIKE_ISA");
+  if (!isa || !isa[0])
+    isa = "rv32gcv_zfh";
   char strings[][32]={"spike","-l", "--log-commits", " ","--isa", "rv32gcv_zfh", " ","-m0x70000000:0x90000000",\
        "--varch", " ","--gpgpuarch","numw:1,numt:8,numwg:1"," "," "};
 
@@ -615,6 +632,7 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
     argv[i]=strings[i];
   }
   argv[11]=arg_gpgpu;
+  argv[5]=const_cast<char *>(isa);
   argv[1] = arg_log;;
   argv[2] = arg_commitlog;
   argv[3]=arg_num_core;
@@ -655,16 +673,6 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
                 << nprocs() << ").\n";
       exit(1);
     }
-  } else {
-    // Set default set of hartids based on nprocs, but don't set the
-    // explicit_hartids flag (which means that downstream code can know that
-    // we've only set the number of harts, not explicitly chosen their IDs).
-    std::vector<int> default_hartids;
-    default_hartids.reserve(nprocs());
-    for (size_t i = 0; i < num_warp * SPIKE_RUN_WG_NUM; ++i) {
-      default_hartids.push_back(i);
-    }
-    cfg.hartids = default_hartids;
   }
 
   std::vector<std::pair<reg_t, mem_t*>> all_buffer_data(const_buffer_data);
@@ -676,8 +684,33 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
   auto return_code = 0;
 //  char log_name[256] = {0};
   log_file_t log_file(log_path);
-  for (uint64_t i = 0; i < num_workgroup / SPIKE_RUN_WG_NUM; i++)
+  const bool batch_log =
+      parse_bool(std::getenv("VENTUS_SPIKE_BATCH_LOG")).value_or(false);
+  while (currwgid < num_workgroup)
   {
+      const uint64_t active_workgroups =
+          std::min<uint64_t>(resident_workgroup_capacity,
+                             num_workgroup - currwgid);
+      const uint64_t active_processors = num_warp * active_workgroups;
+      std::vector<int> hartids;
+      hartids.reserve(active_processors);
+      for (uint64_t hart = 0; hart < active_processors; hart++)
+        hartids.push_back(hart);
+      cfg.hartids = hartids;
+      snprintf(arg_gpgpu, sizeof(arg_gpgpu), "numw:%ld,numt:%ld,numwg:%ld,numres:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx,knlbase:0x%lx,currwgid:%lx,gsx:%ld,gsy:%ld,gsz:%ld,lsx:%ld,lsy:%ld,lsz:%ld,gox:%ld,goy:%ld,goz:%ld,dim:%ld",\
+          num_warp,num_thread,num_workgroup,active_workgroups,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase,knlbase,currwgid,gsx,gsy,gsz,lsx,lsy,lsz,gox,goy,goz,work_dim_64);
+      cfg.gpgpuarch = arg_gpgpu;
+      if (batch_log) {
+        fprintf(stderr,
+                "spike: batch first_wg=%lu active_wg=%lu cores=%lu pds_base=0x%lx pds_stride=0x%lx\n",
+                currwgid, active_workgroups, active_processors, pdsbase,
+                pdssize);
+      }
+      /* vt.rt.traverse retains callback-resume state privately.  PDS physical
+       * addresses are reused by each fresh sim_t batch, so stale state from
+       * a prior (including faulted) batch must not be interpreted as a resume.
+       */
+      ventus_rt::reset_private_contexts_for_simulation();
       sim=new sim_t(&cfg, halted,
               all_buffer_data, plugin_devices, htif_args, dm_config, log_file, dtb_enabled, dtb_file,
 #ifdef HAVE_BOOST_ASIO
@@ -701,7 +734,7 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
       if (ic) ic->set_log(log_cache);
       if (dc) dc->set_log(log_cache);
 
-      for (size_t i = 0; i < num_warp; i++)
+      for (size_t i = 0; i < active_processors; i++)
       {
           if (ic) sim->get_core(i)->get_mmu()->register_memtracer(&*ic);
           if (dc) sim->get_core(i)->get_mmu()->register_memtracer(&*dc);
@@ -715,11 +748,10 @@ int spike_device::run(meta_data* knl_data,uint64_t knl_start_pc){
       sim->set_histogram(histogram);
 
       return_code = sim->run();
-      currwgid++;
-      sprintf(arg_gpgpu,"numw:%ld,numt:%ld,numwg:%ld,kernelx:%ld,kernely:%ld,kernelz:%ld,ldssize:0x%lx,pdssize:0x%lx,pdsbase:0x%lx,knlbase:0x%lx,currwgid:%lx,gsx:%ld,gsy:%ld,gsz:%ld,lsx:%ld,lsy:%ld,lsz:%ld,gox:%ld,goy:%ld,goz:%ld,dim:%ld",\
-          num_warp,num_thread,num_workgroup,num_workgroup_x,num_workgroup_y,num_workgroup_z,ldssize,pdssize,pdsbase,knlbase,currwgid,gsx,gsy,gsz,lsx,lsy,lsz,gox,goy,goz,work_dim_64);
+      currwgid += active_workgroups;
   //    sprintf(log_name, "object_%ld.riscv.log", currwgid);
   //    log_path = log_name;
+      ventus_rt::reset_private_contexts_for_simulation();
       delete sim;
       sim = nullptr;
   }

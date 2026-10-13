@@ -116,7 +116,7 @@ def main() -> int:
     disasm = read("disasm/disasm.cc")
     template = read("riscv/insn_template.cc")
 
-    for opcode in ["0x0a", "0x2a", "0x42", "0x5a", "0x72", "0x7a"]:
+    for opcode in ["0x0a", "0x2a", "0x42", "0x5a", "0x5f", "0x72", "0x7a"]:
         require(opcode in decode, f"insn_length does not force {opcode} to 32 bits", failures)
 
     require('"ventus_custom.h"' in template, "insn template does not include ventus_custom.h", failures)

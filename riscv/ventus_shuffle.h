@@ -21,7 +21,7 @@ inline void require_ventus_shuffle_state(processor_t *p, insn_t insn)
 
 inline bool ventus_shuffle_lane_active(processor_t *p, reg_t lane)
 {
-  return ((p->gpgpu_unit.simt_stack.get_mask() >> lane) & 0x1) != 0;
+  return p->gpgpu_unit.simt_stack.lane_active(lane);
 }
 
 inline void ventus_exec_shuffle(processor_t *p, insn_t insn,

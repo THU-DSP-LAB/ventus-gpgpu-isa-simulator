@@ -18,9 +18,7 @@
 
 #define VI_GPGPU_ELEMENT_SKIP() \
   if (GPGPU_ENABLE) { \
-    uint64_t mask = P.gpgpu_unit.simt_stack.get_mask(); \
-    bool skip = ((mask >> i) & 0x1) == 0; \
-    if (skip) { \
+    if (!P.gpgpu_unit.simt_stack.lane_active(i)) { \
       continue; \
     } \
   }
@@ -509,7 +507,10 @@ static inline bool is_aligned(const unsigned val, const unsigned pos)
 
 #define VFP_VF_PARAMS(width) \
   float##width##_t &vd = P.VU.elt<float##width##_t>(0,rd_num, i, true); \
-  float##width##_t rs1 = f##width(READ_FREG(rs1_num)); \
+  /* Ventus vALU scalar FP operands use the GPR/F32 register domain. */ \
+  float##width##_t rs1 = f##width( \
+      static_cast<decltype(f##width(READ_REG(rs1_num)).v)>( \
+          READ_REG(rs1_num | p->ext_rs1()))); \
   float##width##_t vs2 = P.VU.elt<float##width##_t>(2,rs2_num, i);
 
 #define CVT_FP_TO_FP_PARAMS(from_width, to_width) \
@@ -2353,9 +2354,7 @@ reg_t index[P.VU.vlmax]; \
 
 #define VV_BRANCK_LOOP_SKIP() \
   if (GPGPU_ENABLE) { \
-    uint64_t mask = P.gpgpu_unit.simt_stack.get_mask(); \
-    bool skip = ((mask >> i) & 0x1) == 0; \
-    if(skip) { \
+    if (!P.gpgpu_unit.simt_stack.lane_active(i)) { \
       continue; \
     } \
   }
@@ -2374,15 +2373,21 @@ reg_t index[P.VU.vlmax]; \
   uint64_t else_mask = 0; \
   for (reg_t i = P.VU.vstart->read(); i < vl; ++i) { \
     VV_BRANCK_LOOP_SKIP(); \
-    uint64_t mmask = UINT16_C(1) << i; \
+    uint64_t mmask = UINT64_C(1) << i; \
     uint64_t res = 0;
 
 
 #define VV_LOOP_BRANCH_END \
-    else_mask = (else_mask & ~mmask) | (((res) << i) & mmask); \
+    else_mask = (else_mask & ~mmask) | ((res) ? mmask : 0); \
   } \
   P.VU.vstart->write(0); \
-  uint64_t if_mask = ~else_mask & r_mask;
+  uint64_t if_mask = ~else_mask & r_mask; \
+  const char *debug_branch_pc = std::getenv("VENTUS_SPIKE_DEBUG_BRANCH_PC"); \
+  if (debug_branch_pc && \
+      static_cast<uint32_t>(STATE.pc) == std::strtoul(debug_branch_pc, nullptr, 0)) \
+    std::fprintf(stderr, "ventus: vector-branch pc=0x%lx if=0x%lx target=0x%lx target_mask=0x%lx\\n", \
+                 (unsigned long)STATE.pc, (unsigned long)if_mask, \
+                 (unsigned long)else_pc, (unsigned long)else_mask);
 
 #define VV_BRANCH_SS_SET_PC_MASK \
   P.gpgpu_unit.simt_stack.push_branch(P.get_csr(CSR_RPC),if_pc, if_mask, r_mask, else_pc, else_mask); \

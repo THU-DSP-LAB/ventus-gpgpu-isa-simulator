@@ -70,6 +70,7 @@ const int NCSR = 4096;
    ((x) & 0x7f) == 0x2a ? 4 : \
    ((x) & 0x7f) == 0x42 ? 4 : \
    ((x) & 0x7f) == 0x5a ? 4 : \
+   ((x) & 0x7f) == 0x5f ? 4 : \
    ((x) & 0x7f) == 0x72 ? 4 : \
    ((x) & 0x7f) == 0x7a ? 4 : \
    ((x) & 0x03) < 0x03 ? 2 : \
@@ -150,6 +151,7 @@ public:
   uint64_t p_imm4() { return x(20, 4); }
   uint64_t p_imm5() { return x(20, 5); }
   uint64_t p_imm6() { return x(20, 6); }
+  uint64_t rt_local_field() { return x(26, 6); }
 
 private:
   insn_bits_t b;

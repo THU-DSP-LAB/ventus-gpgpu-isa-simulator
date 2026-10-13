@@ -57,6 +57,15 @@ class htif_t : public chunked_memif_t
   }
 
  protected:
+  // End a simulator-owned kernel without requiring a target to write the
+  // shared tohost word.  The encoded value follows the normal HTIF ABI, so
+  // 1 represents a successful (zero) host exit status.
+  void finish_with_code(int code)
+  {
+    exitcode = code;
+    stopped = true;
+  }
+
   virtual void reset() = 0;
 
   virtual void read_chunk(addr_t taddr, size_t len, void* dst) = 0;
